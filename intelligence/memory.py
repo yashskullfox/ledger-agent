@@ -80,8 +80,19 @@ class ClassificationMemory:
 
     def remember(self, description: str, coa_code: str, coa_name: str,
                  is_transfer: bool = False) -> None:
-        """Persist a new (or update existing) rule."""
-        desc_norm = self._normalise(description)
+        """
+        Persist a new (or update existing) rule.
+        The pattern is redacted via privacy.redact() before writing to disk
+        so the on-disk JSON is git-safe — no raw counterparty names (R-46).
+        """
+        # Redact PII from the pattern before persisting (R-46)
+        try:
+            from core.privacy import redact
+            safe_description, _ = redact(description, scope="memory_file")
+        except Exception:
+            safe_description = description  # Never fail a user confirmation
+
+        desc_norm = self._normalise(safe_description)
         for r in self._rules:
             if self._normalise(r["pattern"]) == desc_norm:
                 r["coa_code"] = coa_code
@@ -91,7 +102,7 @@ class ClassificationMemory:
                 self._save()
                 return
         self._rules.append({
-            "pattern": description,
+            "pattern": safe_description,
             "coa_code": coa_code,
             "coa_name": coa_name,
             "is_transfer": is_transfer,
@@ -126,7 +137,7 @@ class ClassificationMemory:
     def _seed_defaults(self) -> None:
         defaults = [
             # Software — canonical 5010
-            ("INCFILE LLC", "5075", "Legal & Professional Fees", False),
+            ("INCFILE LLC", "5071", "Legal & Professional Fees", False),
             ("PAYPAL *QUICKBOOKS", "5010", "Software & Subscriptions", False),
             ("GOOGLE", "5010", "Software & Subscriptions", False),
             # Federal tax — canonical 5050

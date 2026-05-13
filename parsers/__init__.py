@@ -1,21 +1,31 @@
-"""parsers – PDF statement parsers (plugin registry).
-
-Auto-discovery: every .py module in this package (except __init__, base,
-and registry) is imported at package load time so its parser class
-self-registers via ParserRegistry.register().  This means dropping a new
-parser file into this directory is the ONLY step needed to activate it —
-no changes to cli/commands.py, cli/quick_scan.py, or config.KNOWN_PARSERS.
 """
+parsers  –  PDF statement parsers (plugin registry)
+
+All parser modules in this package are auto-discovered at import time via
+pkgutil.iter_modules so that adding a new bank requires only:
+  1. Create parsers/your_bank.py with @ParserRegistry.register
+  2. No other changes needed
+
+Parsers that cannot be imported (e.g. pdfplumber not installed) are silently
+skipped — the rest of the registry remains intact.
+"""
+from __future__ import annotations
+
 import importlib
 import pkgutil
 from pathlib import Path
 
-from parsers.registry import ParserRegistry  # noqa: F401  (re-exported)
+from parsers.registry import ParserRegistry
 
-_SKIP = {"__init__", "base", "registry"}
+_SKIP = {"base", "registry"}
+_parsers_dir = Path(__file__).parent
 
-# Walk every module in this package and import it.
-# Each parser module calls ParserRegistry.register() at import time.
-for _mod_info in pkgutil.iter_modules([str(Path(__file__).parent)]):
-    if _mod_info.name not in _SKIP:
+for _mod_info in pkgutil.iter_modules([str(_parsers_dir)]):
+    if _mod_info.name in _SKIP:
+        continue
+    try:
         importlib.import_module(f"parsers.{_mod_info.name}")
+    except Exception:
+        pass  # optional dependency missing — parser silently unavailable
+
+__all__ = ["ParserRegistry"]

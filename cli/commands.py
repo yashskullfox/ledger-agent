@@ -82,7 +82,7 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     pdf_path = Path(pdf_path)
     print_info(f"Reading PDF: {pdf_path.name} …")
 
-    import parsers  # noqa: F401 — triggers auto-discovery in parsers/__init__.py
+    import parsers  # noqa: F401  – triggers auto-discovery in parsers/__init__.py
     from parsers.registry import ParserRegistry
 
     from parsers.base import BaseStatementParser
@@ -343,6 +343,8 @@ def _infer_account_type(stmt_type: StatementType) -> AccountType:
         return AccountType.SAVINGS
     if stmt_type == StatementType.BROKERAGE:
         return AccountType.BROKERAGE
+    if stmt_type == StatementType.CREDIT_CARD:
+        return AccountType.CREDIT_CARD
     return AccountType.OTHER
 
 

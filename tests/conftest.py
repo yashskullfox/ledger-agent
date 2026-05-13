@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,12 +14,40 @@ import pytest
 # Ensure the project root is on sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# ── Early env isolation (before any test module import / collection) ──────────
+# pytest_configure fires before collection, so config.py reads FI_DB_PATH
+# from this temp dir rather than locking to the production DB path.
+
+_TEST_TMP_DIR: Path | None = None
+
+
+def pytest_configure(config):
+    """Set FI_* env vars before any source module is imported during collection.
+
+    Without this, config.py is imported at collection time with no FI_DB_PATH
+    set, causing DB_PATH to default to the production database.  The session-
+    scoped fixture below then fires *after* collection and cannot override the
+    already-cached module-level DB_PATH.
+    """
+    global _TEST_TMP_DIR
+    tmp = Path(tempfile.mkdtemp(prefix="fi_test_"))
+    _TEST_TMP_DIR = tmp
+    os.environ.setdefault("FI_DATA_DIR", str(tmp))
+    os.environ.setdefault("FI_DB_PATH", str(tmp / "test.db"))
+    os.environ.setdefault("FI_MEMORY_FILE", str(tmp / "test_memory.json"))
+    os.environ.setdefault("FI_AI_BACKEND", "local")
+    os.environ.setdefault("FI_LOG_LEVEL", "WARNING")
+
 
 # ── Env var setup ─────────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True, scope="session")
 def set_test_env(tmp_path_factory):
-    """Set env vars so tests use an isolated temp database/memory."""
+    """Ensure env vars point to an isolated temp database/memory for the session.
+
+    pytest_configure already set defaults; this fixture reinforces them and
+    keeps the same tmp dir alive for the session lifetime.
+    """
     tmp = tmp_path_factory.mktemp("fi_test_data")
     os.environ["FI_DATA_DIR"] = str(tmp)
     os.environ["FI_DB_PATH"] = str(tmp / "test.db")
@@ -33,13 +62,19 @@ def set_test_env(tmp_path_factory):
 
 @pytest.fixture
 def db(tmp_path):
-    """Fresh in-memory-style database for each test."""
+    """Fresh per-test database; restores FI_DB_PATH to the session value on teardown."""
+    prev_db_path = os.environ.get("FI_DB_PATH")
     db_path = tmp_path / "test.db"
     os.environ["FI_DB_PATH"] = str(db_path)
     from core.database import init_db
     init_db()
     yield db_path
-    # File is removed by tmp_path teardown
+    # Restore the session-level DB path so subsequent tests are not affected.
+    if prev_db_path is not None:
+        os.environ["FI_DB_PATH"] = prev_db_path
+    else:
+        os.environ.pop("FI_DB_PATH", None)
+    # DB file is removed by tmp_path teardown at session end.
 
 
 # ── Model factories ────────────────────────────────────────────────────────────
@@ -157,4 +192,112 @@ Margin Balance:       $(24,061.20)
 Holdings
 SNAP INC       SNAP   3,000  $11.29  $33,870.00
 CASH                                  $1,630.00
+"""
+
+CHASE_SAMPLE_TEXT = """\
+JPMorgan Chase Bank, N.A.
+SYNCED LLC
+BUSINESS COMPLETE CHECKING  (...1234)
+January 1, 2025 through January 31, 2025
+
+DEPOSITS AND ADDITIONS
+DATE        DESCRIPTION                                 AMOUNT
+01/15       Online Transfer from savings                1,500.00
+01/22       Zelle payment from JOHN DOE                   250.00
+Total deposits and additions                           $1,750.00
+
+ATM & DEBIT CARD WITHDRAWALS
+DATE        DESCRIPTION                                 AMOUNT
+01/03       RECURRING DEBIT CARD PURCHASE QUICKBOOKS      30.00
+01/10       RECURRING DEBIT CARD PURCHASE GOOGLE LLC       13.00
+
+ELECTRONIC WITHDRAWALS
+DATE        DESCRIPTION                                 AMOUNT
+01/07       Zelle To JANE DOE                             500.00
+
+Account Summary
+Beginning balance                                      $3,000.00
+Ending balance                                         $4,207.00
+"""
+
+BOFA_SAMPLE_TEXT = """\
+Bank of America
+SYNCED LLC
+Business Checking (...5678)
+Statement Period: 01/01/2025 – 01/31/2025
+
+Deposits and other credits
+Date   Description                                    Amount
+01/06  Online Banking transfer from savings           2,000.00
+01/20  Zelle Credit from JOHN DOE                       500.00
+Total deposits and other credits                      $2,500.00
+
+Withdrawals and other debits
+Date   Description                                    Amount
+01/07  RECURRING PAYMENT authorized on 01/07 SLACK       9.00
+01/14  USATAXPYMT IRS                                   72.95
+
+Account Summary
+Beginning balance  $1,500.00
+Ending balance     $3,918.05
+"""
+
+IBKR_SAMPLE_TEXT = """\
+Interactive Brokers LLC
+Activity Statement
+Account: U1234567
+SYNCED LLC
+Period: January 1, 2025 - January 31, 2025
+
+Trades
+Symbol  Date/Time             Quantity  Price    Proceeds   P/L
+SNAP    2025-01-10 09:30:00   1000      11.50    11500.00   250.00
+
+Cash Report
+Starting Cash Balance                          $5,000.00
+Deposits                                       $2,000.00
+Withdrawals                                      ($500.00)
+Commissions                                        ($7.50)
+Ending Cash Balance                            $6,492.50
+
+Open Positions
+Symbol  Quantity  Price  Market Value  Cost Basis
+SNAP    3000      11.29  33870.00      32500.00
+"""
+
+USBANK_CHECKING_SAMPLE_TEXT = """\
+U.S. Bank
+Business Essentials Checking
+Account: ****7428
+Statement Period: March 1 - March 31, 2026
+
+Other Deposits
+DateDescription of TransactionRef NumberAmount
+Mar4Ext Tfr DepositTRN #= EB089E3FAD0686B$800.00
+
+Other Withdrawals
+DateDescription of TransactionRef NumberAmount
+Mar16Internet Banking PaymentTo Acct *************4594$925.44-
+Mar20Service ChargeMonthly Maintenance Fee$25.00-
+
+Beginning Balance: $1,200.00
+Ending Balance: $1,049.56
+"""
+
+USBANK_CC_SAMPLE_TEXT = """\
+U.S. Bank
+Business Triple Cash Rewards Visa Card
+Cardmember: SYNCED LLC
+Account: ****4594
+Statement Period: 02/01/2026 - 02/28/2026
+
+Purchases and Other Debits
+02/1702/135614IN *HACKING LAW 314-9618200 MO$3,000.00
+02/2002/185789AMAZON.COM AMZN.COM/BILLWA$89.99
+
+Payments and Other Credits
+02/2502/23PAYMENT THANK YOU$500.00CR
+
+New Balance: $3,211.93
+Credit Limit: $10,000.00
 """

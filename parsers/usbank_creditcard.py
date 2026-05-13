@@ -26,8 +26,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import pdfplumber
-
 from core.models import (
     AccountSnapshot, ParsedStatement,
     StatementType, Transaction, TransactionType,
@@ -233,6 +231,7 @@ class USBankCreditCardParser(BaseStatementParser):
 
 def _extract_lines_by_y(pdf_path: Path) -> List[str]:
     """Reconstruct text lines by grouping PDF chars sharing the same vertical position."""
+    import pdfplumber
     lines: List[str] = []
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page in pdf.pages:

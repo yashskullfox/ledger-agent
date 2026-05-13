@@ -14,7 +14,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Generator, List, Optional
 
-from config import DB_PATH
+import os
+
+from config import DB_PATH, DB_DIR
 from core.models import (
     Account, AccountSnapshot, AccountType, COAEntry, COAType,
     Entity, Position, RealisedTrade, Transaction, TransactionType,
@@ -36,8 +38,26 @@ def _date(v) -> Optional[date]:
     return date.fromisoformat(str(v))
 
 
+def _resolve_db_path(db_path: Optional[Path]) -> Path:
+    """Resolve DB path, preferring FI_DB_PATH env var to support test isolation.
+
+    Resolution order (highest priority first):
+    1. Explicit ``db_path`` argument passed by the caller.
+    2. ``FI_DB_PATH`` environment variable (set by test fixtures to a temp DB).
+    3. ``DB_PATH`` captured from config at import time (production default).
+    """
+    if db_path is not None:
+        return db_path
+    env = os.environ.get("FI_DB_PATH", "").strip()
+    if env:
+        return Path(env)
+    return DB_PATH
+
+
 @contextmanager
-def get_conn(db_path: Path = DB_PATH) -> Generator[sqlite3.Connection, None, None]:
+def get_conn(db_path: Optional[Path] = None) -> Generator[sqlite3.Connection, None, None]:
+    db_path = _resolve_db_path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -297,8 +317,9 @@ _DDL = """
        """
 
 
-def init_db(db_path: Path = DB_PATH) -> None:
+def init_db(db_path: Optional[Path] = None) -> None:
     """Create tables and seed the COA if the DB is brand-new."""
+    db_path = _resolve_db_path(db_path)
     with get_conn(db_path) as conn:
         conn.executescript(_DDL)
         row = conn.execute(
@@ -317,7 +338,7 @@ def init_db(db_path: Path = DB_PATH) -> None:
 
 _DEFAULT_COA: list[tuple] = [
     # (code, name, type, parent, description, keywords_json)
-    # ── Assets ────────────────────────────────────────────────────────────────
+    # ── Assets ──────────────────────────────────────────────────────────────
     ("1000", "Cash & Cash Equivalents", "asset", None, "", '["cash","checking","deposit","balance"]'),
     ("1010", "Business Checking Account", "asset", "1000", "", '["truist","checking","moneyline"]'),
     ("1100", "Investment & Brokerage Assets", "asset", None, "", '["fidelity","brokerage","investment"]'),
@@ -326,67 +347,67 @@ _DEFAULT_COA: list[tuple] = [
      '["kopin","ssr","kinross","solid power","bigbear","oscar","vale"]'),
     ("1200", "Accounts Receivable", "asset", None, "", '[]'),
     ("1300", "Prepaid Expenses", "asset", None, "", '[]'),
-    # ── Liabilities ───────────────────────────────────────────────────────────
+    # ── Liabilities ─────────────────────────────────────────────────────────
     ("2000", "Current Liabilities", "liability", None, "", '[]'),
     ("2010", "Margin Loan Payable", "liability", "2000", "", '["margin","debit balance"]'),
     ("2020", "Taxes Payable", "liability", "2000", "", '["irs","tax","usataxpymt"]'),
     ("2030", "Accounts Payable", "liability", "2000", "", '[]'),
-    # ── Equity ────────────────────────────────────────────────────────────────
+    # ── Equity ──────────────────────────────────────────────────────────────
     ("3000", "Members Equity", "equity", None, "", '[]'),
     ("3010", "Members Capital Contributions", "equity", "3000", "", '["moneyline","transfer","zelle","wire"]'),
     ("3020", "Retained Earnings", "equity", "3000", "", '[]'),
     ("3030", "Current Period Net Income", "equity", "3000", "", '[]'),
-    # ── Revenue ───────────────────────────────────────────────────────────────
+    # ── Revenue ─────────────────────────────────────────────────────────────
     ("4000", "Revenue", "revenue", None, "", '[]'),
     ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds","realized gain"]'),
     ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","deposit","invoice"]'),
-    ("4030", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
-    ("4040", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
-    ("4090", "Other Income", "revenue", "4000", "", '[]'),
-    # ── Expenses ──────────────────────────────────────────────────────────────
+    ("4021", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
+    ("4030", "Other Income", "revenue", "4000", "", '[]'),
+    ("4031", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
+    # ── Expenses ────────────────────────────────────────────────────────────
     ("5000", "Operating Expenses", "expense", None, "", '[]'),
     ("5010", "Software & Subscriptions", "expense", "5000", "",
-     '["quickbooks","google workspace","microsoft","adobe","dropbox","zoom","slack","github","aws","azure"]'),
+     '["quickbooks","google","subscription","recurring","saas","software","zoom","slack","github","adobe","dropbox","microsoft","azure","aws"]'),
     ("5020", "Bank & Transaction Fees", "expense", "5000", "",
-     '["tran fee","service charge","monthly fee","bank fee","wire fee","nsf fee","intuit tran"]'),
-    ("5025", "Payroll & Wages (Gross)", "expense", "5000", "", '["adp payroll","gusto"]'),
+     '["tran fee","service charge","fee","bank fee","nsf","wire fee","intuit tran"]'),
+    ("5021", "Payroll & Wages", "expense", "5000", "", '["payroll","adp","gusto","wages","salary"]'),
     ("5030", "Margin Interest Expense", "expense", "5000", "", '["margin interest","interest paid"]'),
-    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["tax payroll","payroll tax"]'),
+    ("5031", "Advertising & Marketing", "expense", "5000", "",
+     '["meta ads","facebook ads","twitter ads","instagram ads","google ads"]'),
+    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["payroll tax","941","940"]'),
     ("5050", "Federal Income Tax Expense", "expense", "5000", "", '["irs","usataxpymt","federal tax"]'),
-    ("5055", "State & Local Taxes", "expense", "5000", "", '["state tax","dept of rev"]'),
+    ("5055", "State & Local Taxes", "expense", "5000", "", '["state tax","dept of rev","dept of revenue"]'),
     ("5060", "Investment Transaction Costs", "expense", "5000", "", '["transaction cost","commission"]'),
-    ("5065", "Office & Shipping Supplies", "expense", "5000", "", '["office depot","staples","fedex","ups","usps"]'),
+    ("5061", "Office & Shipping Supplies", "expense", "5000", "",
+     '["office depot","staples","amazon","fedex","ups","usps","shipping"]'),
     ("5070", "Realised Trading Losses", "expense", "5000", "", '["loss","short-term loss","realized loss"]'),
-    ("5075", "Legal & Professional Fees", "expense", "5000", "",
-     '["incfile","registered agent","legalzoom","rocket lawyer","northwest registered"]'),
+    ("5071", "Legal & Professional Fees", "expense", "5000", "",
+     '["incfile","registered agent","northwest registered","legalzoom","rocket lawyer","attorney","legal"]'),
     ("5080", "Other Operating Expenses", "expense", "5000", "", '[]'),
-    ("5085", "Advertising & Marketing", "expense", "5000", "",
-     '["meta ads","facebook ads","instagram ads","twitter ads","x.com ads"]'),
-    ("5090", "Other Interest Expense", "expense", "5000", "", '[]'),
+    ("5090", "Interest Expense", "expense", "5000", "", '["interest expense","loan interest"]'),
     ("5100", "Travel & Transportation", "expense", "5000", "",
-     '["delta","united air","southwest","american air","uber","lyft","marriott","hilton","hyatt","airbnb"]'),
-    # ── Special / Clearing ────────────────────────────────────────────────────
-    # 9000 is used as a marker for inter-account transfers; is_transfer=True
-    # excludes these from P&L.  We store them under equity as a clearing code.
-    ("9000", "Inter-Account Transfer (Clearing)", "equity", "3000", "",
-     '["moneyline fid","transfer in","transfer out","zelle to","zelle from","wire transfer"]'),
+     '["delta","united air","southwest","american air","uber","lyft","taxi","marriott","hilton","hyatt","airbnb"]'),
+    ("5999", "Uncategorized Expense", "expense", "5000", "", '[]'),
+    # ── Internal transfers (not P&L) ────────────────────────────────────────
+    ("9000", "Inter-Account Transfer", "equity", None, "",
+     '["moneyline fid","transfer","zelle","wire transfer"]'),
 ]
 
 
-def _seed_coa(db_path: Path = DB_PATH) -> None:
+def _seed_coa(db_path: Optional[Path] = None) -> None:
+    """Insert canonical COA rows. INSERT OR IGNORE means safe to call any time —
+    existing rows are preserved; new codes are added to live databases too."""
     with get_conn(db_path) as conn:
-        existing = conn.execute("SELECT COUNT(*) FROM coa").fetchone()[0]
-        if existing == 0:
-            conn.executemany(
-                "INSERT OR IGNORE INTO coa(code,name,coa_type,parent_code,description,keywords)"
-                " VALUES(?,?,?,?,?,?)",
-                _DEFAULT_COA,
-            )
+        conn.executemany(
+            "INSERT OR IGNORE INTO coa(code,name,coa_type,parent_code,description,keywords)"
+            " VALUES(?,?,?,?,?,?)",
+            _DEFAULT_COA,
+        )
 
 
 class EntityRepo:
     @staticmethod
-    def upsert(e: Entity, db_path: Path = DB_PATH) -> None:
+    def upsert(e: Entity, db_path: Optional[Path] = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO entities(id,name,entity_type,state,ein_masked,notes,created_at)"
@@ -396,7 +417,7 @@ class EntityRepo:
             )
 
     @staticmethod
-    def get_by_name(name: str, db_path: Path = DB_PATH) -> Optional[Entity]:
+    def get_by_name(name: str, db_path: Optional[Path] = None) -> Optional[Entity]:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM entities WHERE name=? LIMIT 1", (name,)
@@ -411,7 +432,7 @@ class EntityRepo:
         )
 
     @staticmethod
-    def list_all(db_path: Path = DB_PATH) -> List[Entity]:
+    def list_all(db_path: Optional[Path] = None) -> List[Entity]:
         with get_conn(db_path) as conn:
             rows = conn.execute("SELECT * FROM entities ORDER BY name").fetchall()
         return [Entity(id=r["id"], name=r["name"], entity_type=r["entity_type"],
@@ -422,7 +443,7 @@ class EntityRepo:
 
 class AccountRepo:
     @staticmethod
-    def upsert(a: Account, db_path: Path = DB_PATH) -> None:
+    def upsert(a: Account, db_path: Optional[Path] = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO accounts"
@@ -436,7 +457,7 @@ class AccountRepo:
 
     @staticmethod
     def find(institution: str, account_number_masked: str,
-             db_path: Path = DB_PATH) -> Optional[Account]:
+             db_path: Optional[Path] = None) -> Optional[Account]:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM accounts WHERE institution=? AND account_number_masked=? LIMIT 1",
@@ -447,7 +468,7 @@ class AccountRepo:
         return AccountRepo._row_to_model(row)
 
     @staticmethod
-    def get_by_id(account_id: str, db_path: Path = DB_PATH) -> Optional[Account]:
+    def get_by_id(account_id: str, db_path: Optional[Path] = None) -> Optional[Account]:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM accounts WHERE id=? LIMIT 1", (account_id,)
@@ -455,7 +476,7 @@ class AccountRepo:
         return AccountRepo._row_to_model(row) if row else None
 
     @staticmethod
-    def list_for_entity(entity_id: str, db_path: Path = DB_PATH) -> List[Account]:
+    def list_for_entity(entity_id: str, db_path: Optional[Path] = None) -> List[Account]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM accounts WHERE entity_id=? ORDER BY institution,name",
@@ -478,7 +499,7 @@ class AccountRepo:
 
 class TransactionRepo:
     @staticmethod
-    def bulk_insert(txns: List[Transaction], db_path: Path = DB_PATH) -> int:
+    def bulk_insert(txns: List[Transaction], db_path: Optional[Path] = None) -> int:
         """
         Insert new transactions, skipping true duplicates.
 
@@ -527,7 +548,7 @@ class TransactionRepo:
 
     @staticmethod
     def update_coa(tx_id: str, coa_code: str, coa_name: str,
-                   db_path: Path = DB_PATH) -> None:
+                   db_path: Optional[Path] = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "UPDATE transactions SET coa_code=?, coa_name=? WHERE id=?",
@@ -537,7 +558,7 @@ class TransactionRepo:
     @staticmethod
     def list_for_period(statement_period: str,
                         account_id: Optional[str] = None,
-                        db_path: Path = DB_PATH) -> List[Transaction]:
+                        db_path: Optional[Path] = None) -> List[Transaction]:
         with get_conn(db_path) as conn:
             if account_id:
                 rows = conn.execute(
@@ -553,7 +574,7 @@ class TransactionRepo:
         return [TransactionRepo._row_to_model(r) for r in rows]
 
     @staticmethod
-    def list_unclassified(db_path: Path = DB_PATH) -> List[Transaction]:
+    def list_unclassified(db_path: Optional[Path] = None) -> List[Transaction]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM transactions WHERE (coa_code='' OR coa_code IS NULL)"
@@ -583,7 +604,7 @@ class TransactionRepo:
 
 class PositionRepo:
     @staticmethod
-    def upsert_period(positions: List[Position], db_path: Path = DB_PATH) -> None:
+    def upsert_period(positions: List[Position], db_path: Optional[Path] = None) -> None:
         if not positions:
             return
         period = positions[0].statement_period
@@ -609,7 +630,7 @@ class PositionRepo:
 
     @staticmethod
     def list_for_period(account_id: str, statement_period: str,
-                        db_path: Path = DB_PATH) -> List[Position]:
+                        db_path: Optional[Path] = None) -> List[Position]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM positions WHERE account_id=? AND statement_period=?"
@@ -638,7 +659,7 @@ class PositionRepo:
 
 class SnapshotRepo:
     @staticmethod
-    def upsert(s: AccountSnapshot, db_path: Path = DB_PATH) -> None:
+    def upsert(s: AccountSnapshot, db_path: Optional[Path] = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO account_snapshots"
@@ -660,7 +681,7 @@ class SnapshotRepo:
 
     @staticmethod
     def get(account_id: str, period: str,
-            db_path: Path = DB_PATH) -> Optional[AccountSnapshot]:
+            db_path: Optional[Path] = None) -> Optional[AccountSnapshot]:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM account_snapshots WHERE account_id=? AND statement_period=?",
@@ -671,7 +692,7 @@ class SnapshotRepo:
         return SnapshotRepo._row_to_model(row)
 
     @staticmethod
-    def list_for_entity(entity_id: str, db_path: Path = DB_PATH) -> List[AccountSnapshot]:
+    def list_for_entity(entity_id: str, db_path: Optional[Path] = None) -> List[AccountSnapshot]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT s.* FROM account_snapshots s"
@@ -705,7 +726,7 @@ class SnapshotRepo:
 
 class RealisedTradeRepo:
     @staticmethod
-    def upsert_period(trades: List[RealisedTrade], db_path: Path = DB_PATH) -> None:
+    def upsert_period(trades: List[RealisedTrade], db_path: Optional[Path] = None) -> None:
         if not trades:
             return
         period = trades[0].statement_period
@@ -728,7 +749,7 @@ class RealisedTradeRepo:
 
     @staticmethod
     def list_for_period(statement_period: str,
-                        db_path: Path = DB_PATH) -> List[RealisedTrade]:
+                        db_path: Optional[Path] = None) -> List[RealisedTrade]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM realised_trades WHERE statement_period=? ORDER BY settlement_date",
@@ -746,13 +767,13 @@ class RealisedTradeRepo:
 
 class COARepo:
     @staticmethod
-    def list_all(db_path: Path = DB_PATH) -> List[COAEntry]:
+    def list_all(db_path: Optional[Path] = None) -> List[COAEntry]:
         with get_conn(db_path) as conn:
             rows = conn.execute("SELECT * FROM coa ORDER BY code").fetchall()
         return [COARepo._row_to_model(r) for r in rows]
 
     @staticmethod
-    def get(code: str, db_path: Path = DB_PATH) -> Optional[COAEntry]:
+    def get(code: str, db_path: Optional[Path] = None) -> Optional[COAEntry]:
         with get_conn(db_path) as conn:
             row = conn.execute("SELECT * FROM coa WHERE code=?", (code,)).fetchone()
         return COARepo._row_to_model(row) if row else None
@@ -771,7 +792,7 @@ class COARepo:
 class ImportRegistry:
     @staticmethod
     def already_imported(account_id: str, period: str,
-                         db_path: Path = DB_PATH) -> bool:
+                         db_path: Optional[Path] = None) -> bool:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT id FROM imported_statements WHERE account_id=? AND statement_period=?",
@@ -781,7 +802,7 @@ class ImportRegistry:
 
     @staticmethod
     def record(source_file: str, parser_id: str, account_id: str, period: str,
-               db_path: Path = DB_PATH) -> None:
+               db_path: Optional[Path] = None) -> None:
         import uuid as _uuid
         with get_conn(db_path) as conn:
             conn.execute(
