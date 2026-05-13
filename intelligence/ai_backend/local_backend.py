@@ -43,11 +43,14 @@ _RULES: List[Tuple[str, str, str, bool]] = [
 
     # Payroll & Wages (5021) vs Payroll Tax (5040) — order matters: vendor rule first
     (r"ADP\s*PAYROLL|GUSTO", "5021", "Payroll & Wages", False),
+    (r"PAYROLL\s+INTUIT|INTUIT\s+PAYROLL", "5021", "Payroll & Wages", False),  # Intuit Payroll (QuickBooks Payroll) = wages
     (r"\bPAYROLL\b", "5040", "Payroll Tax Expense", False),
 
     # Software & Subscriptions (5010)
     (r"QUICKBOOKS|INTUIT(?!\s*TRAN)", "5010", "Software & Subscriptions", False),
     (r"GOOGLE\s*(WORKSPACE|LLC)(?!\s*ADS)", "5010", "Software & Subscriptions", False),
+    (r"GOOGLE\s*\*(?!\s*ADS)", "5010", "Software & Subscriptions", False),  # GOOGLE *FI, GOOGLE *YOUTUBE, etc.
+    (r"YOUTUBE", "5010", "Software & Subscriptions", False),
     (r"MICROSOFT|MSFT", "5010", "Software & Subscriptions", False),
     (r"ADOBE", "5010", "Software & Subscriptions", False),
     (r"DROPBOX|BOX\.COM", "5010", "Software & Subscriptions", False),

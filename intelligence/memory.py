@@ -137,7 +137,7 @@ class ClassificationMemory:
     def _seed_defaults(self) -> None:
         defaults = [
             # Software — canonical 5010
-            ("INCFILE LLC", "5075", "Legal & Professional Fees", False),
+            ("INCFILE LLC", "5071", "Legal & Professional Fees", False),
             ("PAYPAL *QUICKBOOKS", "5010", "Software & Subscriptions", False),
             ("GOOGLE", "5010", "Software & Subscriptions", False),
             # Federal tax — canonical 5050

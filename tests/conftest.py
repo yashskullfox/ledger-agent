@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,12 +14,40 @@ import pytest
 # Ensure the project root is on sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# ── Early env isolation (before any test module import / collection) ──────────
+# pytest_configure fires before collection, so config.py reads FI_DB_PATH
+# from this temp dir rather than locking to the production DB path.
+
+_TEST_TMP_DIR: Path | None = None
+
+
+def pytest_configure(config):
+    """Set FI_* env vars before any source module is imported during collection.
+
+    Without this, config.py is imported at collection time with no FI_DB_PATH
+    set, causing DB_PATH to default to the production database.  The session-
+    scoped fixture below then fires *after* collection and cannot override the
+    already-cached module-level DB_PATH.
+    """
+    global _TEST_TMP_DIR
+    tmp = Path(tempfile.mkdtemp(prefix="fi_test_"))
+    _TEST_TMP_DIR = tmp
+    os.environ.setdefault("FI_DATA_DIR", str(tmp))
+    os.environ.setdefault("FI_DB_PATH", str(tmp / "test.db"))
+    os.environ.setdefault("FI_MEMORY_FILE", str(tmp / "test_memory.json"))
+    os.environ.setdefault("FI_AI_BACKEND", "local")
+    os.environ.setdefault("FI_LOG_LEVEL", "WARNING")
+
 
 # ── Env var setup ─────────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True, scope="session")
 def set_test_env(tmp_path_factory):
-    """Set env vars so tests use an isolated temp database/memory."""
+    """Ensure env vars point to an isolated temp database/memory for the session.
+
+    pytest_configure already set defaults; this fixture reinforces them and
+    keeps the same tmp dir alive for the session lifetime.
+    """
     tmp = tmp_path_factory.mktemp("fi_test_data")
     os.environ["FI_DATA_DIR"] = str(tmp)
     os.environ["FI_DB_PATH"] = str(tmp / "test.db")
@@ -33,13 +62,19 @@ def set_test_env(tmp_path_factory):
 
 @pytest.fixture
 def db(tmp_path):
-    """Fresh in-memory-style database for each test."""
+    """Fresh per-test database; restores FI_DB_PATH to the session value on teardown."""
+    prev_db_path = os.environ.get("FI_DB_PATH")
     db_path = tmp_path / "test.db"
     os.environ["FI_DB_PATH"] = str(db_path)
     from core.database import init_db
     init_db()
     yield db_path
-    # File is removed by tmp_path teardown
+    # Restore the session-level DB path so subsequent tests are not affected.
+    if prev_db_path is not None:
+        os.environ["FI_DB_PATH"] = prev_db_path
+    else:
+        os.environ.pop("FI_DB_PATH", None)
+    # DB file is removed by tmp_path teardown at session end.
 
 
 # ── Model factories ────────────────────────────────────────────────────────────
