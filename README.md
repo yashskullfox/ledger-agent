@@ -10,31 +10,38 @@ via a plug-in parser registry.
 
 ## Features
 
-| Feature                  | Description                                                                   |
-|--------------------------|-------------------------------------------------------------------------------|
-| 📄 **PDF Import**        | Auto-detect and parse bank & brokerage statements — no manual data entry      |
-| 📊 **Balance Sheet**     | Full GAAP-style balance sheet: Assets, Liabilities, Members' Equity           |
-| 💰 **Tax Estimator**     | Quarterly estimated tax payments (SE tax + federal + state)                   |
-| 🤖 **AI Classification** | Local rules, OpenAI GPT-4o, or Google Gemini (choose your backend)            |
-| 🧠 **Memory / Learning** | Learns from your confirmations — gets smarter every month                     |
-| ⚡ **Quick Scan**         | One command: drop a folder of PDFs → instant reports                          |
-| 🔌 **Extensible**        | Add any bank in one file — zero changes to core code                          |
-| 🔐 **Secure**            | Zero hardcoded secrets; all config via environment variables                  |
-| 📤 **AI Context Export** | JSON export for Claude, GPT-4, Perplexity — ask questions about your finances |
+| Feature                  | Description                                                                    |
+|--------------------------|--------------------------------------------------------------------------------|
+| 📄 **PDF Import**        | Auto-detect and parse bank & brokerage statements — no manual data entry       |
+| 📊 **Balance Sheet**     | Full GAAP-style balance sheet: Assets, Liabilities, Members' Equity            |
+| 💰 **Tax Estimator**     | Quarterly estimated tax payments (SE tax + federal + state)                    |
+| 🤖 **AI Classification** | Local rules, OpenAI GPT-4o-mini, or Google Gemini (choose your backend)        |
+| 🧠 **Memory / Learning** | Learns from your confirmations — gets smarter every month                      |
+| 📅 **Coverage Wizard**   | 12-month gap analysis: Rich matrix, interactive gap-filling, then batch import |
+| 🔌 **Extensible**        | Add any bank: one parser file — auto-discovered, no other edits needed         |
+| 🔐 **Secure**            | Zero hardcoded secrets; all config via environment variables                   |
+| 📤 **AI Context Export** | JSON export for Claude, GPT-4, Perplexity — ask questions about your finances  |
 
 ---
 
 ## Supported Institutions
 
-| Institution          | Statement Type                | Parser               |
-|----------------------|-------------------------------|----------------------|
-| Truist Bank          | Simple Business Checking      | `truist_checking`    |
-| Fidelity Investments | Brokerage / Investment Report | `fidelity_brokerage` |
-| Chase Bank           | Business Complete Checking    | `chase_checking`     |
-| Bank of America      | Business Checking             | `bofa_checking`      |
+| Institution          | Statement Type                | Parser               | Test Coverage       |
+|----------------------|-------------------------------|----------------------|---------------------|
+| Truist Bank          | Simple Business Checking      | `truist_checking`    | End-to-end          |
+| Fidelity Investments | Brokerage / Investment Report | `fidelity_brokerage` | Detection only      |
+| Chase Bank           | Business Complete Checking    | `chase_checking`     | Plugin scaffolded ¹ |
+| Bank of America      | Business Checking             | `bofa_checking`      | Plugin scaffolded ¹ |
+| U.S. Bank            | Business Essentials Checking  | `usbank_checking`    | Plugin scaffolded ¹ |
+| U.S. Bank            | Business Credit Card          | `usbank_creditcard`  | Plugin scaffolded ¹ |
+| Interactive Brokers  | Activity Statement            | `ibkr`               | Plugin scaffolded ¹ |
+
+¹ *Parser exists and was manually validated against a real statement PDF, but does not yet have an automated `parse()`
+unit test. Contributions welcome — see the testing guide in `STRUCTURE.md`.*
 
 → **Adding a new institution:** Create `parsers/my_bank.py`, subclass `BaseStatementParser`, decorate with
-`@ParserRegistry.register`. Done — no other changes needed.
+`@ParserRegistry.register`. That is all — `parsers/__init__.py` auto-discovers every module in the package via
+`pkgutil.iter_modules`. No edits to `cli/commands.py`, `cli/quick_scan.py`, or any other file are needed.
 
 ---
 
@@ -59,11 +66,12 @@ cp .env.example .env
 
 ```bash
 ./run.sh                    # interactive menu
-./run.sh scan ~/Downloads/statements/   # ⚡ quick scan a folder
+./run.sh scan ~/Downloads/statements/   # coverage wizard + batch import
+./run.sh onboard            # alias for scan
 ./run.sh import statement.pdf           # import a single PDF
 ./run.sh balance 2025-01                # view balance sheet
 ./run.sh tax 2025-01                    # view tax estimate
-./run.sh context 2025-01                # export AI context JSON
+./run.sh context 2025-01               # export AI context JSON
 ```
 
 ---
@@ -72,7 +80,7 @@ cp .env.example .env
 
 FinancialIntelligence operates in three modes, selected by `FI_AI_BACKEND`:
 
-### 🏠 Local Mode (default — no API key required)
+### Local Mode (default — no API key required)
 
 ```bash
 FI_AI_BACKEND=local ./run.sh
@@ -81,7 +89,7 @@ FI_AI_BACKEND=local ./run.sh
 Uses rule-based classification + [rapidfuzz](https://github.com/maxbachmann/RapidFuzz) fuzzy matching. Works offline.
 Best for most small businesses.
 
-### 🤖 OpenAI Mode
+### OpenAI Mode
 
 ```bash
 FI_AI_BACKEND=openai FI_OPENAI_API_KEY=sk-... ./run.sh
@@ -90,7 +98,12 @@ FI_AI_BACKEND=openai FI_OPENAI_API_KEY=sk-... ./run.sh
 
 Uses GPT-4o-mini for intelligent transaction classification. Excellent for unusual vendors or complex descriptions.
 
-### 💎 Gemini Mode
+> ⚠️ **Privacy note (R-46 in backlog):** When using the OpenAI or Gemini backends, raw transaction descriptions
+> including counterparty names are sent to the remote API. R-46 (planned) will introduce a tokenizing redactor
+> that strips counterparty names before transmission. Until then, review your privacy posture before enabling
+> remote AI backends.
+
+### Gemini Mode
 
 ```bash
 FI_AI_BACKEND=gemini FI_GEMINI_API_KEY=AIza... ./run.sh
@@ -98,6 +111,8 @@ FI_AI_BACKEND=gemini FI_GEMINI_API_KEY=AIza... ./run.sh
 ```
 
 Uses Google Gemini 1.5 Flash. Fast and cost-effective alternative to OpenAI.
+
+> ⚠️ Same privacy caveat as OpenAI mode above.
 
 ---
 
@@ -108,7 +123,8 @@ Uses Google Gemini 1.5 Flash. Fast and cost-effective alternative to OpenAI.
 
 Commands:
   (none)               Interactive menu
-  scan   [FOLDER]      ⚡ Auto-import all PDFs in folder → reports
+  scan   [FOLDER]      Coverage wizard: discover PDFs, show gap matrix, import
+  onboard [FOLDER]     Alias for scan (same coverage wizard)
   import [PDF]         Import a single statement PDF
   balance [PERIOD]     View balance sheet (e.g. 2025-01)
   tax    [PERIOD]      View tax obligation estimate
@@ -120,30 +136,65 @@ Commands:
   setup                Re-run entity setup wizard
 
 Flags:
-  --install            Create .venv and install dependencies (first time)
-  scan --force         Re-import even if already imported
+  --install                     Create .venv and install dependencies (first time)
+
+Flags for scan / onboard:
+  --force                       Re-import already-imported statements
+  --no-prompt                   CI mode: emit JSON coverage matrix, no interactive prompts
+  --window 2025-01:2025-12      Override the default 12-month rolling window
+  --report                      Show balance sheet + tax estimate after ingestion
 ```
 
 ---
 
-## Quick Scan (⚡ Recommended Workflow)
+## Coverage Wizard (scan / onboard)
 
-The quickest way to generate monthly reports:
+`scan` and `onboard` are the recommended entry point for monthly bookkeeping. They run the R-45 Coverage Wizard:
 
 ```bash
-# Drop all your PDFs into one folder, then:
-./run.sh scan ~/Documents/statements/January-2025/
+./run.sh scan ~/Documents/statements/
+# or equivalently:
+./run.sh onboard ~/Documents/statements/
 ```
 
-Quick Scan will:
+The wizard:
 
-1. Find all PDF files in the folder
-2. Auto-detect the parser for each (Truist, Fidelity, Chase, BofA, …)
-3. Import all new statements (skip duplicates)
-4. Prompt you with multiple-choice Q&A for unclassified transactions
-5. Display the complete balance sheet
-6. Display the quarterly tax obligation estimate
-7. Offer to export CSV / Excel / AI Context JSON
+1. **Resolves the folder** — CLI arg > `FI_STATEMENTS_DIR` env var > last-used cached path > `data/statements/`
+2. **Discovers all PDFs** recursively (glob controlled by `FI_STATEMENT_GLOB`, default `*.pdf`)
+3. **Renders a Rich coverage matrix** — one row per account, one column per month:
+    - ✅ present (exactly one statement found)
+    - ⚠ duplicate (more than one statement found for that month)
+    - ❌ missing
+4. **Prompts interactively for each missing month:**
+    - `[w]` Wait — polls the folder every 2 s for up to 5 min, then continues when the file appears
+    - `[s]` Skip — skip this month and continue
+    - `[a]` Skip all — skip all remaining gaps and proceed to import
+    - `[q]` Quit — exit without importing
+5. **Ingests all found statements** after gap-filling
+
+### CI / non-interactive mode
+
+```bash
+./run.sh scan FOLDER --no-prompt
+```
+
+- Emits a JSON coverage matrix to stdout
+- No interactive prompts (safe in scripts and CI pipelines)
+- Exit code `0` = all months present; `2` = gaps remain
+
+Example JSON output:
+
+```json
+{
+  "window": ["2024-05", "2024-06", "...", "2025-04"],
+  "accounts": [{"key": "Truist Bank|1234", "institution": "Truist Bank", "last4": "1234"}],
+  "matrix": {
+    "Truist Bank ****1234": {"2024-05": "present", "2024-06": "missing", "...": "..."}
+  },
+  "missing_count": 1,
+  "complete": false
+}
+```
 
 ---
 
@@ -175,6 +226,10 @@ MEMBERS' EQUITY
 
 TOTAL LIABILITIES + EQUITY             $37,901.20  ✓ BALANCED
 ```
+
+> **Note on "BALANCED":** Members' Equity is derived as `Total Assets − Total Liabilities`,
+> so the balance equation holds by construction. This is a structural sanity check, not a
+> full double-entry journal validation. A proper audit trail requires a journal ledger (backlog R-40).
 
 ---
 
@@ -233,14 +288,18 @@ Confirmed classifications are saved to `data/db/classification_memory.json` and 
 
 ### Committing Your Memory File
 
-After classifying a batch, commit the memory file to version control:
+After classifying a batch, you may commit the memory file to version control to preserve learned rules across
+reinstalls and share them with team members:
 
 ```bash
 git add data/db/classification_memory.json
 git commit -m "chore: update classification memory"
 ```
 
-This preserves your learned rules across reinstalls and team members.
+> ⚠️ **Privacy caveat:** Classification patterns are derived from transaction descriptions and may contain
+> counterparty names (e.g. vendor or payee names). Review the file before committing to a shared or public
+> repository. R-46 (privacy firewall, in backlog) will make this git-safe by construction by redacting
+> counterparty names from stored patterns before they are written to disk.
 
 ---
 
@@ -279,12 +338,16 @@ FinancialIntelligence/
 │   └── logging_setup.py       # Structured logging (rich/json/plain)
 │
 ├── parsers/
+│   ├── __init__.py            # Auto-discovery via pkgutil.iter_modules
 │   ├── base.py                # BaseStatementParser ABC
 │   ├── registry.py            # Parser auto-detection registry
 │   ├── truist_checking.py     # Truist Simple Business Checking
 │   ├── fidelity_brokerage.py  # Fidelity Investment Report
 │   ├── chase_checking.py      # Chase Business Complete Checking
-│   └── bofa_checking.py       # Bank of America Business Checking
+│   ├── bofa_checking.py       # Bank of America Business Checking
+│   ├── usbank_checking.py     # U.S. Bank Business Essentials Checking
+│   ├── usbank_creditcard.py   # U.S. Bank Business Credit Card
+│   └── ibkr.py               # Interactive Brokers Activity Statement
 │
 ├── intelligence/
 │   ├── classifier.py          # 5-step classification pipeline
@@ -293,9 +356,10 @@ FinancialIntelligence/
 │   └── ai_backend/
 │       ├── __init__.py        # Backend factory (get_backend())
 │       ├── base.py            # AIBackend ABC
-│       ├── local_backend.py   # Rule-based + rapidfuzz (default)
-│       ├── openai_backend.py  # OpenAI GPT-4o-mini
-│       └── gemini_backend.py  # Google Gemini 1.5 Flash
+│       ├── chained_backend.py # Local-first chain: local → remote on low confidence
+│       ├── local_backend.py   # Rule-based + rapidfuzz (default, $0.00)
+│       ├── openai_backend.py  # OpenAI GPT-4o-mini (optional escalation)
+│       └── gemini_backend.py  # Google Gemini 1.5 Flash (optional escalation)
 │
 ├── accounting/
 │   ├── balance_sheet.py       # BalanceSheetBuilder
@@ -307,9 +371,13 @@ FinancialIntelligence/
 ├── adapters/
 │   └── context_builder.py     # AI-consumable JSON context builder
 │
+├── mcp_server/
+│   └── server.py              # MCP stdio server (MCP-spec newline-delimited JSON-RPC 2.0)
+│
 ├── cli/
-│   ├── commands.py            # Command implementations
-│   ├── quick_scan.py          # ⚡ Quick Scan mode
+│   ├── commands.py            # Command implementations (import, balance, classify, …)
+│   ├── onboarding.py          # R-45: 12-month Coverage Wizard (scan / onboard)
+│   ├── quick_scan.py          # Single-PDF import helper used by onboarding
 │   └── prompts.py             # Interactive prompts (questionary/rich)
 │
 ├── tests/
@@ -318,7 +386,8 @@ FinancialIntelligence/
 │   ├── test_parsers.py        # Parser unit tests
 │   ├── test_classifier.py     # Classifier + AI backend tests
 │   ├── test_balance_sheet.py  # Balance sheet builder tests
-│   └── test_tax_estimator.py  # Tax estimator tests
+│   ├── test_tax_estimator.py  # Tax estimator tests
+│   └── test_onboarding.py     # Coverage Wizard tests (44 tests, R-45)
 │
 └── data/                      # ← NOT committed to git
     ├── statements/            # PDF statements go here
@@ -336,7 +405,7 @@ FinancialIntelligence/
 # Install dev deps
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Run all tests
+# Run all tests (127 total)
 pytest
 
 # With coverage
@@ -344,31 +413,35 @@ pytest --cov=. --cov-report=term-missing
 
 # Run specific file
 pytest tests/test_parsers.py -v
+pytest tests/test_onboarding.py -v
 ```
 
 ---
 
 ## Environment Variables Reference
 
-| Variable                     | Default                              | Description                                       |
-|------------------------------|--------------------------------------|---------------------------------------------------|
-| `FI_AI_BACKEND`              | `local`                              | AI backend: `local` / `openai` / `gemini`         |
-| `FI_OPENAI_API_KEY`          | —                                    | OpenAI API key (required if backend=openai)       |
-| `FI_GEMINI_API_KEY`          | —                                    | Gemini API key (required if backend=gemini)       |
-| `FI_OPENAI_MODEL`            | `gpt-4o-mini`                        | OpenAI model name                                 |
-| `FI_GEMINI_MODEL`            | `gemini-1.5-flash`                   | Gemini model name                                 |
-| `FI_AUTO_CLASSIFY_THRESHOLD` | `85`                                 | Fuzzy match score for auto-classification (0–100) |
-| `FI_DB_PATH`                 | `data/db/financials.db`              | SQLite database path                              |
-| `FI_DATA_DIR`                | `data/`                              | Data root directory                               |
-| `FI_MEMORY_FILE`             | `data/db/classification_memory.json` | Classification memory                             |
-| `FI_LOG_LEVEL`               | `INFO`                               | Logging level: `DEBUG`/`INFO`/`WARNING`/`ERROR`   |
-| `FI_LOG_FORMAT`              | `rich`                               | Log format: `rich`/`json`/`plain`                 |
-| `FI_SE_TAX_RATE`             | `0.153`                              | Self-employment tax rate (15.3%)                  |
-| `FI_FED_INCOME_RATE`         | `0.22`                               | Federal income tax estimate rate                  |
-| `FI_STATE_TAX_RATE`          | `0.05`                               | State income tax estimate rate                    |
-| `FI_QBI_DEDUCTION`           | `0.20`                               | Qualified Business Income deduction (20%)         |
-| `FI_DEFAULT_ENTITY_NAME`     | —                                    | Pre-fill entity name in setup wizard              |
-| `FI_DEFAULT_ENTITY_STATE`    | —                                    | Pre-fill entity state in setup wizard             |
+| Variable                        | Default                              | Description                                                |
+|---------------------------------|--------------------------------------|------------------------------------------------------------|
+| `FI_AI_BACKEND`                 | `local`                              | AI backend: `local` / `openai` / `gemini`                  |
+| `FI_OPENAI_API_KEY`             | —                                    | OpenAI API key (required if backend=openai)                |
+| `FI_GEMINI_API_KEY`             | —                                    | Gemini API key (required if backend=gemini)                |
+| `FI_OPENAI_MODEL`               | `gpt-4o-mini`                        | OpenAI model name                                          |
+| `FI_GEMINI_MODEL`               | `gemini-1.5-flash`                   | Gemini model name                                          |
+| `FI_AUTO_CLASSIFY_THRESHOLD`    | `85`                                 | Fuzzy match score for auto-classification (0–100)          |
+| `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65`                               | Below this, local backend escalates to remote AI (0.0–1.0) |
+| `FI_DB_PATH`                    | `data/db/financials.db`              | SQLite database path                                       |
+| `FI_DATA_DIR`                   | `data/`                              | Data root directory                                        |
+| `FI_MEMORY_FILE`                | `data/db/classification_memory.json` | Classification memory                                      |
+| `FI_STATEMENTS_DIR`             | `data/statements/`                   | Override the default statements folder for scan/onboard    |
+| `FI_STATEMENT_GLOB`             | `*.pdf`                              | Glob pattern for PDF discovery (e.g. `*statement*.pdf`)    |
+| `FI_LOG_LEVEL`                  | `INFO`                               | Logging level: `DEBUG`/`INFO`/`WARNING`/`ERROR`            |
+| `FI_LOG_FORMAT`                 | `rich`                               | Log format: `rich`/`json`/`plain`                          |
+| `FI_SE_TAX_RATE`                | `0.153`                              | Self-employment tax rate (15.3%)                           |
+| `FI_FED_INCOME_RATE`            | `0.22`                               | Federal income tax estimate rate                           |
+| `FI_STATE_TAX_RATE`             | `0.05`                               | State income tax estimate rate                             |
+| `FI_QBI_DEDUCTION`              | `0.20`                               | Qualified Business Income deduction (20%)                  |
+| `FI_DEFAULT_ENTITY_NAME`        | —                                    | Pre-fill entity name in setup wizard                       |
+| `FI_DEFAULT_ENTITY_STATE`       | —                                    | Pre-fill entity state in setup wizard                      |
 
 ---
 
@@ -378,6 +451,48 @@ pytest tests/test_parsers.py -v
 - **Secret guard**: `config.py` scans itself at import for accidentally committed keys
 - **`.gitignore`**: Excludes `data/`, `.env`, `*.db`, `*.pdf` — financial data never commits
 - **Masked account numbers**: Stored as `****1234` — never store full account numbers
+- **R-46 (planned — privacy firewall):** When using OpenAI or Gemini backends, raw transaction descriptions
+  including counterparty names are sent to the remote API. R-46 will introduce a tokenizing redactor that
+  strips counterparty names before any data leaves the machine.
+
+---
+
+## MCP Server
+
+FinancialIntelligence includes an MCP (Model Context Protocol) stdio server that exposes your financial data
+directly to Claude Desktop, Cursor, Cline, Continue, and other MCP-compatible clients.
+
+```bash
+python -m mcp_server.server
+```
+
+**Framing:** The server uses MCP-spec newline-delimited JSON (one JSON object per line), not LSP
+`Content-Length` headers. This matches the reference MCP Python SDK and Claude Desktop expectations.
+
+**Exposed tools (all functional):**
+
+| Tool                   | Description                                                |
+|------------------------|------------------------------------------------------------|
+| `get_balance_sheet`    | Full balance sheet for a given `YYYY-MM` period            |
+| `list_transactions`    | Transactions list, optionally filtered by period and limit |
+| `get_tax_estimate`     | Quarterly tax obligation estimate for a period             |
+| `classify_transaction` | Classify a single transaction description on-the-fly       |
+| `list_periods`         | All statement periods available in the database            |
+| `get_entity_summary`   | Entity name, account list, and period coverage             |
+
+**Claude Desktop config** (`~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "financial-intelligence": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/path/to/FinancialIntelligence"
+    }
+  }
+}
+```
 
 ---
 
@@ -411,13 +526,9 @@ class WellsFargoParser(BaseStatementParser):
         )
 ```
 
-Then register it in `cli/commands.py` and `cli/quick_scan.py`:
-
-```python
-import parsers.wells_fargo  # noqa: F401
-```
-
-That's it. No other changes needed.
+That is all. `parsers/__init__.py` uses `pkgutil.iter_modules` to auto-discover every module in the
+`parsers/` package at import time. No changes to `cli/commands.py`, `cli/quick_scan.py`, `main.py`,
+or any other file are needed.
 
 ---
 

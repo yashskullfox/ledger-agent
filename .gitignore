@@ -1,19 +1,48 @@
-# FinancialIntelligence – Git Ignore
-# ─────────────────────────────────────────────────────────────
+# FinancialIntelligence — Git Ignore
+# ─────────────────────────────────────────────────────────────────────────────
+# SECURITY RULE: Never commit real financial data, statements, or API keys.
+# The patterns below enforce this at the repository level.
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ── Secrets & config ──────────────────────────────────────────────────────────
+# ── Secrets & credentials ─────────────────────────────────────────────────────
 .env
 *.env
 .env.local
 .env.*.local
 
-# ── Financial data (NEVER commit real statements or databases) ────────────────
+# ── PDF statement files — NEVER commit real bank statements ──────────────────
+# (catch-all regardless of location in the repo)
+*.pdf
+*.PDF
+*.ofx
+*.qfx
+*.qbo
+
+# ── Financial data directory — NEVER commit ───────────────────────────────────
+# Covers: data/statements/, data/db/, data/exports/, data/.last_statements_dir,
+#         data/.discovery_cache.json, and any other file in data/
 data/
+
+# ── SQLite database files (belt + suspenders on top of data/) ─────────────────
 *.db
 *.db-wal
 *.db-shm
-*.pdf
-*.PDF
+*.sqlite
+*.sqlite3
+
+# ── Generated reports & exports ───────────────────────────────────────────────
+# These live in data/exports/ (covered above) but extra safety patterns:
+*.xlsx
+*.csv
+*_report.json
+*_context.json
+ai_context_*.json
+balance_sheet_*.json
+balance_sheet_*.csv
+
+# ── Classification memory (contains learned transaction patterns) ──────────────
+classification_memory.json
+*_memory.json
 
 # ── Python virtual environment ────────────────────────────────────────────────
 .venv/
@@ -52,6 +81,7 @@ htmlcov/
 .mypy_cache/
 .pytype/
 .pyre/
+.ruff_cache/
 
 # ── Editors & OS ──────────────────────────────────────────────────────────────
 .idea/
@@ -65,16 +95,38 @@ desktop.ini
 
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
+*.ipynb
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 logs/
 
-# ── Exports (generated output – don't commit) ────────────────────────────────
-data/exports/
-
-# ── Temporary files ───────────────────────────────────────────────────────────
+# ── Temporary & scratch files ─────────────────────────────────────────────────
 *.tmp
 *.temp
 tmp/
 temp/
+scratch/
+sandbox/
+experiments/
+dev/
+
+# ── Profiling & benchmarks ────────────────────────────────────────────────────
+*.prof
+*.profile
+profile_output/
+benchmarks/results/
+*.lprof
+
+# ── Property-based testing ────────────────────────────────────────────────────
+.hypothesis/
+
+# ── Development scripts — manual test scripts not meant for CI ────────────────
+debug_*.py
+scratch_*.py
+test_manual_*.py
+explore_*.py
+
+# ── Plan files (Wibey AI planning artifacts) ──────────────────────────────────
+*.plan.md
+.wibey/

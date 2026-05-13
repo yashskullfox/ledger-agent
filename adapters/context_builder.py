@@ -89,8 +89,8 @@ def build_context(
             "is_balanced": bs.is_balanced,
             "lines": [
                 {
-                    "code": line.coa_code,
-                    "name": line.label,
+                    "coa_code": line.coa_code,
+                    "label": line.label,
                     "amount": float(line.amount),
                     "type": line.coa_type.value,
                     "is_subtotal": line.is_subtotal,
@@ -131,20 +131,31 @@ def build_context(
         ),
     }
 
-    # Optionally include transactions
+    # Optionally include transactions — descriptions redacted for AI export (R-46)
     if include_transactions:
         txns = TransactionRepo.list_for_period(period)
-        ctx["transactions"] = [
-            {
+        try:
+            from core.privacy import redact as _redact
+        except Exception:
+            _redact = None  # type: ignore[assignment]
+
+        txn_records = []
+        for t in txns:
+            desc = t.description
+            if _redact is not None:
+                try:
+                    desc, _ = _redact(desc, scope="ai_context")
+                except Exception:
+                    pass  # Never block export on privacy error
+            txn_records.append({
                 "date": t.date.isoformat(),
-                "description": t.description,
+                "description": desc,
                 "amount": float(t.amount),
                 "coa_code": t.coa_code,
                 "type": t.transaction_type.value if t.transaction_type else None,
                 "is_transfer": t.is_transfer,
-            }
-            for t in txns
-        ]
+            })
+        ctx["transactions"] = txn_records
 
     # Optionally include positions
     if include_positions:

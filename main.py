@@ -5,7 +5,8 @@ main.py  –  FinancialIntelligence  CLI entry point
 Usage:
     python main.py                        # interactive menu
     python main.py import [PDF_PATH]      # import a statement PDF
-    python main.py scan   [FOLDER_PATH]   # ⚡ quick-scan: import all PDFs in folder
+    python main.py scan   [FOLDER_PATH]   # ⚡ coverage wizard + import all PDFs
+    python main.py onboard [FOLDER]       # alias for scan (R-45 coverage wizard)
     python main.py balance [PERIOD]       # show balance sheet  (e.g. 2025-01)
     python main.py transactions [PERIOD]
     python main.py classify               # classify pending transactions
@@ -14,6 +15,12 @@ Usage:
     python main.py tax     [PERIOD]       # show tax obligation estimate
     python main.py context [PERIOD]       # export AI-consumable context JSON
     python main.py setup                  # re-run entity setup wizard
+
+Flags (scan / onboard):
+    --force       Re-import already-imported statements
+    --no-prompt   Non-interactive / CI mode (emit JSON coverage matrix)
+    --window YYYY-MM:YYYY-MM   Override the default 12-month rolling window
+    --report      Show balance sheet + tax after ingestion
 
 Modes (set via FI_AI_BACKEND env var):
     local   – Rule-based classifier, no API key required (default)
@@ -85,8 +92,8 @@ def interactive_menu() -> None:
         choice = ask_select("\nWhat would you like to do?", choices=MENU_CHOICES)
 
         if choice and "Quick Scan" in choice:
-            from cli.quick_scan import cmd_quick_scan
-            cmd_quick_scan()
+            from cli.onboarding import cmd_onboard
+            cmd_onboard(show_report=True)
 
         elif choice and "Import" in choice:
             from cli.commands import cmd_import
@@ -185,11 +192,24 @@ def main() -> None:
     cmd = args[0].lower()
     rest = args[1:]
 
-    if cmd in ("scan", "s"):
-        from cli.quick_scan import cmd_quick_scan
+    if cmd in ("scan", "s", "onboard", "o"):
+        from cli.onboarding import cmd_onboard
         force = "--force" in rest or "-f" in rest
+        no_prompt = "--no-prompt" in rest
+        show_report = "--report" in rest
+        window_arg = next(
+            (rest[i + 1] for i, r in enumerate(rest) if r == "--window" and i + 1 < len(rest)),
+            None,
+        )
         folder = next((r for r in rest if not r.startswith("-")), None)
-        cmd_quick_scan(folder=folder, force=force)
+        code = cmd_onboard(
+            folder=folder,
+            window_arg=window_arg,
+            no_prompt=no_prompt,
+            force=force,
+            show_report=show_report,
+        )
+        sys.exit(code)
 
     elif cmd in ("import", "i"):
         from cli.commands import cmd_import

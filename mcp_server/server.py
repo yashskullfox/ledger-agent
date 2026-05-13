@@ -2,8 +2,9 @@
 mcp_server/server.py  –  MCP stdio server for FinancialIntelligence
 
 Implements the Model Context Protocol (JSON-RPC 2.0 over stdio) without
-any external dependencies, making it compatible with every MCP client:
-Claude Desktop, Cursor, Cline, Continue, and any custom integration.
+any external dependencies. Uses MCP-spec newline-delimited JSON framing
+(one JSON object per line), compatible with Claude Desktop, Cursor, Cline,
+Continue, and the reference MCP Python SDK.
 
 Exposed tools:
   get_balance_sheet       – Balance sheet for a statement period
@@ -132,6 +133,18 @@ TOOLS: List[Dict[str, Any]] = [
             "properties": {},
         },
     },
+    {
+        "name": "privacy_status",
+        "description": (
+            "Returns current privacy / egress firewall status: active mode, "
+            "detector category count, session tokens issued, allowlist size, "
+            "and last 10 redaction audit events (token types only — no original values)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -198,12 +211,25 @@ def _handle_list_transactions(args: Dict[str, Any]) -> Dict[str, Any]:
                 ).fetchall()
                 txns = rows
 
+    # Redact transaction descriptions before returning to MCP client (R-46)
+    # An MCP client may be Claude Desktop tunneled to a cloud model.
+    try:
+        from core.privacy import redact as _redact
+    except Exception:
+        _redact = None  # type: ignore[assignment]
+
     records = []
     for t in txns[:limit]:
         if hasattr(t, "date"):
+            desc = t.description
+            if _redact is not None:
+                try:
+                    desc, _ = _redact(desc, scope="mcp_response")
+                except Exception:
+                    pass
             records.append({
                 "date": str(t.date),
-                "description": t.description,
+                "description": desc,
                 "amount": float(t.amount),
                 "type": t.transaction_type.value if hasattr(t.transaction_type, "value") else str(t.transaction_type),
                 "coa_code": t.coa_code,
@@ -239,14 +265,14 @@ def _handle_get_tax_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
         "entity": entity.name,
         "period": period,
         "year": year,
-        "net_income": float(est.net_income),
+        "net_income_annual": float(est.net_income),
         "se_tax": float(est.se_tax),
         "federal_income_tax": float(est.federal_income_tax),
         "state_income_tax": float(est.state_income_tax),
         "total_annual_tax": float(est.total_annual_tax),
         "quarterly_payment": float(est.total_annual_tax / 4),
         "effective_rate_pct": float(est.effective_rate),
-        "quarterly_schedule": [
+        "quarterly_payments": [
             {
                 "quarter": p.quarter,
                 "due_date": p.due_date,
@@ -254,7 +280,7 @@ def _handle_get_tax_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
             }
             for p in est.quarterly_payments
         ],
-        "notes": est.notes,
+        "notes": est.notes
     }
 
 
@@ -325,6 +351,14 @@ def _handle_get_entity_summary(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _handle_privacy_status(_args: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from core.privacy import privacy_status
+        return privacy_status()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 _HANDLERS = {
     "get_balance_sheet": _handle_get_balance_sheet,
     "list_transactions": _handle_list_transactions,
@@ -332,12 +366,13 @@ _HANDLERS = {
     "classify_transaction": _handle_classify_transaction,
     "list_periods": _handle_list_periods,
     "get_entity_summary": _handle_get_entity_summary,
+    "privacy_status": _handle_privacy_status,
 }
 
 
 def _respond(msg_id: Any, result: Any) -> None:
     payload = json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result})
-    sys.stdout.write(f"Content-Length: {len(payload)}\r\n\r\n{payload}")
+    sys.stdout.write(payload + "\n")
     sys.stdout.flush()
 
 
@@ -347,29 +382,19 @@ def _error(msg_id: Any, code: int, message: str) -> None:
         "id": msg_id,
         "error": {"code": code, "message": message},
     })
-    sys.stdout.write(f"Content-Length: {len(payload)}\r\n\r\n{payload}")
+    sys.stdout.write(payload + "\n")
     sys.stdout.flush()
 
 
 def _read_message() -> Optional[Dict[str, Any]]:
-    """Read one JSON-RPC message from stdin using Content-Length framing."""
-    headers: Dict[str, str] = {}
-    while True:
-        line = sys.stdin.readline()
-        if not line:
-            return None
-        line = line.rstrip("\r\n")
-        if not line:
-            break
-        if ":" in line:
-            key, _, val = line.partition(":")
-            headers[key.strip().lower()] = val.strip()
-
-    length = int(headers.get("content-length", 0))
-    if length == 0:
+    """Read one JSON-RPC message from stdin (MCP newline-delimited JSON)."""
+    line = sys.stdin.readline()
+    if not line:
         return None
-    raw = sys.stdin.read(length)
-    return json.loads(raw)
+    line = line.strip()
+    if not line:
+        return None
+    return json.loads(line)
 
 
 def _dispatch(msg: Dict[str, Any]) -> None:

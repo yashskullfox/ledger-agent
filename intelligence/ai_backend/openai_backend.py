@@ -5,6 +5,12 @@ Requires:  pip install openai tenacity  (or: pip install financial-intelligence[
 Env vars:
   FI_OPENAI_API_KEY   Your OpenAI API key
   FI_OPENAI_MODEL     Model name (default: gpt-4o-mini)
+
+Privacy (R-46):
+  All outbound payloads are run through core.privacy.redact() before sending.
+  core.privacy.audit_egress() is called immediately before every HTTP request
+  as a hard pre-flight check.  Set FI_AI_EGRESS_MODE=mock to disable network
+  calls entirely (CI / offline environments).
 """
 from __future__ import annotations
 
@@ -29,14 +35,24 @@ Respond ONLY with valid JSON in this exact format:
   "reason": "<brief explanation>"
 }
 
-Common COA codes:
-4000=General Revenue, 4010=Realized Gains/Losses, 4020=Dividend Income,
-4030=Interest Income, 5010=Software & SaaS, 5020=Payroll & Wages,
-5030=Advertising & Marketing, 5040=Estimated Tax Payments, 5050=Federal Income Tax,
-5055=State & Local Taxes, 5060=Office Supplies, 5070=Legal & Professional,
-5080=Bank Fees, 5090=Interest Expense, 5100=Travel & Transportation,
+Common COA codes (canonical — use these exact codes and names):
+4010=Realised Trading Gains, 4020=Service Revenue, 4021=Dividend Income,
+4031=Interest Income, 5010=Software & Subscriptions, 5020=Bank & Transaction Fees,
+5021=Payroll & Wages, 5030=Margin Interest Expense, 5031=Advertising & Marketing,
+5040=Payroll Tax Expense, 5050=Federal Income Tax Expense, 5055=State & Local Taxes,
+5061=Office & Shipping Supplies, 5071=Legal & Professional Fees, 5080=Other Operating Expenses,
+5090=Interest Expense, 5100=Travel & Transportation,
 5999=Uncategorized Expense, 9000=Inter-Account Transfer
 """
+
+_MOCK_CLASSIFICATION: Dict[str, Any] = {
+    "coa_code": "5999",
+    "coa_name": "Uncategorized Expense",
+    "is_transfer": False,
+    "confidence": 0.50,
+    "source": "mock",
+    "reason": "Mock mode — no remote call made.",
+}
 
 
 class OpenAIBackend(AIBackend):
@@ -63,6 +79,10 @@ class OpenAIBackend(AIBackend):
         try:
             from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
             import openai as _openai
+            from core.privacy import audit_egress
+
+            # Hard pre-flight PII audit before any HTTP call
+            audit_egress(messages)
 
             @retry(
                 stop=stop_after_attempt(retries),
@@ -89,11 +109,25 @@ class OpenAIBackend(AIBackend):
             amount: float,
             context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact, unredact_result
+
+        # Mock mode — no network call
+        if AI_EGRESS_MODE == "mock":
+            log.info("OpenAI mock mode: skipping remote call")
+            return dict(_MOCK_CLASSIFICATION)
+
+        # Redact PII before sending
+        entity_name = (context or {}).get("entity_name", "LLC")
+        safe_desc, m1 = redact(description, scope="openai")
+        safe_entity, m2 = redact(entity_name, scope="openai")
+        combined_map = {**m1, **m2}
+
         direction = "credit (income)" if amount >= 0 else "debit (expense)"
         user_msg = (
-            f"Transaction: '{description}'\n"
+            f"Transaction: '{safe_desc}'\n"
             f"Amount: ${abs(amount):,.2f} ({direction})\n"
-            f"Entity: {(context or {}).get('entity_name', 'LLC')}\n"
+            f"Entity: {safe_entity}\n"
             "Classify this transaction."
         )
         try:
@@ -103,7 +137,8 @@ class OpenAIBackend(AIBackend):
             ])
             result = json.loads(raw)
             result.setdefault("confidence", 0.85)
-            return result
+            # Un-redact the reason field for local display
+            return unredact_result(result, combined_map)
         except Exception as exc:
             log.warning("OpenAI classify failed, falling back to local", extra={"error": str(exc)})
             from intelligence.ai_backend.local_backend import LocalBackend
@@ -115,8 +150,15 @@ class OpenAIBackend(AIBackend):
             coa_code: str,
             confirmed_count: int,
     ) -> Dict[str, Any]:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact
+
+        if AI_EGRESS_MODE == "mock":
+            return {"enhanced_pattern": pattern, "suggested_aliases": [], "confidence": 0.50, "source": "mock"}
+
+        safe_pattern, _ = redact(pattern, scope="openai")
         user_msg = (
-            f"Pattern: '{pattern}'\nCOA code: {coa_code}\n"
+            f"Pattern: '{safe_pattern}'\nCOA code: {coa_code}\n"
             f"Confirmed {confirmed_count} times.\n"
             "Suggest an enhanced pattern and up to 3 aliases. "
             "Respond as JSON: {enhanced_pattern, suggested_aliases, confidence}"
@@ -137,14 +179,22 @@ class OpenAIBackend(AIBackend):
             coa_code: str,
             coa_name: str,
     ) -> str:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact, unredact
+
+        if AI_EGRESS_MODE == "mock":
+            return f"Transaction classified as [{coa_code}] {coa_name} (mock mode)."
+
+        safe_desc, mapping = redact(description, scope="openai")
         user_msg = (
-            f"Why is transaction '{description}' classified as "
+            f"Why is transaction '{safe_desc}' classified as "
             f"[{coa_code}] {coa_name}? Give a 1-2 sentence explanation."
         )
         try:
-            return self._chat([
+            raw = self._chat([
                 {"role": "system", "content": "You are a bookkeeper. Be concise."},
                 {"role": "user", "content": user_msg},
             ])
+            return unredact(raw, mapping)
         except Exception:
             return f"Transaction classified as [{coa_code}] {coa_name} via OpenAI analysis."

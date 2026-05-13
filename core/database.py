@@ -317,7 +317,7 @@ def init_db(db_path: Path = DB_PATH) -> None:
 
 _DEFAULT_COA: list[tuple] = [
     # (code, name, type, parent, description, keywords_json)
-    # ── Assets ────────────────────────────────────────────────────────────────
+    # ── Assets ──────────────────────────────────────────────────────────────
     ("1000", "Cash & Cash Equivalents", "asset", None, "", '["cash","checking","deposit","balance"]'),
     ("1010", "Business Checking Account", "asset", "1000", "", '["truist","checking","moneyline"]'),
     ("1100", "Investment & Brokerage Assets", "asset", None, "", '["fidelity","brokerage","investment"]'),
@@ -326,62 +326,62 @@ _DEFAULT_COA: list[tuple] = [
      '["kopin","ssr","kinross","solid power","bigbear","oscar","vale"]'),
     ("1200", "Accounts Receivable", "asset", None, "", '[]'),
     ("1300", "Prepaid Expenses", "asset", None, "", '[]'),
-    # ── Liabilities ───────────────────────────────────────────────────────────
+    # ── Liabilities ─────────────────────────────────────────────────────────
     ("2000", "Current Liabilities", "liability", None, "", '[]'),
     ("2010", "Margin Loan Payable", "liability", "2000", "", '["margin","debit balance"]'),
     ("2020", "Taxes Payable", "liability", "2000", "", '["irs","tax","usataxpymt"]'),
     ("2030", "Accounts Payable", "liability", "2000", "", '[]'),
-    # ── Equity ────────────────────────────────────────────────────────────────
+    # ── Equity ──────────────────────────────────────────────────────────────
     ("3000", "Members Equity", "equity", None, "", '[]'),
     ("3010", "Members Capital Contributions", "equity", "3000", "", '["moneyline","transfer","zelle","wire"]'),
     ("3020", "Retained Earnings", "equity", "3000", "", '[]'),
     ("3030", "Current Period Net Income", "equity", "3000", "", '[]'),
-    # ── Revenue ───────────────────────────────────────────────────────────────
+    # ── Revenue ─────────────────────────────────────────────────────────────
     ("4000", "Revenue", "revenue", None, "", '[]'),
     ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds","realized gain"]'),
     ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","deposit","invoice"]'),
-    ("4030", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
-    ("4040", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
-    ("4090", "Other Income", "revenue", "4000", "", '[]'),
-    # ── Expenses ──────────────────────────────────────────────────────────────
+    ("4021", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
+    ("4030", "Other Income", "revenue", "4000", "", '[]'),
+    ("4031", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
+    # ── Expenses ────────────────────────────────────────────────────────────
     ("5000", "Operating Expenses", "expense", None, "", '[]'),
     ("5010", "Software & Subscriptions", "expense", "5000", "",
-     '["quickbooks","google workspace","microsoft","adobe","dropbox","zoom","slack","github","aws","azure"]'),
+     '["quickbooks","google","subscription","recurring","saas","software","zoom","slack","github","adobe","dropbox","microsoft","azure","aws"]'),
     ("5020", "Bank & Transaction Fees", "expense", "5000", "",
-     '["tran fee","service charge","monthly fee","bank fee","wire fee","nsf fee","intuit tran"]'),
-    ("5025", "Payroll & Wages (Gross)", "expense", "5000", "", '["adp payroll","gusto"]'),
+     '["tran fee","service charge","fee","bank fee","nsf","wire fee","intuit tran"]'),
+    ("5021", "Payroll & Wages", "expense", "5000", "", '["payroll","adp","gusto","wages","salary"]'),
     ("5030", "Margin Interest Expense", "expense", "5000", "", '["margin interest","interest paid"]'),
-    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["tax payroll","payroll tax"]'),
+    ("5031", "Advertising & Marketing", "expense", "5000", "",
+     '["meta ads","facebook ads","twitter ads","instagram ads","google ads"]'),
+    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["payroll tax","941","940"]'),
     ("5050", "Federal Income Tax Expense", "expense", "5000", "", '["irs","usataxpymt","federal tax"]'),
-    ("5055", "State & Local Taxes", "expense", "5000", "", '["state tax","dept of rev"]'),
+    ("5055", "State & Local Taxes", "expense", "5000", "", '["state tax","dept of rev","dept of revenue"]'),
     ("5060", "Investment Transaction Costs", "expense", "5000", "", '["transaction cost","commission"]'),
-    ("5065", "Office & Shipping Supplies", "expense", "5000", "", '["office depot","staples","fedex","ups","usps"]'),
+    ("5061", "Office & Shipping Supplies", "expense", "5000", "",
+     '["office depot","staples","amazon","fedex","ups","usps","shipping"]'),
     ("5070", "Realised Trading Losses", "expense", "5000", "", '["loss","short-term loss","realized loss"]'),
-    ("5075", "Legal & Professional Fees", "expense", "5000", "",
-     '["incfile","registered agent","legalzoom","rocket lawyer","northwest registered"]'),
+    ("5071", "Legal & Professional Fees", "expense", "5000", "",
+     '["incfile","registered agent","northwest registered","legalzoom","rocket lawyer","attorney","legal"]'),
     ("5080", "Other Operating Expenses", "expense", "5000", "", '[]'),
-    ("5085", "Advertising & Marketing", "expense", "5000", "",
-     '["meta ads","facebook ads","instagram ads","twitter ads","x.com ads"]'),
-    ("5090", "Other Interest Expense", "expense", "5000", "", '[]'),
+    ("5090", "Interest Expense", "expense", "5000", "", '["interest expense","loan interest"]'),
     ("5100", "Travel & Transportation", "expense", "5000", "",
-     '["delta","united air","southwest","american air","uber","lyft","marriott","hilton","hyatt","airbnb"]'),
-    # ── Special / Clearing ────────────────────────────────────────────────────
-    # 9000 is used as a marker for inter-account transfers; is_transfer=True
-    # excludes these from P&L.  We store them under equity as a clearing code.
-    ("9000", "Inter-Account Transfer (Clearing)", "equity", "3000", "",
-     '["moneyline fid","transfer in","transfer out","zelle to","zelle from","wire transfer"]'),
+     '["delta","united air","southwest","american air","uber","lyft","taxi","marriott","hilton","hyatt","airbnb"]'),
+    ("5999", "Uncategorized Expense", "expense", "5000", "", '[]'),
+    # ── Internal transfers (not P&L) ────────────────────────────────────────
+    ("9000", "Inter-Account Transfer", "equity", None, "",
+     '["moneyline fid","transfer","zelle","wire transfer"]'),
 ]
 
 
 def _seed_coa(db_path: Path = DB_PATH) -> None:
+    """Insert canonical COA rows. INSERT OR IGNORE means safe to call any time —
+    existing rows are preserved; new codes are added to live databases too."""
     with get_conn(db_path) as conn:
-        existing = conn.execute("SELECT COUNT(*) FROM coa").fetchone()[0]
-        if existing == 0:
-            conn.executemany(
-                "INSERT OR IGNORE INTO coa(code,name,coa_type,parent_code,description,keywords)"
-                " VALUES(?,?,?,?,?,?)",
-                _DEFAULT_COA,
-            )
+        conn.executemany(
+            "INSERT OR IGNORE INTO coa(code,name,coa_type,parent_code,description,keywords)"
+            " VALUES(?,?,?,?,?,?)",
+            _DEFAULT_COA,
+        )
 
 
 class EntityRepo:

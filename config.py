@@ -7,7 +7,8 @@ Never hard-code secrets, API keys, or personal data in this file.
 Environment variables (prefix: FI_):
   FI_DB_PATH                Override SQLite database path
   FI_DATA_DIR               Override data directory
-  FI_AUTO_CLASSIFY_THRESHOLD  Fuzzy match threshold (0-100, default 85)
+  FI_AUTO_CLASSIFY_THRESHOLD      Fuzzy match threshold (0-100, default 85)
+  FI_LOCAL_CONFIDENCE_THRESHOLD   Chain escalation threshold (0.0-1.0, default 0.65)
   FI_LOG_LEVEL              Logging level: DEBUG/INFO/WARNING/ERROR (default INFO)
   FI_LOG_FORMAT             Logging format: json/rich/plain (default rich)
   FI_AI_BACKEND             AI backend: local/openai/gemini (default local)
@@ -18,6 +19,16 @@ Environment variables (prefix: FI_):
   FI_MEMORY_FILE            Override classification memory JSON path
   FI_DEFAULT_ENTITY_NAME    Pre-fill entity name in setup wizard
   FI_DEFAULT_ENTITY_STATE   Pre-fill entity state in setup wizard
+  FI_SE_TAX_RATE            Self-employment tax rate (default 0.153)
+  FI_FED_INCOME_RATE        Federal effective income tax rate (default 0.22)
+  FI_STATE_TAX_RATE         State income tax rate (default 0.05)
+  FI_QBI_DEDUCTION          QBI deduction rate (default 0.20)
+  FI_STATEMENTS_DIR         Override default statements folder (data/statements/)
+  FI_STATEMENT_GLOB         Glob pattern for statement files (default *.pdf)
+  FI_AI_EGRESS_MODE         PII firewall: redact|strict|mock|passthrough (default redact)
+  FI_AI_EGRESS_MODE_ACK     Required for passthrough: I_understand_the_risk
+  FI_PRIVACY_ENTITY_NAME    Legal entity name to redact as <ENTITY_NAME> in AI payloads
+  FI_PRIVACY_NER            Enable spaCy NER: spacy (optional, default off)
 """
 from __future__ import annotations
 
@@ -38,6 +49,14 @@ def _env_int(key: str, default: int) -> int:
     raw = os.environ.get(key, "")
     try:
         return int(raw)
+    except (ValueError, TypeError):
+        return default
+
+
+def _env_float(key: str, default: float) -> float:
+    raw = os.environ.get(key, "")
+    try:
+        return float(raw)
     except (ValueError, TypeError):
         return default
 
@@ -73,9 +92,12 @@ _assert_no_hardcoded_secrets()
 # ── Root paths ────────────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).parent.resolve()
 DATA_DIR = _env_path("FI_DATA_DIR", ROOT_DIR / "data")
-STATEMENTS_DIR = DATA_DIR / "statements"
+STATEMENTS_DIR = _env_path("FI_STATEMENTS_DIR", DATA_DIR / "statements")
 DB_DIR = DATA_DIR / "db"
 EXPORTS_DIR = DATA_DIR / "exports"
+
+# Glob pattern for statement discovery (R-45)
+STATEMENT_GLOB = _env_str("FI_STATEMENT_GLOB", "*.pdf")
 
 for _d in (STATEMENTS_DIR, DB_DIR, EXPORTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
@@ -95,19 +117,9 @@ FISCAL_YEAR_START_MM = _env_int("FI_FISCAL_YEAR_START_MM", 1)
 # ── Parser confidence thresholds ─────────────────────────────────────────────
 AUTO_CLASSIFY_THRESHOLD = _env_int("FI_AUTO_CLASSIFY_THRESHOLD", 85)
 
-
-# AI backend minimum confidence (0.0–1.0) to auto-apply a classification.
-# The local backend returns scores on a 0.0–1.0 scale; the memory module
-# uses 0–100.  Tunable via FI_LOCAL_CONFIDENCE_THRESHOLD.
-def _env_float(key: str, default: float) -> float:
-    raw = os.environ.get(key, "")
-    try:
-        return float(raw)
-    except (ValueError, TypeError):
-        return default
-
-
-LOCAL_CONFIDENCE_THRESHOLD: float = _env_float("FI_LOCAL_CONFIDENCE_THRESHOLD", 0.75)
+# Minimum local-backend confidence before the chain escalates to remote AI.
+# Range 0.0–1.0.  Higher = fewer API calls (more local-only).  Default: 0.65.
+LOCAL_CONFIDENCE_THRESHOLD: float = _env_float("FI_LOCAL_CONFIDENCE_THRESHOLD", 0.65)
 
 # ── Intelligence / memory ────────────────────────────────────────────────────
 MEMORY_FILE = _env_path("FI_MEMORY_FILE", DB_DIR / "classification_memory.json")
@@ -154,7 +166,7 @@ KNOWN_PARSERS = {
     "fidelity_brokerage": "Fidelity Brokerage / Investment Account",
     "chase_checking": "Chase Business Complete Checking",
     "bofa_checking": "Bank of America Business Checking",
-    "usbank_checking": "U.S. Bank Business Checking",
+    "usbank_checking": "U.S. Bank Business Essentials Checking",
     "usbank_creditcard": "U.S. Bank Business Credit Card",
     "ibkr": "Interactive Brokers Activity Statement",
 }
@@ -167,3 +179,19 @@ ACCOUNT_TYPE_LABELS = {
     "revenue": "Revenue",
     "expense": "Expenses",
 }
+
+# ── Privacy / Egress Control (R-46) ──────────────────────────────────────────
+# redact     – apply PII tokenisation (default, recommended)
+# strict     – redact + post-sweep that fails if any digit-run ≥ 7 remains
+# mock       – short-circuit: never call remote; return stub classification
+# passthrough – no redaction; requires FI_AI_EGRESS_MODE_ACK=I_understand_the_risk
+AI_EGRESS_MODE = _env_str("FI_AI_EGRESS_MODE", "redact").lower()
+AI_EGRESS_MODE_ACK = _env_str("FI_AI_EGRESS_MODE_ACK", "")
+
+# Legal entity name to token-replace as <ENTITY_NAME> in all outbound AI payloads.
+# Set to your LLC / business name so it never leaves the machine in the clear.
+PRIVACY_ENTITY_NAME = _env_str("FI_PRIVACY_ENTITY_NAME", "")
+
+# Optional: set to 'spacy' to activate spaCy NER for higher-quality person detection.
+# Requires: pip install spacy && python -m spacy download en_core_web_sm
+PRIVACY_NER = _env_str("FI_PRIVACY_NER", "").lower()

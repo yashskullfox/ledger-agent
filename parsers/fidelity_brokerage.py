@@ -327,7 +327,7 @@ class FidelityBrokerageParser(BaseStatementParser):
                     statement_period=period,
                     is_transfer=True,
                     coa_code="9000",
-                    coa_name="Inter-Account Transfer (Clearing)",
+                    coa_name="Inter-Account Transfer",
                 ))
         return txns
 
@@ -398,7 +398,7 @@ class FidelityBrokerageParser(BaseStatementParser):
                     amount=abs(amt),
                     transaction_type=TransactionType.CREDIT,
                     statement_period=period,
-                    coa_code="4030",
+                    coa_code="4021",
                     coa_name="Dividend Income",
                 ))
         return txns
