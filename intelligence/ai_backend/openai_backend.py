@@ -38,7 +38,6 @@ Common COA codes:
 5999=Uncategorized Expense, 9000=Inter-Account Transfer
 """
 
-
 class OpenAIBackend(AIBackend):
     """OpenAI Chat Completions with retry logic and 30-second timeout."""
 

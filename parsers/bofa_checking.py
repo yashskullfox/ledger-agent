@@ -27,13 +27,10 @@ from core.models import (
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
-
 @ParserRegistry.register
 class BofACheckingParser(BaseStatementParser):
     PARSER_ID = "bofa_checking"
     INSTITUTION = "Bank of America"
-
-    # ── Detection ──────────────────────────────────────────────────────────────
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
@@ -46,8 +43,6 @@ class BofACheckingParser(BaseStatementParser):
                 or "BUSINESS FUNDAMENTALS" in upper
                 or "MERRILL" not in upper  # exclude Merrill investment statements
         )
-
-    # ── Main parse ────────────────────────────────────────────────────────────
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -84,8 +79,6 @@ class BofACheckingParser(BaseStatementParser):
             raw_text=raw_text,
             source_file=str(pdf_path),
         )
-
-    # ── Private helpers ───────────────────────────────────────────────────────
 
     def _extract_period(self, text: str) -> Tuple[str, int]:
         """

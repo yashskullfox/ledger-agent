@@ -23,12 +23,8 @@ from core.models import (
 # Increment whenever the schema changes; auto-migration runs on connect.
 SCHEMA_VERSION = 3
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _decimal(v) -> Decimal:
     return Decimal(str(v)) if v is not None else Decimal("0")
-
 
 def _date(v) -> Optional[date]:
     if v is None:
@@ -36,9 +32,6 @@ def _date(v) -> Optional[date]:
     if isinstance(v, date):
         return v
     return date.fromisoformat(str(v))
-
-
-# ── Connection factory ────────────────────────────────────────────────────────
 
 @contextmanager
 def get_conn(db_path: Path = DB_PATH) -> Generator[sqlite3.Connection, None, None]:
@@ -54,9 +47,6 @@ def get_conn(db_path: Path = DB_PATH) -> Generator[sqlite3.Connection, None, Non
         raise
     finally:
         conn.close()
-
-
-# ── Schema bootstrap ──────────────────────────────────────────────────────────
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -176,7 +166,6 @@ CREATE TABLE IF NOT EXISTS imported_statements (
 );
 """
 
-
 def init_db(db_path: Path = DB_PATH) -> None:
     """Create tables and seed the COA if the DB is brand-new."""
     with get_conn(db_path) as conn:
@@ -193,9 +182,6 @@ def init_db(db_path: Path = DB_PATH) -> None:
             )
     # Seed COA once
     _seed_coa(db_path)
-
-
-# ── COA Seed ──────────────────────────────────────────────────────────────────
 
 _DEFAULT_COA: list[tuple] = [
     # (code, name, type, parent, description, keywords_json)
@@ -229,7 +215,6 @@ _DEFAULT_COA: list[tuple] = [
     ("5080", "Other Operating Expenses",        "expense",  "5000", "", '[]'),
 ]
 
-
 def _seed_coa(db_path: Path = DB_PATH) -> None:
     with get_conn(db_path) as conn:
         existing = conn.execute("SELECT COUNT(*) FROM coa").fetchone()[0]
@@ -239,9 +224,6 @@ def _seed_coa(db_path: Path = DB_PATH) -> None:
                 " VALUES(?,?,?,?,?,?)",
                 _DEFAULT_COA,
             )
-
-
-# ── Entity Repository ─────────────────────────────────────────────────────────
 
 class EntityRepo:
     @staticmethod
@@ -277,9 +259,6 @@ class EntityRepo:
                        state=r["state"] or "", ein_masked=r["ein_masked"],
                        notes=r["notes"] or "",
                        created_at=datetime.fromisoformat(r["created_at"])) for r in rows]
-
-
-# ── Account Repository ────────────────────────────────────────────────────────
 
 class AccountRepo:
     @staticmethod
@@ -335,9 +314,6 @@ class AccountRepo:
             notes=row["notes"] or "",
             created_at=datetime.fromisoformat(row["created_at"]),
         )
-
-
-# ── Transaction Repository ────────────────────────────────────────────────────
 
 class TransactionRepo:
     @staticmethod
@@ -422,9 +398,6 @@ class TransactionRepo:
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
-
-# ── Position Repository ───────────────────────────────────────────────────────
-
 class PositionRepo:
     @staticmethod
     def upsert_period(positions: List[Position], db_path: Path = DB_PATH) -> None:
@@ -478,9 +451,6 @@ class PositionRepo:
             as_of_date=_date(row["as_of_date"]),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
-
-
-# ── AccountSnapshot Repository ────────────────────────────────────────────────
 
 class SnapshotRepo:
     @staticmethod
@@ -547,9 +517,6 @@ class SnapshotRepo:
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
-
-# ── RealisedTrade Repository ──────────────────────────────────────────────────
-
 class RealisedTradeRepo:
     @staticmethod
     def upsert_period(trades: List[RealisedTrade], db_path: Path = DB_PATH) -> None:
@@ -590,9 +557,6 @@ class RealisedTradeRepo:
             created_at=datetime.fromisoformat(r["created_at"]),
         ) for r in rows]
 
-
-# ── COA Repository ────────────────────────────────────────────────────────────
-
 class COARepo:
     @staticmethod
     def list_all(db_path: Path = DB_PATH) -> List[COAEntry]:
@@ -615,9 +579,6 @@ class COARepo:
             description=row["description"] or "",
             keywords=json.loads(row["keywords"] or "[]"),
         )
-
-
-# ── Imported Statement Registry ───────────────────────────────────────────────
 
 class ImportRegistry:
     @staticmethod

@@ -34,15 +34,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# ── Add project root to sys.path so all imports work when run directly ────────
 sys.path.insert(0, str(Path(__file__).parent))
 
 from core.database import init_db
 from core.logging_setup import configure_logging
 from cli.prompts import ask_select, print_error, print_info
-
-
-# ── Boot ──────────────────────────────────────────────────────────────────────
 
 def _boot() -> None:
     """Ensure DB, directories, and logging are initialised before any command runs."""
@@ -54,9 +50,6 @@ def _boot() -> None:
         load_dotenv(override=False)  # don't override already-set env vars
     except ImportError:
         pass
-
-
-# ── Menu ──────────────────────────────────────────────────────────────────────
 
 MENU_CHOICES = [
     "⚡  Quick Scan (import folder → balance sheet + tax)",
@@ -71,7 +64,6 @@ MENU_CHOICES = [
     "⚙️   Entity setup",
     "🚪  Exit",
 ]
-
 
 def interactive_menu() -> None:
     """Main interactive menu loop."""
@@ -131,9 +123,6 @@ def interactive_menu() -> None:
             print_info("Goodbye! 👋")
             sys.exit(0)
 
-
-# ── Tax estimate command ──────────────────────────────────────────────────────
-
 def _cmd_tax(period: str | None = None) -> None:
     """Show tax obligation estimate for a period."""
     init_db()
@@ -154,9 +143,6 @@ def _cmd_tax(period: str | None = None) -> None:
     bs = BalanceSheetBuilder(entity.id, period).build()
     est = TaxEstimator(entity.name, int(period[:4])).estimate_from_balance_sheet(bs)
     render_tax_estimate(est)
-
-
-# ── AI context export command ─────────────────────────────────────────────────
 
 def _cmd_context(period: str | None = None) -> None:
     """Export AI-consumable context JSON for a period."""
@@ -181,9 +167,6 @@ def _cmd_context(period: str | None = None) -> None:
     print_success(f"AI context saved: {path}")
     print_info("\n[bold]Compact text prompt (paste into any AI):[/bold]")
     print(context_to_prompt(ctx))
-
-
-# ── CLI argument dispatch ─────────────────────────────────────────────────────
 
 def main() -> None:
     _boot()
@@ -236,6 +219,10 @@ def main() -> None:
         from cli.commands import cmd_setup
         cmd_setup()
 
+    elif cmd in ("mcp",):
+        from mcp_server.server import main as mcp_main
+        mcp_main()
+
     else:
         print_error(f"Unknown command: '{cmd}'")
         print_info(
@@ -243,7 +230,6 @@ def main() -> None:
             "[scan|import|balance|transactions|classify|memory|summary|tax|context|setup]"
         )
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

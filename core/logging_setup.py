@@ -23,9 +23,6 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-
-# ── JSON formatter ────────────────────────────────────────────────────────────
-
 class _JsonFormatter(logging.Formatter):
     """Emit each log record as a single JSON line."""
 
@@ -51,16 +48,10 @@ class _JsonFormatter(logging.Formatter):
             obj["exc"] = self.formatException(record.exc_info)
         return json.dumps(obj, default=str)
 
-
-# ── Plain formatter ───────────────────────────────────────────────────────────
-
 _PLAIN_FMT = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
 _PLAIN_DATE = "%Y-%m-%dT%H:%M:%S"
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
 _configured = False
-
 
 def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
     """
@@ -108,7 +99,6 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
     # Silence noisy third-party loggers
     for noisy in ("pdfminer", "pdfplumber", "urllib3", "httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-
 
 def get_logger(name: str) -> logging.Logger:
     """

@@ -28,14 +28,11 @@ from core.models import (
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
-
 @ParserRegistry.register
 class TruistCheckingParser(BaseStatementParser):
 
     PARSER_ID   = "truist_checking"
     INSTITUTION = "Truist Bank"
-
-    # ── Detection fingerprint ─────────────────────────────────────────────────
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
@@ -44,8 +41,6 @@ class TruistCheckingParser(BaseStatementParser):
             and ("SIMPLE BUSINESS CHECKING" in text.upper()
                  or "TRUIST SIMPLE BUSINESS" in text.upper())
         )
-
-    # ── Main parse ────────────────────────────────────────────────────────────
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -82,8 +77,6 @@ class TruistCheckingParser(BaseStatementParser):
             raw_text=raw_text,
             source_file=str(pdf_path),
         )
-
-    # ── Private helpers ───────────────────────────────────────────────────────
 
     def _extract_period(self, text: str) -> Tuple[str, int]:
         """

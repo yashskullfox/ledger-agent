@@ -13,6 +13,7 @@
 #   ./run.sh memory
 #   ./run.sh summary
 #   ./run.sh setup
+#   ./run.sh mcp                              # start MCP stdio server (for Claude Desktop / Cursor)
 #
 # AI Modes (set FI_AI_BACKEND env var):
 #   FI_AI_BACKEND=local   ./run.sh            # rule-based, no API key (default)

@@ -31,13 +31,10 @@ from core.models import (
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
-
 @ParserRegistry.register
 class ChaseCheckingParser(BaseStatementParser):
     PARSER_ID = "chase_checking"
     INSTITUTION = "Chase Bank"
-
-    # ── Detection ──────────────────────────────────────────────────────────────
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
@@ -49,8 +46,6 @@ class ChaseCheckingParser(BaseStatementParser):
                 or "TOTAL CHECKING" in upper
                 or "CHASE BUSINESS" in upper
         )
-
-    # ── Main parse ────────────────────────────────────────────────────────────
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -88,8 +83,6 @@ class ChaseCheckingParser(BaseStatementParser):
             raw_text=raw_text,
             source_file=str(pdf_path),
         )
-
-    # ── Private helpers ───────────────────────────────────────────────────────
 
     def _extract_period(self, text: str) -> Tuple[str, int]:
         """

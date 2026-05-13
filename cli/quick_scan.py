@@ -27,9 +27,6 @@ from core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-
-# ── Main entry point ──────────────────────────────────────────────────────────
-
 def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
     """
     Auto-import all PDFs from a folder, then generate balance sheet + tax report.
@@ -48,7 +45,6 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
 
     init_db()
 
-    # ── Banner ────────────────────────────────────────────────────────────────
     try:
         from rich.console import Console
         from rich.panel import Panel
@@ -60,14 +56,12 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
     except ImportError:
         print("\n=== Quick Scan Mode ===\n")
 
-    # ── Entity setup ──────────────────────────────────────────────────────────
     from cli.commands import _get_or_setup_entity
     entity = _get_or_setup_entity()
     if not entity:
         print_error("No entity configured.")
         return
 
-    # ── Locate folder ─────────────────────────────────────────────────────────
     if not folder:
         folder = ask_text(
             "Path to folder containing PDF statements:",
@@ -78,7 +72,6 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
         print_error(f"Directory not found: {scan_dir}")
         return
 
-    # ── Discover PDFs ─────────────────────────────────────────────────────────
     pdf_files = sorted(scan_dir.rglob("*.pdf")) + sorted(scan_dir.rglob("*.PDF"))
     if not pdf_files:
         print_warning(f"No PDF files found in: {scan_dir}")
@@ -86,12 +79,10 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
 
     print_info(f"Found {len(pdf_files)} PDF file(s) in {scan_dir}")
 
-    # ── Load parsers ──────────────────────────────────────────────────────────
     _load_all_parsers()
 
     from core.exceptions import ParserNotFoundError
 
-    # ── Import loop ───────────────────────────────────────────────────────────
     imported_count = 0
     skipped_count = 0
     failed: List[str] = []
@@ -117,7 +108,6 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
             print_error(f"  ✗  Failed: {exc}")
             failed.append(pdf_path.name)
 
-    # ── Summary ───────────────────────────────────────────────────────────────
     print_info(
         f"\n✅ Imported: {imported_count}  |  "
         f"⏭ Skipped: {skipped_count}  |  "
@@ -130,14 +120,12 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
         print_error("No statements processed. Aborting report generation.")
         return
 
-    # ── Discover periods ──────────────────────────────────────────────────────
     snapshots = SnapshotRepo.list_for_entity(entity.id)
     periods = sorted({s.statement_period for s in snapshots}, reverse=True)
     if not periods:
         print_warning("No data available for reporting.")
         return
 
-    # ── Ask which periods to report ───────────────────────────────────────────
     all_label = f"All periods ({', '.join(periods)})"
     period_choice = ask_select(
         "Generate report for:",
@@ -146,7 +134,6 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
     )
     report_periods = periods if all_label in period_choice else [period_choice]
 
-    # ── Balance Sheet ─────────────────────────────────────────────────────────
     from accounting.balance_sheet import BalanceSheetBuilder
     from reports.renderer import render_balance_sheet
 
@@ -157,20 +144,14 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
         # Tax estimate for this period
         _show_tax_estimate(entity.name, bs, int(p[:4]))
 
-    # ── Month-over-month if multiple periods ──────────────────────────────────
     if len(report_periods) > 1:
         from cli.commands import cmd_mom_summary
         cmd_mom_summary()
 
-    # ── Export options ────────────────────────────────────────────────────────
     _offer_exports(entity, report_periods[-1], periods)
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 class _AlreadyImportedSkip(Exception):
     pass
-
 
 def _load_all_parsers() -> None:
     """Import all parser modules to trigger @register decorators."""
@@ -180,13 +161,15 @@ def _load_all_parsers() -> None:
         "parsers.fidelity_brokerage",
         "parsers.chase_checking",
         "parsers.bofa_checking",
+        "parsers.usbank_checking",
+        "parsers.usbank_creditcard",
+        "parsers.ibkr",
     ]
     for mod in parser_modules:
         try:
             importlib.import_module(mod)
         except Exception:
             pass  # optional parsers may not be present
-
 
 def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> None:
     """Import one PDF. Raises _AlreadyImportedSkip or ParserNotFoundError."""
@@ -252,7 +235,6 @@ def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> N
         f"  ✓ {stmt.institution} | {stmt.statement_period} | {len(stmt.transactions)} txns"
     )
 
-
 def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
     """Print tax estimate for a balance sheet."""
     try:
@@ -261,7 +243,6 @@ def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
         render_tax_estimate(est)
     except Exception as exc:
         log.warning("Tax estimate failed", extra={"error": str(exc)})
-
 
 def _offer_exports(entity, latest_period: str, all_periods: List[str]) -> None:
     """Offer export options after the scan."""

@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from intelligence.ai_backend.base import AIBackend
 
-# ── Classification rules ──────────────────────────────────────────────────────
 # Each tuple: (regex_pattern, coa_code, coa_name, is_transfer)
 # Listed most-specific first.
 
@@ -84,10 +83,8 @@ _COMPILED_RULES = [
     for pat, code, name, xfer in _RULES
 ]
 
-# ── Usage tracking (in-memory; persisted via memory.py) ──────────────────────
 _usage_counts: Dict[str, int] = {}
 _COMMIT_THRESHOLDS = {3, 10, 25}
-
 
 class LocalBackend(AIBackend):
     """Rule-based backend with rapidfuzz fuzzy matching and usage tracking."""

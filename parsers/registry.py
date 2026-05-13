@@ -15,11 +15,8 @@ from typing import Dict, List, Optional, Type
 
 from core.exceptions import ParserNotFoundError
 
-
 class ParserRegistry:
     _registry: Dict[str, "Type"] = {}   # parser_id → class
-
-    # ── Registration ──────────────────────────────────────────────────────────
 
     @classmethod
     def register(cls, parser_cls: "Type") -> "Type":
@@ -29,8 +26,6 @@ class ParserRegistry:
             raise ValueError(f"{parser_cls.__name__} must define PARSER_ID")
         cls._registry[pid] = parser_cls
         return parser_cls
-
-    # ── Detection ─────────────────────────────────────────────────────────────
 
     @classmethod
     def detect(cls, text: str) -> Optional["Type"]:
@@ -52,8 +47,6 @@ class ParserRegistry:
                 "Add a custom parser in parsers/ and register it."
             )
         return parser_cls
-
-    # ── Introspection ─────────────────────────────────────────────────────────
 
     @classmethod
     def list_parsers(cls) -> List[str]:

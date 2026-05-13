@@ -31,7 +31,6 @@ _COA_HINT = (
     "5100=Travel,5999=Uncategorized,9000=Transfer"
 )
 
-
 class GeminiBackend(AIBackend):
     """Google Gemini backend with graceful local fallback."""
 

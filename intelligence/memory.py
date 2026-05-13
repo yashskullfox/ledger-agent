@@ -19,7 +19,6 @@ try:
 except ImportError:
     _FUZZY_AVAILABLE = False
 
-
 class ClassificationMemory:
     """
     Thread-safe (single-process) persistent store for classification rules.
@@ -43,8 +42,6 @@ class ClassificationMemory:
         self._file = memory_file
         self._rules: List[Dict] = []
         self._load()
-
-    # ── Public API ────────────────────────────────────────────────────────────
 
     def lookup(self, description: str) -> Optional[Tuple[str, str, bool, int]]:
         """
@@ -112,8 +109,6 @@ class ClassificationMemory:
             return True
         return False
 
-    # ── Internal ──────────────────────────────────────────────────────────────
-
     def _load(self) -> None:
         if self._file.exists():
             try:
@@ -166,10 +161,8 @@ class ClassificationMemory:
         text = re.sub(r"\s+", " ", text).strip()
         return text
 
-
 # Module-level singleton
 _memory: Optional[ClassificationMemory] = None
-
 
 def get_memory() -> ClassificationMemory:
     global _memory

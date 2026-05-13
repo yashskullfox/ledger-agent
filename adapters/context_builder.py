@@ -20,13 +20,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-
 class _DecimalEncoder(json.JSONEncoder):
     def default(self, obj: Any) -> Any:
         if isinstance(obj, Decimal):
             return float(obj)
         return super().default(obj)
-
 
 def build_context(
         entity_id: str,
@@ -165,13 +163,11 @@ def build_context(
 
     return ctx
 
-
 def save_context(ctx: Dict[str, Any], path: Path) -> Path:
     """Save context dict as pretty-printed JSON. Returns the file path."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(ctx, indent=2, cls=_DecimalEncoder))
     return path
-
 
 def context_to_prompt(ctx: Dict[str, Any]) -> str:
     """
@@ -217,13 +213,9 @@ def context_to_prompt(ctx: Dict[str, Any]) -> str:
 
     return "\n".join(lines)
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
-
 
 def _safe_div(a, b) -> Optional[float]:
     try:

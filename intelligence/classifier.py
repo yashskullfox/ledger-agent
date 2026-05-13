@@ -31,13 +31,9 @@ from intelligence.memory import get_memory
 
 log = get_logger(__name__)
 
-
 # Sentinel for "user skipped classification"
 UNCLASSIFIED_CODE = "9999"
 UNCLASSIFIED_NAME = "Unclassified – Review Required"
-
-
-# ── COA keyword scan ─────────────────────────────────────────────────────────
 
 def _keyword_match(description: str,
                    coa_entries: List[COAEntry]) -> Optional[COAEntry]:
@@ -55,9 +51,6 @@ def _keyword_match(description: str,
     if len(matches) == 1:
         return matches[0]
     return None
-
-
-# ── Main classifier ───────────────────────────────────────────────────────────
 
 def classify_transaction(
     txn: Transaction,
@@ -144,7 +137,6 @@ def classify_transaction(
     txn.coa_name = UNCLASSIFIED_NAME
     return txn
 
-
 def classify_batch(
     transactions: List[Transaction],
     prompt_fn: Optional[Callable] = None,
@@ -173,9 +165,6 @@ def classify_batch(
 
     return transactions, auto, prompted
 
-
-# ── COA display helpers ───────────────────────────────────────────────────────
-
 def coa_choices_for_prompt(coa_entries: List[COAEntry]) -> List[Tuple[str, str]]:
     """
     Return a list of (display_label, code) for presenting to the user.
@@ -183,6 +172,51 @@ def coa_choices_for_prompt(coa_entries: List[COAEntry]) -> List[Tuple[str, str]]
     """
     leaves = [e for e in coa_entries if e.parent_code is not None]
     return [(f"{e.code}  {e.name}", e.code) for e in leaves]
+
+def suggest_classification(description: str, amount: float = 0.0) -> dict:
+    """
+    Return a classification suggestion dict for a single description string.
+    Used by the MCP server and any non-interactive caller that needs a COA suggestion.
+    Returns {"coa_code": str, "coa_name": str, "confidence": float, "source": str}
+    """
+    memory = get_memory()
+    result = memory.lookup(description)
+    if result:
+        code, name, _, score = result
+        return {
+            "coa_code": code,
+            "coa_name": name,
+            "confidence": round(score / 100, 2),
+            "source": "memory",
+        }
+    try:
+        from intelligence.ai_backend import get_backend
+        backend = get_backend()
+        ai_result = backend.classify_transaction(description=description, amount=amount)
+        if ai_result and ai_result.get("coa_code"):
+            return {
+                "coa_code": ai_result.get("coa_code", ""),
+                "coa_name": ai_result.get("coa_name", ""),
+                "confidence": ai_result.get("confidence", 0.0),
+                "source": backend.backend_name,
+            }
+    except Exception:
+        pass
+    coa_entries = COARepo.list_all()
+    kw_match = _keyword_match(description, coa_entries)
+    if kw_match:
+        return {
+            "coa_code": kw_match.code,
+            "coa_name": kw_match.name,
+            "confidence": 0.7,
+            "source": "keyword",
+        }
+    return {
+        "coa_code": UNCLASSIFIED_CODE,
+        "coa_name": UNCLASSIFIED_NAME,
+        "confidence": 0.0,
+        "source": "none",
+    }
 
 
 def summarise_classifications(transactions: List[Transaction]) -> dict:
