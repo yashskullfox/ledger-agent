@@ -1,0 +1,33 @@
+## k8s/configmap.yaml — non-sensitive configuration for ledger-agent
+## Apply: kubectl apply -f k8s/configmap.yaml
+##
+## All values here are safe to commit. Sensitive values (API keys, DB path)
+## go in secret.yaml.template — never in this file.
+##
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledger-agent-config
+  labels:
+    app: ledger-agent
+    component: config
+data:
+  ## ── Server ─────────────────────────────────────────────────────────────────
+  PORT: "8080"
+
+  ## ── Ledger display labels (set to your own labels; no real names here) ─────
+  LEDGER_APP_TITLE: "Financial Intelligence"
+  LEDGER_APP_BADGE: "Internal"
+  LEDGER_DEFAULT_FISCAL_YEAR: "2024"
+  LEDGER_PARTNER_A_LABEL: "Partner A (99%)"
+  LEDGER_PARTNER_B_LABEL: "Partner B (1%)"
+
+  ## ── Python financial engine ─────────────────────────────────────────────────
+  ## FI_DB_PATH comes from the Secret (it may contain a sensitive path)
+  FI_AI_BACKEND: "local"          # local | openai | gemini
+  FI_AI_EGRESS_MODE: "redact"     # redact | strict | mock | passthrough
+  FI_SE_TAX_RATE: "0.153"
+  FI_FED_INCOME_RATE: "0.22"
+  FI_STATE_TAX_RATE: "0.05"
+  FI_QBI_DEDUCTION: "0.20"
+  FI_AUTO_CLASSIFY_THRESHOLD: "85"

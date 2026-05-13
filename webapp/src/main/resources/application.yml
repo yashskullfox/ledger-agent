@@ -2,17 +2,16 @@ spring:
   application:
     name: ledger-agent-webapp
 
-  # Thymeleaf
   thymeleaf:
     mode: HTML
     encoding: UTF-8
-    cache: false      # set to true in prod; false for dev hot-reload
+    cache: false   # set true in prod
 
 server:
-  port: 8080
+  port: ${PORT:8080}
   shutdown: graceful
 
-# Actuator — expose /healthz via Spring Actuator as well as our custom endpoint
+# ── Actuator ──────────────────────────────────────────────────────────────────
 management:
   endpoints:
     web:
@@ -22,14 +21,16 @@ management:
     health:
       show-details: never
 
-# Ledger-agent bridge configuration
+# ── Ledger-agent bridge ────────────────────────────────────────────────────────
 ledger:
-  # Override to point at an extracted Python runtime (set by LedgerAgentApplication
-  # after ARCH-10 runtime extraction, or set via environment variable).
   python-home: ${LEDGER_PYTHON_HOME:}
+  default-fiscal-year: ${LEDGER_DEFAULT_FISCAL_YEAR:2024}
 
-  # Default fiscal year shown on the home page
-  default-fiscal-year: 2024
+  # Display labels — set via env var or K8s ConfigMap; never hardcode real names here
+  app-title:       ${LEDGER_APP_TITLE:Financial Intelligence}
+  app-badge:       ${LEDGER_APP_BADGE:Form D}
+  partner-a-label: ${LEDGER_PARTNER_A_LABEL:Partner A (99%)}
+  partner-b-label: ${LEDGER_PARTNER_B_LABEL:Partner B (1%)}
 
 logging:
   level:
