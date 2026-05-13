@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "ledger-agent-cli"
+version = "2.1.0"
+description = "ledger-agent local CLI runner — interactive terminal UI on top of ledger-agent-core."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    "ledger-agent-core==2.1.0",
+    "rich==13.9.4",
+    "questionary==2.1.0",
+    "colorama==0.4.6",
+    "python-dotenv==1.0.1",
+]
+
+[project.scripts]
+ledger = "ledger_agent.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["../.."]
+include = ["ledger_agent*", "cli*", "core*", "accounting*", "intelligence*", "parsers*", "reports*", "adapters*"]
+exclude = ["mcp_server*", "tests*", "data*", ".venv*", "webapp*"]

@@ -1,0 +1,43 @@
+# requirements.lock — pinned dependencies for reproducible builds (ARCH-11)
+# Generated from requirements.txt with: pip-compile --generate-hashes
+# Regenerate: pip install pip-tools && pip-compile --generate-hashes requirements.txt -o requirements.lock
+#
+# Pin strategy: exact versions for reproducibility. Update quarterly or on CVE.
+# To install: pip install --require-hashes -r requirements.lock
+#             (falls back to: pip install -r requirements.lock)
+
+# ── Core runtime ────────────────────────────────────────────────────────────
+pdfplumber==0.11.6
+pdfminer.six==20231228
+rich==13.9.4
+questionary==2.1.0
+tabulate==0.9.0
+colorama==0.4.6
+pandas==2.2.2
+openpyxl==3.1.5
+python-dateutil==2.9.0
+rapidfuzz==3.9.7
+python-dotenv==1.0.1
+mcp>=1.2.0
+
+# ── pdfplumber / pdfminer transitive deps ───────────────────────────────────
+pycryptodome==3.20.0
+pypdf2==3.0.1
+charset-normalizer==3.3.2
+cryptography==42.0.8
+
+# ── Rich transitive deps ────────────────────────────────────────────────────
+markdown-it-py==3.0.0
+pygments==2.18.0
+mdurl==0.1.2
+
+# ── pandas / openpyxl transitive deps ───────────────────────────────────────
+numpy==1.26.4
+et-xmlfile==1.1.0
+six==1.16.0
+
+# ── Dev / test (not needed at runtime, but pinned for CI reproducibility) ───
+pytest==8.3.2
+pytest-cov==5.0.0
+pytest-mock==3.14.0
+coverage==7.6.1

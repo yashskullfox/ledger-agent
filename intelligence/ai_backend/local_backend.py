@@ -15,10 +15,13 @@ Self-learning:
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from intelligence.ai_backend.base import AIBackend
+
+_log = logging.getLogger(__name__)
 
 # Each tuple: (regex_pattern, coa_code, coa_name, is_transfer)
 # Listed most-specific first.
@@ -214,13 +217,11 @@ class LocalBackend(AIBackend):
         count = _usage_counts[coa_code]
         if count in _COMMIT_THRESHOLDS:
             try:
-                from cli.prompts import print_info
-                print_info(
-                    f"[dim]💡 You've confirmed [bold]{count}[/bold] transactions under "
-                    f"[yellow]{coa_name}[/yellow].  Consider committing your "
-                    f"classification memory to version control:\n"
-                    f"  git add data/db/classification_memory.json && "
-                    f"git commit -m 'chore: update classification memory ({count} rules)'[/dim]"
+                _log.info(
+                    "Classification memory tip: %d transactions confirmed under '%s'. "
+                    "Consider committing: git add data/db/classification_memory.json && "
+                    "git commit -m 'chore: update classification memory (%d rules)'",
+                    count, coa_name, count,
                 )
             except Exception:
                 pass

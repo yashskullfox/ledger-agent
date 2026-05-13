@@ -208,65 +208,14 @@ class TaxEstimator:
 
 
 def render_tax_estimate(est: TaxEstimate) -> None:
-    """Print a formatted tax estimate to stdout."""
-    try:
-        from rich.console import Console
-        from rich.table import Table
-        from rich.panel import Panel
+    """Print a formatted tax estimate to stdout.
 
-        console = Console()
-        console.print(Panel(
-            f"[bold yellow]Tax Estimate – {est.entity_name}[/bold yellow]\n"
-            f"[dim]Period: {est.period}  |  "
-            f"Effective rate: {est.effective_rate}%[/dim]",
-            border_style="yellow",
-        ))
-
-        tbl = Table(show_header=True, header_style="bold cyan")
-        tbl.add_column("Component", style="white", min_width=30)
-        tbl.add_column("Annual Amount", style="yellow", justify="right", min_width=16)
-        tbl.add_column("Quarterly Payment", style="green", justify="right", min_width=16)
-
-        rows = [
-            ("Net Income (annualized)", est.net_income, est.net_income / 4),
-            ("Self-Employment Tax (15.3%)", est.se_tax, est.se_tax / 4),
-            ("Federal Income Tax (~22%)", est.federal_income_tax, est.federal_income_tax / 4),
-            ("State Income Tax", est.state_income_tax, est.state_income_tax / 4),
-        ]
-        for label, annual, quarterly in rows:
-            tbl.add_row(label, f"${annual:,.2f}", f"${quarterly:,.2f}")
-
-        tbl.add_section()
-        tbl.add_row(
-            "[bold]TOTAL ESTIMATED TAX[/bold]",
-            f"[bold]${est.total_annual_tax:,.2f}[/bold]",
-            f"[bold]${est.total_annual_tax / 4:,.2f}[/bold]",
-        )
-        console.print(tbl)
-
-        console.print("\n[bold cyan]Quarterly Payment Schedule[/bold cyan]")
-        for pmt in est.quarterly_payments:
-            console.print(
-                f"  [yellow]{pmt.quarter}[/yellow]  "
-                f"Due: [dim]{pmt.due_date}[/dim]  →  "
-                f"[green]${pmt.amount:,.2f}[/green]"
-            )
-
-        console.print()
-        for note in est.notes:
-            console.print(f"  [dim]{note}[/dim]")
-
-    except ImportError:
-        print(f"\n=== Tax Estimate – {est.entity_name} ({est.period}) ===")
-        print(f"Net Income (annual): ${est.net_income:,.2f}")
-        print(f"SE Tax:              ${est.se_tax:,.2f}")
-        print(f"Federal Income Tax:  ${est.federal_income_tax:,.2f}")
-        print(f"State Income Tax:    ${est.state_income_tax:,.2f}")
-        print(f"TOTAL:               ${est.total_annual_tax:,.2f}")
-        print(f"Effective Rate:      {est.effective_rate}%")
-        print("\nQuarterly Payments:")
-        for pmt in est.quarterly_payments:
-            print(f"  {pmt.quarter}  {pmt.due_date}: ${pmt.amount:,.2f}")
-        print()
-        for note in est.notes:
-            print(f"  {note}")
+    .. deprecated::
+        This function is a presentation concern and has been moved to
+        ``reports.renderer.render_tax_estimate``.  This shim is kept for
+        backward compatibility with callers that import directly from
+        ``accounting.tax_estimator``.  New code should import from
+        ``reports.renderer`` instead.
+    """
+    from reports.renderer import render_tax_estimate as _render
+    _render(est)

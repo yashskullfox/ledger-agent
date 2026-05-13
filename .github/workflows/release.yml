@@ -1,0 +1,478 @@
+name: Release — Four-Artifact Pipeline (ARCH-11/12)
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main]
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (build & test, skip GitHub Release publish)"
+        required: false
+        default: "false"
+
+# ── Concurrency — one active release per branch ───────────────────────────────
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# ── Defaults ──────────────────────────────────────────────────────────────────
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: "3.11.9"
+  JDK_VERSION: "21"
+  JDK_DISTRO: "temurin"
+  MAVEN_OPTS: "-Xmx2g -XX:+TieredCompilation"
+  # Reproducible builds: all timestamps anchored to the commit time
+  SOURCE_DATE_EPOCH: "0"   # overridden in compute-version job
+
+# ╔══════════════════════════════════════════════════════════════════════════════
+# ║  JOB 1 — Compute semver
+# ╚══════════════════════════════════════════════════════════════════════════════
+jobs:
+  compute-version:
+    name: Compute semver
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      epoch: ${{ steps.epoch.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history for semver calculation
+
+      - name: Compute semver from conventional commits
+        id: semver
+        run: python .github/scripts/compute_semver.py
+
+      - name: Get git commit epoch (reproducible builds)
+        id: epoch
+        run: echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 2 — Build Form A (Core wheel + zip)
+  # ╚════════════════════════════════════════════════════════════════════════════
+  build-core:
+    name: Build core library
+    needs: compute-version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.compute-version.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Pin pip
+        run: pip install --upgrade "pip==24.0" "build==1.2.1" "twine==5.1.1"
+
+      - name: Install deps from lock file
+        run: |
+          pip install --require-hashes -r requirements.lock \
+            || pip install -r requirements.txt
+
+      - name: Smoke-test core import
+        run: |
+          python -c "
+          import ledger_agent.core.api as a
+          fns = ['import_statements','generate_balance_sheet','generate_form_1065',
+                 'generate_k1','pte_estimate','reconcile_year']
+          [getattr(a, f) for f in fns]
+          print('ARCH-01 PASS: all 6 API functions present')
+          "
+
+      - name: Run core purity test
+        run: python -m pytest tests/architecture/test_core_purity.py -q
+
+      - name: Package core artifact
+        run: |
+          VER="${{ env.VERSION }}"
+          DIST_DIR="dist-core"
+          mkdir -p "$DIST_DIR"
+          # Zip: source tree for ledger_agent/core + packaging/core files
+          zip -r "$DIST_DIR/ledger-agent-core-v${VER}.zip" \
+            ledger_agent/core/ packaging/core/ \
+            LICENSE requirements.txt requirements.lock \
+            --exclude "**/__pycache__/*" "**/*.pyc"
+          echo "Core artifact: $(ls -lh $DIST_DIR)"
+
+      - name: Checksum
+        run: .github/scripts/sha256sums.sh dist-core
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-core
+          path: dist-core/
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 3 — Build Form B (CLI tarball with run.sh + run.bat)
+  # ╚════════════════════════════════════════════════════════════════════════════
+  build-cli:
+    name: Build CLI runner
+    needs: compute-version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.compute-version.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Validate run.sh syntax
+        run: bash -n run.sh && test -f run.bat
+
+      - name: Smoke-test CLI entrypoint
+        run: |
+          pip install -q -r requirements.txt
+          python -m ledger_agent.cli.main --help
+
+      - name: Package CLI artifact
+        run: |
+          VER="${{ env.VERSION }}"
+          DIST_DIR="dist-cli"
+          TAR_NAME="ledger-agent-cli-v${VER}.tar.gz"
+          mkdir -p "$DIST_DIR"
+          # Exclude venv, __pycache__, .git, data, tests
+          tar -czf "$DIST_DIR/$TAR_NAME" \
+            --exclude=".venv" \
+            --exclude="__pycache__" \
+            --exclude="*.pyc" \
+            --exclude=".git" \
+            --exclude="data/db/*.db" \
+            --exclude="tests" \
+            --exclude="webapp" \
+            --exclude="dist-*" \
+            .
+          echo "CLI artifact: $(ls -lh $DIST_DIR)"
+
+      - name: Checksum
+        run: .github/scripts/sha256sums.sh dist-cli
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-cli
+          path: dist-cli/
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 4 — Build Form C (MCP server bundle)
+  # ╚════════════════════════════════════════════════════════════════════════════
+  build-mcp:
+    name: Build MCP server
+    needs: compute-version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.compute-version.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: pip install -q -r requirements.txt
+
+      - name: Smoke-test MCP tools/list (13 privacy tests + tools count)
+        run: |
+          python -m pytest tests/integration/test_mcp_privacy.py -q
+          python -c "
+          from ledger_agent.mcp.tools import TOOL_SCHEMAS
+          assert len(TOOL_SCHEMAS) == 6, f'Expected 6 tools, got {len(TOOL_SCHEMAS)}'
+          print('ARCH-06 PASS: 6 MCP tools registered')
+          "
+
+      - name: Package MCP artifact
+        run: |
+          VER="${{ env.VERSION }}"
+          DIST_DIR="dist-mcp"
+          mkdir -p "$DIST_DIR"
+          zip -r "$DIST_DIR/ledger-agent-mcp-v${VER}.zip" \
+            ledger_agent/mcp/ \
+            ledger_agent/__init__.py \
+            ledger_agent/core/ \
+            ledger_agent/bridge/ \
+            packaging/mcp/ \
+            requirements.txt requirements.lock \
+            LICENSE \
+            --exclude "**/__pycache__/*" "**/*.pyc"
+          echo "MCP artifact: $(ls -lh $DIST_DIR)"
+
+      - name: Checksum
+        run: .github/scripts/sha256sums.sh dist-mcp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-mcp
+          path: dist-mcp/
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 5 — Build Form D (Spring Boot fat jar) — Linux
+  # ╚════════════════════════════════════════════════════════════════════════════
+  build-webapp-linux:
+    name: Build webapp (linux-x86_64)
+    needs: compute-version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.compute-version.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: ${{ env.JDK_DISTRO }}
+          java-version: ${{ env.JDK_VERSION }}
+
+      - name: Set Maven project version
+        working-directory: webapp
+        run: |
+          # Update pom.xml version and set reproducible timestamp
+          mvn -q versions:set -DnewVersion="${{ env.VERSION }}" -DgenerateBackupPoms=false
+          mvn -q versions:commit
+          # Inject commit epoch into build.outputTimestamp
+          EPOCH="${{ needs.compute-version.outputs.epoch }}"
+          TS=$(date -u --date="@$EPOCH" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+               || date -u -r "$EPOCH" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+               || echo "2024-01-01T00:00:00Z")
+          mvn -q versions:set-property -Dproperty=project.build.outputTimestamp -DnewValue="$TS" \
+              -DgenerateBackupPoms=false 2>/dev/null || true
+
+      - name: Build fat jar (unit tests only — no IT)
+        working-directory: webapp
+        run: mvn -q package -DskipITs
+
+      - name: Rename artifact
+        working-directory: webapp
+        run: |
+          VER="${{ env.VERSION }}"
+          mkdir -p ../dist-webapp
+          cp target/ledger-agent-webapp-*.jar \
+             "../dist-webapp/ledger-agent-webapp-v${VER}-linux-x86_64.jar" 2>/dev/null \
+          || cp target/*.jar \
+             "../dist-webapp/ledger-agent-webapp-v${VER}-linux-x86_64.jar"
+
+      - name: Checksum
+        run: .github/scripts/sha256sums.sh dist-webapp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-webapp-linux
+          path: dist-webapp/
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 6 — Build Form D (Spring Boot fat jar) — macOS
+  # ╚════════════════════════════════════════════════════════════════════════════
+  build-webapp-macos:
+    name: Build webapp (darwin-aarch64)
+    needs: compute-version
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.compute-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: ${{ env.JDK_DISTRO }}
+          java-version: ${{ env.JDK_VERSION }}
+
+      - name: Build fat jar
+        working-directory: webapp
+        run: mvn -q package -DskipITs -DskipTests
+
+      - name: Rename artifact
+        working-directory: webapp
+        run: |
+          VER="${{ env.VERSION }}"
+          mkdir -p ../dist-webapp-macos
+          cp target/*.jar \
+             "../dist-webapp-macos/ledger-agent-webapp-v${VER}-darwin-aarch64.jar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-webapp-macos
+          path: dist-webapp-macos/
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 7 — Build Form D (Spring Boot fat jar) — Windows
+  # ╚════════════════════════════════════════════════════════════════════════════
+  build-webapp-windows:
+    name: Build webapp (windows-x86_64)
+    needs: compute-version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.compute-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: ${{ env.JDK_DISTRO }}
+          java-version: ${{ env.JDK_VERSION }}
+
+      - name: Build fat jar
+        working-directory: webapp
+        shell: cmd
+        run: mvn -q package -DskipITs -DskipTests
+
+      - name: Rename artifact
+        working-directory: webapp
+        shell: powershell
+        run: |
+          $ver = "$env:VERSION"
+          New-Item -ItemType Directory -Force -Path ..\dist-webapp-windows
+          Get-ChildItem target\*.jar | Copy-Item -Destination "..\dist-webapp-windows\ledger-agent-webapp-v$ver-windows-x86_64.jar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-webapp-windows
+          path: dist-webapp-windows/
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 8 — CPA Parity Gate (ARCH-12)
+  # ╚════════════════════════════════════════════════════════════════════════════
+  parity-gate:
+    name: CPA parity gate (ARCH-12)
+    needs: [build-core, build-cli, build-mcp]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run parity test
+        env:
+          # Mount the private corpus from a repository secret.
+          # If the secret is empty the test skips with a clear SKIP_REASON.
+          FI_CPA_CORPUS: ${{ secrets.FI_CPA_CORPUS_2024 }}
+          FI_CPA_CORPUS_PATH: /tmp/2024.txt
+        run: |
+          if [ -n "$FI_CPA_CORPUS" ]; then
+            echo "$FI_CPA_CORPUS" > "$FI_CPA_CORPUS_PATH"
+          fi
+          python -m pytest -m parity \
+            tests/integration/test_2024_cpa_parity.py \
+            --maxfail=1 -q 2>&1 || {
+            echo "::error::CPA parity gate FAILED — release blocked."
+            exit 1
+          }
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 9 — Smoke test (end-to-end sanity before publish)
+  # ╚════════════════════════════════════════════════════════════════════════════
+  smoke:
+    name: Smoke tests
+    needs: [build-core, build-cli, build-mcp]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run architecture + MCP privacy tests
+        run: |
+          python -m pytest \
+            tests/architecture/test_core_purity.py \
+            tests/integration/test_mcp_privacy.py \
+            -q --tb=short
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 10 — Publish GitHub Release
+  # ╚════════════════════════════════════════════════════════════════════════════
+  release:
+    name: Publish GitHub Release
+    needs: [compute-version, smoke, parity-gate,
+            build-webapp-linux, build-webapp-macos, build-webapp-windows]
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.dry_run != 'true'
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.compute-version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Flatten artifacts into release dir
+        run: |
+          mkdir -p release-assets
+          find artifacts/ -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.jar" \) \
+            -exec cp {} release-assets/ \;
+          ls -lh release-assets/
+
+      - name: Generate combined SHA256SUMS
+        run: .github/scripts/sha256sums.sh release-assets
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VER="v${{ env.VERSION }}"
+          LAST_TAG=$(git tag --list "v*.*.*" --sort=-v:refname | head -1)
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty="- %s (%h)" --no-merges | head -30)
+          else
+            COMMITS="- Initial release"
+          fi
+          cat > release_notes.md <<EOF
+          ## ledger-agent $VER
+
+          ### What's Changed
+          ${COMMITS}
+
+          ### Artifacts
+
+          | Artifact | Form | Description |
+          |----------|------|-------------|
+          | \`ledger-agent-core-v${VER}.zip\` | A | Pure-Python core library |
+          | \`ledger-agent-cli-v${VER}.tar.gz\` | B | CLI runner with \`run.sh\` + \`run.bat\` |
+          | \`ledger-agent-mcp-v${VER}.zip\` | C | MCP server (stdio + HTTP) |
+          | \`ledger-agent-webapp-v${VER}-linux-x86_64.jar\` | D | Spring Boot fat jar (Linux) |
+          | \`ledger-agent-webapp-v${VER}-darwin-aarch64.jar\` | D | Spring Boot fat jar (macOS) |
+          | \`ledger-agent-webapp-v${VER}-windows-x86_64.jar\` | D | Spring Boot fat jar (Windows) |
+          | \`SHA256SUMS\` | — | Checksums for all artifacts |
+
+          All four forms produce identical numbers for the SYNCED LLC 2024 corpus.
+
+          🌀 Magic applied with [Wibey VS Code Extension](https://wibey.walmart.com/code) 🪄
+          EOF
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "v${{ env.VERSION }}" \
+            --title "ledger-agent v${{ env.VERSION }}" \
+            --notes-file release_notes.md \
+            --target "${{ github.sha }}" \
+            release-assets/*

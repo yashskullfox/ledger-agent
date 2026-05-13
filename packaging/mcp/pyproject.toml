@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "ledger-agent-mcp"
+version = "2.1.0"
+description = "ledger-agent MCP server — spec-compliant stdio + streamable-HTTP server exposing six financial tools."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    "ledger-agent-core==2.1.0",
+    "mcp>=1.2.0",
+    "python-dotenv==1.0.1",
+]
+
+[project.scripts]
+ledger-agent-mcp = "ledger_agent.mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["../.."]
+include = ["ledger_agent*", "core*", "accounting*", "intelligence*", "parsers*", "reports*", "adapters*"]
+exclude = ["cli*", "tests*", "data*", ".venv*", "webapp*"]

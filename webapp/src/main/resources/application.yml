@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: ledger-agent-webapp
+
+  # Thymeleaf
+  thymeleaf:
+    mode: HTML
+    encoding: UTF-8
+    cache: false      # set to true in prod; false for dev hot-reload
+
+server:
+  port: 8080
+  shutdown: graceful
+
+# Actuator — expose /healthz via Spring Actuator as well as our custom endpoint
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: never
+
+# Ledger-agent bridge configuration
+ledger:
+  # Override to point at an extracted Python runtime (set by LedgerAgentApplication
+  # after ARCH-10 runtime extraction, or set via environment variable).
+  python-home: ${LEDGER_PYTHON_HOME:}
+
+  # Default fiscal year shown on the home page
+  default-fiscal-year: 2024
+
+logging:
+  level:
+    root: WARN
+    com.ledgeragent: INFO

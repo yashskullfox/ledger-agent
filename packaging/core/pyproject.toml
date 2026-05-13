@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "ledger-agent-core"
+version = "2.1.0"
+description = "Pure-Python financial intelligence library — parsers, classifiers, accounting, tax. Zero CLI/UI/network dependencies."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["finance", "accounting", "balance-sheet", "pdf-parser", "small-business", "form-1065", "k-1"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# Minimal runtime deps — no rich, no click, no requests
+dependencies = [
+    "pdfplumber==0.11.6",
+    "pdfminer.six==20231228",
+    "pandas==2.2.2",
+    "openpyxl==3.1.5",
+    "python-dateutil==2.9.0",
+    "rapidfuzz==3.9.7",
+    "tabulate==0.9.0",
+]
+
+[project.optional-dependencies]
+openai = [
+    "openai==1.35.14",
+    "tenacity==8.5.0",
+]
+gemini = [
+    "google-generativeai==0.7.2",
+    "tenacity==8.5.0",
+]
+ai = [
+    "openai==1.35.14",
+    "google-generativeai==0.7.2",
+    "tenacity==8.5.0",
+]
+
+[project.urls]
+Homepage    = "https://github.com/your-org/ledger-agent"
+Source      = "https://github.com/your-org/ledger-agent"
+Issues      = "https://github.com/your-org/ledger-agent/issues"
+
+[tool.setuptools.packages.find]
+# The core wheel ships only the ledger_agent package (and backing modules)
+where = ["../.."]
+include = [
+    "ledger_agent*",
+    "core*",
+    "accounting*",
+    "intelligence*",
+    "parsers*",
+    "reports*",
+    "adapters*",
+]
+exclude = ["cli*", "mcp_server*", "tests*", "data*", ".venv*", "webapp*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.json"]

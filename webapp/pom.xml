@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- ── Coordinates ────────────────────────────────────────────────────── -->
+  <groupId>com.ledgeragent</groupId>
+  <artifactId>ledger-agent-webapp</artifactId>
+  <version>2.1.0</version>
+  <packaging>jar</packaging>
+  <name>ledger-agent-webapp</name>
+  <description>Spring Boot 3 mini-webapp wrapping ledger-agent-core (Form D — ARCH-09/10)</description>
+
+  <!-- ── Spring Boot BOM ────────────────────────────────────────────────── -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.0</version>
+    <relativePath/>
+  </parent>
+
+  <!-- ── Properties ────────────────────────────────────────────────────── -->
+  <properties>
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- Reproducible builds: overridden by CI to git commit epoch -->
+    <project.build.outputTimestamp>2024-01-01T00:00:00Z</project.build.outputTimestamp>
+    <!-- Jackson version pinned for reproducibility -->
+    <jackson.version>2.17.1</jackson.version>
+    <!-- Thymeleaf version -->
+    <thymeleaf.version>3.1.2.RELEASE</thymeleaf.version>
+  </properties>
+
+  <!-- ── Dependencies ──────────────────────────────────────────────────── -->
+  <dependencies>
+    <!-- Spring Boot Web (Thymeleaf + Tomcat embedded) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-thymeleaf</artifactId>
+    </dependency>
+
+    <!-- Jackson for JSON-RPC serialisation -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+
+    <!-- Actuator for /healthz probe (ARCH-10 accept check) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
+    <!-- Test -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <!-- ── Build ─────────────────────────────────────────────────────────── -->
+  <build>
+    <plugins>
+
+      <!-- Spring Boot repackage — fat jar with embedded Tomcat -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>com.ledgeragent.LedgerAgentApplication</mainClass>
+          <!-- Reproducible: embed source timestamp so two builds from the
+               same commit produce byte-identical jars -->
+          <outputTimestamp>${project.build.outputTimestamp}</outputTimestamp>
+          <layers>
+            <enabled>true</enabled>
+          </layers>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Compiler: Java 21 with --enable-preview disabled (keep it simple) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <release>21</release>
+          <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+
+      <!-- Surefire: run unit tests -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*Test.java</include>
+          </includes>
+          <excludes>
+            <!-- IT tests require a live Python process — run separately -->
+            <exclude>**/*IT.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+
+      <!-- Failsafe: integration tests (require -Pintegration or explicit -Dit) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <includes>
+            <include>**/*IT.java</include>
+          </includes>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
+
+  <!-- ── Maven wrapper pinning (ARCH-11) ───────────────────────────────── -->
+  <!-- See .mvn/wrapper/maven-wrapper.properties -->
+
+</project>
