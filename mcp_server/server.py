@@ -239,14 +239,22 @@ def _handle_get_tax_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
         "entity": entity.name,
         "period": period,
         "year": year,
-        "net_income_monthly": float(est.net_income_monthly),
-        "net_income_annual": float(est.net_income_annual),
+        "net_income": float(est.net_income),
         "se_tax": float(est.se_tax),
         "federal_income_tax": float(est.federal_income_tax),
         "state_income_tax": float(est.state_income_tax),
         "total_annual_tax": float(est.total_annual_tax),
-        "quarterly_payment": float(est.quarterly_payment),
-        "effective_rate_pct": float(est.effective_rate_pct),
+        "quarterly_payment": float(est.total_annual_tax / 4),
+        "effective_rate_pct": float(est.effective_rate),
+        "quarterly_schedule": [
+            {
+                "quarter": p.quarter,
+                "due_date": p.due_date,
+                "amount": float(p.amount),
+            }
+            for p in est.quarterly_payments
+        ],
+        "notes": est.notes,
     }
 
 

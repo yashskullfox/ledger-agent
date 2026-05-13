@@ -95,6 +95,20 @@ FISCAL_YEAR_START_MM = _env_int("FI_FISCAL_YEAR_START_MM", 1)
 # ── Parser confidence thresholds ─────────────────────────────────────────────
 AUTO_CLASSIFY_THRESHOLD = _env_int("FI_AUTO_CLASSIFY_THRESHOLD", 85)
 
+
+# AI backend minimum confidence (0.0–1.0) to auto-apply a classification.
+# The local backend returns scores on a 0.0–1.0 scale; the memory module
+# uses 0–100.  Tunable via FI_LOCAL_CONFIDENCE_THRESHOLD.
+def _env_float(key: str, default: float) -> float:
+    raw = os.environ.get(key, "")
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return default
+
+
+LOCAL_CONFIDENCE_THRESHOLD: float = _env_float("FI_LOCAL_CONFIDENCE_THRESHOLD", 0.75)
+
 # ── Intelligence / memory ────────────────────────────────────────────────────
 MEMORY_FILE = _env_path("FI_MEMORY_FILE", DB_DIR / "classification_memory.json")
 
@@ -132,11 +146,17 @@ REPORT_DATE_FMT = "%B %d, %Y"
 REPORT_PERIOD_FMT = "%Y-%m"
 
 # ── Supported statement parsers (human-readable labels) ─────────────────────
+# This dict is informational (used for UI display and validation messages).
+# The authoritative registration lives in each parser module via
+# ParserRegistry.register(), auto-loaded by parsers/__init__.py.
 KNOWN_PARSERS = {
     "truist_checking": "Truist Simple Business Checking",
     "fidelity_brokerage": "Fidelity Brokerage / Investment Account",
     "chase_checking": "Chase Business Complete Checking",
     "bofa_checking": "Bank of America Business Checking",
+    "usbank_checking": "U.S. Bank Business Checking",
+    "usbank_creditcard": "U.S. Bank Business Credit Card",
+    "ibkr": "Interactive Brokers Activity Statement",
 }
 
 # ── Chart-of-Accounts account-type labels ────────────────────────────────────

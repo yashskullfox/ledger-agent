@@ -125,15 +125,22 @@ class ClassificationMemory:
 
     def _seed_defaults(self) -> None:
         defaults = [
-            ("INCFILE LLC", "5010", "Software & Subscriptions", False),
+            # Software — canonical 5010
+            ("INCFILE LLC", "5075", "Legal & Professional Fees", False),
             ("PAYPAL *QUICKBOOKS", "5010", "Software & Subscriptions", False),
             ("GOOGLE", "5010", "Software & Subscriptions", False),
+            # Federal tax — canonical 5050
             ("USATAXPYMT IRS", "5050", "Federal Income Tax Expense", False),
+            # Payroll tax — canonical 5040
             ("TAX PAYROLL", "5040", "Payroll Tax Expense", False),
+            # Bank fees — canonical 5020
             ("TRAN FEE INTUIT", "5020", "Bank & Transaction Fees", False),
-            ("MONEYLINE FID BKG", "3010", "Members Capital Contributions", True),
+            # Transfers — canonical 9000 (is_transfer=True excluded from P&L)
+            ("MONEYLINE FID BKG", "9000", "Inter-Account Transfer (Clearing)", True),
+            ("EFT FUNDS PAID", "9000", "Inter-Account Transfer (Clearing)", True),
+            # Service revenue — canonical 4020
             ("DEPOSIT INTUIT", "4020", "Service Revenue", False),
-            ("EFT FUNDS PAID", "3010", "Members Capital Contributions", True),
+            # Margin interest — canonical 5030
             ("MARGIN INTEREST", "5030", "Margin Interest Expense", False),
         ]
         for pattern, code, name, is_xfer in defaults:

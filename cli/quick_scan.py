@@ -157,22 +157,8 @@ class _AlreadyImportedSkip(Exception):
 
 
 def _load_all_parsers() -> None:
-    """Import all parser modules to trigger @register decorators."""
-    import importlib
-    parser_modules = [
-        "parsers.truist_checking",
-        "parsers.fidelity_brokerage",
-        "parsers.chase_checking",
-        "parsers.bofa_checking",
-        "parsers.usbank_checking",
-        "parsers.usbank_creditcard",
-        "parsers.ibkr",
-    ]
-    for mod in parser_modules:
-        try:
-            importlib.import_module(mod)
-        except Exception:
-            pass  # optional parsers may not be present
+    """Import parsers package — auto-discovery in parsers/__init__.py handles everything."""
+    import parsers  # noqa: F401
 
 
 def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> None:

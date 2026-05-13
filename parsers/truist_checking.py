@@ -35,10 +35,11 @@ class TruistCheckingParser(BaseStatementParser):
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
-        return (
-                "TRUIST" in text.upper()
-                and ("SIMPLE BUSINESS CHECKING" in text.upper()
-                     or "TRUIST SIMPLE BUSINESS" in text.upper())
+        # pdfplumber sometimes collapses spaces: "TRUISTSIMPLEBUSINESSCHECKING"
+        t = text.upper().replace(" ", "")
+        return "TRUIST" in text.upper() and (
+                "SIMPLEBUSINESSCHECKING" in t
+                or "TRUISTSIMPLEBUSINESS" in t
         )
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
@@ -123,14 +124,21 @@ class TruistCheckingParser(BaseStatementParser):
         return "UNKNOWN ENTITY"
 
     def _extract_balances(self, text: str) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+        """
+        Match both spaced and space-collapsed formats:
+          'Your previous balance as of 05/15/2024 $0.00'
+          'Yourpreviousbalanceasof09/30/2024 $742.41'
+        """
         prev = new = None
         m_prev = re.search(
-            r"[Pp]revious\s+balance\s+as\s+of[^$]*\$([0-9,]+\.\d{2})", text
+            r"(?i)previous\s*balance\s*as\s*of\s*\d{2}/\d{2}/\d{4}\s*\$([0-9,]+\.\d{2})",
+            text,
         )
         if m_prev:
             prev = self.parse_amount(m_prev.group(1))
         m_new = re.search(
-            r"[Nn]ew\s+balance\s+as\s+of[^$]*=?\s*\$([0-9,]+\.\d{2})", text
+            r"(?i)new\s*balance\s*as\s*of\s*\d{2}/\d{2}/\d{4}\s*=?\s*\$([0-9,]+\.\d{2})",
+            text,
         )
         if m_new:
             new = self.parse_amount(m_new.group(1))
@@ -172,9 +180,17 @@ class TruistCheckingParser(BaseStatementParser):
           "Deposits, credits and interest"  (spaces may be collapsed)
         and:
           "Total deposits, credits"
+        Crucially, we start searching AFTER the debit section end to prevent
+        the account-summary header "Deposits, credits and interest" from
+        being treated as the section start when the statement has no deposits.
         """
+        # Anchor: skip everything up to (and including) the debit section totals
+        debit_end_m = re.search(r"Total\s*other\s*withdrawals", text, re.IGNORECASE)
+        search_offset = debit_end_m.end() if debit_end_m else 0
+        slice_text = text[search_offset:]
+
         section = self._extract_section(
-            text,
+            slice_text,
             start_pattern=r"Deposits,?\s*credits\s*and\s*interest",
             end_pattern=r"Total\s*deposits",
         )

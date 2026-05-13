@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Generator, List, Optional
@@ -317,6 +317,7 @@ def init_db(db_path: Path = DB_PATH) -> None:
 
 _DEFAULT_COA: list[tuple] = [
     # (code, name, type, parent, description, keywords_json)
+    # ── Assets ────────────────────────────────────────────────────────────────
     ("1000", "Cash & Cash Equivalents", "asset", None, "", '["cash","checking","deposit","balance"]'),
     ("1010", "Business Checking Account", "asset", "1000", "", '["truist","checking","moneyline"]'),
     ("1100", "Investment & Brokerage Assets", "asset", None, "", '["fidelity","brokerage","investment"]'),
@@ -325,28 +326,50 @@ _DEFAULT_COA: list[tuple] = [
      '["kopin","ssr","kinross","solid power","bigbear","oscar","vale"]'),
     ("1200", "Accounts Receivable", "asset", None, "", '[]'),
     ("1300", "Prepaid Expenses", "asset", None, "", '[]'),
+    # ── Liabilities ───────────────────────────────────────────────────────────
     ("2000", "Current Liabilities", "liability", None, "", '[]'),
     ("2010", "Margin Loan Payable", "liability", "2000", "", '["margin","debit balance"]'),
     ("2020", "Taxes Payable", "liability", "2000", "", '["irs","tax","usataxpymt"]'),
     ("2030", "Accounts Payable", "liability", "2000", "", '[]'),
+    # ── Equity ────────────────────────────────────────────────────────────────
     ("3000", "Members Equity", "equity", None, "", '[]'),
-    ("3010", "Members Capital Contributions", "equity", "3000", "", '["moneyline","transfer"]'),
+    ("3010", "Members Capital Contributions", "equity", "3000", "", '["moneyline","transfer","zelle","wire"]'),
     ("3020", "Retained Earnings", "equity", "3000", "", '[]'),
     ("3030", "Current Period Net Income", "equity", "3000", "", '[]'),
+    # ── Revenue ───────────────────────────────────────────────────────────────
     ("4000", "Revenue", "revenue", None, "", '[]'),
-    ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds"]'),
+    ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds","realized gain"]'),
     ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","deposit","invoice"]'),
-    ("4030", "Other Income", "revenue", "4000", "", '[]'),
+    ("4030", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
+    ("4040", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
+    ("4090", "Other Income", "revenue", "4000", "", '[]'),
+    # ── Expenses ──────────────────────────────────────────────────────────────
     ("5000", "Operating Expenses", "expense", None, "", '[]'),
     ("5010", "Software & Subscriptions", "expense", "5000", "",
-     '["quickbooks","incfile","google","subscription","recurring"]'),
-    ("5020", "Bank & Transaction Fees", "expense", "5000", "", '["tran fee","service charge","fee","intuit tran"]'),
+     '["quickbooks","google workspace","microsoft","adobe","dropbox","zoom","slack","github","aws","azure"]'),
+    ("5020", "Bank & Transaction Fees", "expense", "5000", "",
+     '["tran fee","service charge","monthly fee","bank fee","wire fee","nsf fee","intuit tran"]'),
+    ("5025", "Payroll & Wages (Gross)", "expense", "5000", "", '["adp payroll","gusto"]'),
     ("5030", "Margin Interest Expense", "expense", "5000", "", '["margin interest","interest paid"]'),
-    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["payroll","tax payroll"]'),
+    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["tax payroll","payroll tax"]'),
     ("5050", "Federal Income Tax Expense", "expense", "5000", "", '["irs","usataxpymt","federal tax"]'),
+    ("5055", "State & Local Taxes", "expense", "5000", "", '["state tax","dept of rev"]'),
     ("5060", "Investment Transaction Costs", "expense", "5000", "", '["transaction cost","commission"]'),
-    ("5070", "Realised Trading Losses", "expense", "5000", "", '["loss","short-term loss"]'),
+    ("5065", "Office & Shipping Supplies", "expense", "5000", "", '["office depot","staples","fedex","ups","usps"]'),
+    ("5070", "Realised Trading Losses", "expense", "5000", "", '["loss","short-term loss","realized loss"]'),
+    ("5075", "Legal & Professional Fees", "expense", "5000", "",
+     '["incfile","registered agent","legalzoom","rocket lawyer","northwest registered"]'),
     ("5080", "Other Operating Expenses", "expense", "5000", "", '[]'),
+    ("5085", "Advertising & Marketing", "expense", "5000", "",
+     '["meta ads","facebook ads","instagram ads","twitter ads","x.com ads"]'),
+    ("5090", "Other Interest Expense", "expense", "5000", "", '[]'),
+    ("5100", "Travel & Transportation", "expense", "5000", "",
+     '["delta","united air","southwest","american air","uber","lyft","marriott","hilton","hyatt","airbnb"]'),
+    # ── Special / Clearing ────────────────────────────────────────────────────
+    # 9000 is used as a marker for inter-account transfers; is_transfer=True
+    # excludes these from P&L.  We store them under equity as a clearing code.
+    ("9000", "Inter-Account Transfer (Clearing)", "equity", "3000", "",
+     '["moneyline fid","transfer in","transfer out","zelle to","zelle from","wire transfer"]'),
 ]
 
 
@@ -456,16 +479,37 @@ class AccountRepo:
 class TransactionRepo:
     @staticmethod
     def bulk_insert(txns: List[Transaction], db_path: Path = DB_PATH) -> int:
-        """Insert new transactions; skip duplicates by (account_id, date, description, amount)."""
+        """
+        Insert new transactions, skipping true duplicates.
+
+        Dedup strategy: (account_id, date, description, amount, occurrence_index).
+        `occurrence_index` counts how many times the same (account_id, date,
+        description, amount) tuple already exists in the DB before this call,
+        so a second *identical* line in a bank statement (e.g. two payroll ACH
+        debits for exactly the same amount on the same day) can still be inserted
+        on first import, while a re-import of the same PDF will correctly skip it.
+
+        Within a single call the seen-counter tracks same-tuple repetitions in
+        the incoming list, ensuring they are matched to the correct occurrence.
+        """
         inserted = 0
+        # Track how many times each (acct,date,desc,amt) tuple appears in this batch
+        seen_in_batch: dict = {}
         with get_conn(db_path) as conn:
             for t in txns:
-                existing = conn.execute(
-                    "SELECT id FROM transactions WHERE account_id=? AND date=?"
+                key = (t.account_id, t.date.isoformat(), t.description, str(t.amount))
+                batch_idx = seen_in_batch.get(key, 0)
+                seen_in_batch[key] = batch_idx + 1
+
+                # Count how many of this exact tuple already exist in the DB
+                existing_count = conn.execute(
+                    "SELECT COUNT(*) FROM transactions WHERE account_id=? AND date=?"
                     " AND description=? AND amount=?",
-                    (t.account_id, t.date.isoformat(), t.description, str(t.amount)),
-                ).fetchone()
-                if existing:
+                    key,
+                ).fetchone()[0]
+
+                # Skip only if the DB already has at least (batch_idx + 1) copies
+                if existing_count > batch_idx:
                     continue
                 conn.execute(
                     "INSERT INTO transactions(id,account_id,date,description,raw_description,"
@@ -745,5 +789,5 @@ class ImportRegistry:
                 "(id,source_file,parser_id,account_id,statement_period,imported_at)"
                 " VALUES(?,?,?,?,?,?)",
                 (str(_uuid.uuid4()), source_file, parser_id, account_id,
-                 period, datetime.utcnow().isoformat()),
+                 period, datetime.now(timezone.utc).isoformat()),
             )

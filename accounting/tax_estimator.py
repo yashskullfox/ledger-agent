@@ -25,7 +25,20 @@ from typing import List
 
 
 def _env_decimal(key: str, default: str) -> Decimal:
-    return Decimal(os.environ.get(key, default))
+    """Read a Decimal from an env var; silently fall back to *default* if malformed."""
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return Decimal(default)
+    try:
+        return Decimal(raw)
+    except Exception:
+        import warnings
+        warnings.warn(
+            f"[tax_estimator] {key}={raw!r} is not a valid decimal; "
+            f"using default {default}",
+            stacklevel=2,
+        )
+        return Decimal(default)
 
 
 SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # 15.3%

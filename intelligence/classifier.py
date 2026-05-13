@@ -23,7 +23,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Callable, List, Optional, Tuple
 
-from config import AUTO_CLASSIFY_THRESHOLD
+from config import AUTO_CLASSIFY_THRESHOLD, LOCAL_CONFIDENCE_THRESHOLD
 from core.database import COARepo, TransactionRepo
 from core.logging_setup import get_logger
 from core.models import COAEntry, Transaction
@@ -88,7 +88,7 @@ def classify_transaction(
             description=txn.description,
             amount=float(txn.amount),
         )
-        if ai_result and ai_result.get("confidence", 0) >= 0.75:
+        if ai_result and ai_result.get("confidence", 0) >= LOCAL_CONFIDENCE_THRESHOLD:
             code = ai_result.get("coa_code", "")
             name = ai_result.get("coa_name", "")
             xfer = bool(ai_result.get("is_transfer", False))
