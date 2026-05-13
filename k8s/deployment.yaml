@@ -1,0 +1,105 @@
+## k8s/deployment.yaml — ledger-agent webapp deployment
+## Apply: kubectl apply -f k8s/
+##
+## Architecture: single container — the Spring Boot fat JAR bundles the Python
+## runtime (extracted at startup via PythonRuntimeExtractor) and spawns the
+## ledger-agent core as a subprocess. No sidecar required.
+##
+## Brain is ours:         the Python financial engine embedded in the JAR
+## Infrastructure yours:  your cluster, your API key, your data volume
+##
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-agent
+  labels:
+    app: ledger-agent
+spec:
+  ## Single replica — SQLite is single-writer. Scale by upgrading to a
+  ## managed PostgreSQL instance and updating FI_DB_PATH.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ledger-agent
+  strategy:
+    type: Recreate   # required for ReadWriteOnce PVC
+  template:
+    metadata:
+      labels:
+        app: ledger-agent
+      annotations:
+        ## Roll pod when ConfigMap or Secret changes (checksum trick)
+        ## Update these via: kubectl rollout restart deployment/ledger-agent
+        kubectl.kubernetes.io/restartedAt: "change-me-on-deploy"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: ledger-agent
+          ## Replace with your registry path after building:
+          ##   docker build -t your-registry/ledger-agent-webapp:2.1.0 webapp/
+          ##   docker push your-registry/ledger-agent-webapp:2.1.0
+          image: ledger-agent-webapp:2.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+
+          ## ── Load non-sensitive config from ConfigMap ──────────────────────
+          envFrom:
+            - configMapRef:
+                name: ledger-agent-config
+            - secretRef:
+                name: ledger-agent-secrets
+
+          ## ── Data volume (SQLite DB + statements) ─────────────────────────
+          volumeMounts:
+            - name: data
+              mountPath: /data
+
+          ## ── Health probes ─────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 60   # JVM + Python startup time
+            periodSeconds: 15
+            failureThreshold: 4
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 20    # up to 110s for cold start
+
+          ## ── Resource limits ───────────────────────────────────────────────
+          ## Python subprocess adds ~200 Mi overhead.
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ledger-agent-data
+
+      terminationGracePeriodSeconds: 30

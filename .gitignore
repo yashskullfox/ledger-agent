@@ -9,6 +9,8 @@
 *.env
 .env.local
 .env.*.local
+# Kubernetes Secret files — template is safe to commit; populated file is not
+k8s/secret.yaml
 
 # ── PDF statement files — NEVER commit real bank statements ──────────────────
 # (catch-all regardless of location in the repo)

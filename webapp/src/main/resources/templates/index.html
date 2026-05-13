@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ledger-agent — SYNCED LLC Financial Intelligence</title>
+  <title th:text="'ledger-agent — ' + ${appTitle}">ledger-agent</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
@@ -47,7 +47,7 @@
 
 <header>
   <h1>📒 ledger-agent</h1>
-  <span class="badge">SYNCED LLC</span>
+  <span class="badge" th:text="${appBadge}">Financial Intelligence</span>
   <span class="badge" style="background:#20c997">Form D</span>
 </header>
 
@@ -62,8 +62,10 @@
         <select name="report">
           <option value="balance_sheet"  th:selected="${report == 'balance_sheet'}">Balance Sheet (year-end)</option>
           <option value="form1065"       th:selected="${report == 'form1065'}">Form 1065 — Partnership Return</option>
-          <option value="k1_yash"        th:selected="${report == 'k1_yash'}">Schedule K-1 — Yash N Patel (99%)</option>
-          <option value="k1_parin"       th:selected="${report == 'k1_parin'}">Schedule K-1 — Parin R Shah (1%)</option>
+          <option value="k1_yash"        th:selected="${report == 'k1_yash'}"
+                  th:text="'Schedule K-1 — ' + ${partnerALabel}">Schedule K-1 — Partner A</option>
+          <option value="k1_parin"       th:selected="${report == 'k1_parin'}"
+                  th:text="'Schedule K-1 — ' + ${partnerBLabel}">Schedule K-1 — Partner B</option>
           <option value="tax_estimate"   th:selected="${report == 'tax_estimate'}">Quarterly Tax Estimate (PTE)</option>
           <option value="reconcile"      th:selected="${report == 'reconcile'}">Year-End Reconciliation</option>
           <option value="import"         th:selected="${report == 'import'}">Import Statements from Folder</option>

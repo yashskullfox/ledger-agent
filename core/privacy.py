@@ -115,13 +115,25 @@ _SYSTEM_WORDS: Set[str] = {
 }
 
 
-# ── API key patterns ──────────────────────────────────────────────────────────
+# ── API key / secret patterns (expanded — defence-in-depth) ──────────────────
 
 _API_KEY_PATTERNS: List[re.Pattern] = [
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),             # OpenAI
-    re.compile(r"AIza[A-Za-z0-9_\-]{35}"),          # Google/Gemini
-    re.compile(r"xoxb-[A-Za-z0-9\-]{50,}"),         # Slack
-    re.compile(r"ghp_[A-Za-z0-9]{36,}"),            # GitHub PAT
+    re.compile(r"sk-[A-Za-z0-9_\-]{20,}"),                 # OpenAI / Anthropic
+    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),             # Anthropic prefixed
+    re.compile(r"AIza[A-Za-z0-9_\-]{35}"),                 # Google / Gemini
+    re.compile(r"xox[abprs]-[A-Za-z0-9\-]{10,}"),          # Slack (any flavour)
+    re.compile(r"ghp_[A-Za-z0-9]{36,}"),                   # GitHub PAT
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),           # GitHub fine-grained
+    re.compile(r"gho_[A-Za-z0-9]{36,}"),                   # GitHub OAuth
+    re.compile(r"glpat-[A-Za-z0-9_\-]{20,}"),              # GitLab PAT
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                   # AWS Access Key ID
+    re.compile(r"\bASIA[0-9A-Z]{16}\b"),                   # AWS STS temp Key ID
+    re.compile(r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{40}", re.IGNORECASE),
+    re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"),  # JWT
+    re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{20,}\b", re.IGNORECASE),  # bearer tokens
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----"),
+    re.compile(r"\b[a-f0-9]{32,64}\b(?=[^\w]|$)(?=.*\b(?:secret|token|key|password)\b)",
+               re.IGNORECASE),  # hex secrets with hint word
 ]
 
 # ── SSN ───────────────────────────────────────────────────────────────────────
@@ -174,6 +186,64 @@ _ADDR_PAT = re.compile(
     r"(?:St(?:reet)?|Ave(?:nue)?|Rd|Road|Blvd|Boulevard|Dr(?:ive)?|"
     r"Ln|Lane|Ct|Court|Way|Pl(?:ace)?|Pkwy|Hwy|Highway)\b",
     re.IGNORECASE,
+)
+
+# ── IBAN (international bank account) ─────────────────────────────────────────
+# Country code + 2 check digits + 11–30 alphanumeric (max length 34).
+_IBAN_PAT = re.compile(
+    r"\b([A-Z]{2}\d{2}(?:[\s\-]?[A-Z0-9]{4}){2,7}(?:[\s\-]?[A-Z0-9]{1,4})?)\b"
+)
+
+# ── SWIFT / BIC code (8 or 11 chars) ──────────────────────────────────────────
+_SWIFT_PAT = re.compile(r"\b([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b")
+_SWIFT_CTX = re.compile(r"\b(?:SWIFT|BIC)\b", re.IGNORECASE)
+
+# ── ITIN (begins with 9, format 9NN-NN-NNNN with middle group 50-65, 70-88, 90-92, 94-99) ─
+_ITIN_PAT = re.compile(r"\b9\d{2}-(?:5[0-9]|6[0-5]|7[0-9]|8[0-8]|9[0-2]|9[4-9])-\d{4}\b")
+
+# ── Driver's license (heuristic — alpha prefix + 6-12 digits, context-gated) ──
+# We can't use variable-width look-behind in the stdlib re engine, so context
+# is enforced manually by _detect_driver_license() via _DL_CTX scanning a
+# ±40-char window around each candidate.
+_DL_CTX = re.compile(r"\b(?:DL|DRIVER[\s'-]?S?|LICENSE|LIC#?)\b", re.IGNORECASE)
+_DL_CANDIDATE = re.compile(r"\b([A-Z]\d{6,12})\b")
+
+# ── Passport (heuristic: 1-2 letters + 6-9 digits, context-gated) ─────────────
+_PASSPORT_CTX = re.compile(r"\bPASSPORT\b", re.IGNORECASE)
+_PASSPORT_CANDIDATE = re.compile(r"\b([A-Z]{1,2}\d{6,9})\b")
+
+# ── Date of birth (multiple formats, context-gated) ───────────────────────────
+_DOB_CTX = re.compile(
+    r"\b(?:DOB|D\.O\.B\.|DATE\s+OF\s+BIRTH|BIRTH[\s\-]?DATE|BORN)\b",
+    re.IGNORECASE,
+)
+_DOB_DATE = re.compile(
+    r"\b("
+    r"\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}"           # 01/15/1989 or 01-15-89
+    r"|\d{4}[/\-.]\d{1,2}[/\-.]\d{1,2}"             # 1989-01-15
+    r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# ── ZIP+4 ─────────────────────────────────────────────────────────────────────
+_ZIP4_PAT = re.compile(r"\b(\d{5})-(\d{4})\b")
+
+# ── IPv4 / IPv6 ───────────────────────────────────────────────────────────────
+_IPV4_PAT = re.compile(
+    r"\b((?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)"
+    r"(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3})\b"
+)
+_IPV6_PAT = re.compile(
+    r"(?<![:\w])([0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){7})(?![:\w])"
+)
+
+# ── MAC address ───────────────────────────────────────────────────────────────
+_MAC_PAT = re.compile(r"\b([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\b")
+
+# ── URL with embedded credentials ─────────────────────────────────────────────
+_URL_CRED_PAT = re.compile(
+    r"\b([a-z][a-z0-9+.\-]{1,30}://[^/\s:@]+:[^/\s@]+@[A-Za-z0-9.\-]+)"
 )
 
 # ── Person name (context-gated heuristic) ─────────────────────────────────────
@@ -406,11 +476,130 @@ def _detect_entity_name(text: str, entity_name: str) -> List[Tuple[str, str]]:
     return hits
 
 
+def _detect_iban(text: str) -> List[Tuple[str, str]]:
+    hits: List[Tuple[str, str]] = []
+    for m in _IBAN_PAT.finditer(text):
+        raw = m.group(0)
+        compact = re.sub(r"[\s\-]", "", raw)
+        # Length sanity: IBANs are 15-34 chars
+        if 15 <= len(compact) <= 34:
+            hits.append((raw, "<IBAN_***>"))
+    return hits
+
+
+def _detect_swift(text: str) -> List[Tuple[str, str]]:
+    hits: List[Tuple[str, str]] = []
+    for m in _SWIFT_PAT.finditer(text):
+        orig = m.group(0)
+        start = max(0, m.start() - 40)
+        end = min(len(text), m.end() + 40)
+        window = text[start:end]
+        if _SWIFT_CTX.search(window):
+            hits.append((orig, "<SWIFT_***>"))
+    return hits
+
+
+def _detect_itin(text: str) -> List[Tuple[str, str]]:
+    return [(m.group(0), "<ITIN_***>") for m in _ITIN_PAT.finditer(text)]
+
+
+def _detect_driver_license(text: str) -> List[Tuple[str, str]]:
+    """Context-gated: only fires if 'DL', 'DRIVER', 'LICENSE' nearby."""
+    if not _DL_CTX.search(text):
+        return []
+    hits: List[Tuple[str, str]] = []
+    seen: Set[str] = set()
+    for m in _DL_CANDIDATE.finditer(text):
+        orig = m.group(0)
+        if orig in seen:
+            continue
+        start = max(0, m.start() - 40)
+        end = min(len(text), m.end() + 40)
+        if _DL_CTX.search(text[start:end]):
+            seen.add(orig)
+            hits.append((orig, "<DL_***>"))
+    return hits
+
+
+def _detect_passport(text: str) -> List[Tuple[str, str]]:
+    """Context-gated to passport keyword."""
+    if not _PASSPORT_CTX.search(text):
+        return []
+    hits: List[Tuple[str, str]] = []
+    seen: Set[str] = set()
+    for m in _PASSPORT_CANDIDATE.finditer(text):
+        orig = m.group(0)
+        if orig in seen:
+            continue
+        start = max(0, m.start() - 40)
+        end = min(len(text), m.end() + 40)
+        if _PASSPORT_CTX.search(text[start:end]):
+            seen.add(orig)
+            hits.append((orig, "<PASSPORT_***>"))
+    return hits
+
+
+def _detect_dob(text: str) -> List[Tuple[str, str]]:
+    """Context-gated DOB; date alone is not redacted."""
+    hits: List[Tuple[str, str]] = []
+    seen: Set[str] = set()
+    for ctx in _DOB_CTX.finditer(text):
+        start = ctx.end()
+        window = text[start : min(len(text), start + 60)]
+        for m in _DOB_DATE.finditer(window):
+            orig = m.group(0)
+            if orig in seen:
+                continue
+            seen.add(orig)
+            hits.append((orig, "<DOB_***>"))
+    return hits
+
+
+def _detect_zip4(text: str) -> List[Tuple[str, str]]:
+    return [(m.group(0), "<ZIP4_***>") for m in _ZIP4_PAT.finditer(text)]
+
+
+def _detect_ipv4(text: str) -> List[Tuple[str, str]]:
+    hits: List[Tuple[str, str]] = []
+    seen: Set[str] = set()
+    for m in _IPV4_PAT.finditer(text):
+        orig = m.group(0)
+        # Skip common non-PII addresses (loopback, link-local, RFC 1918 private,
+        # multicast, broadcast). Operators want these visible for diagnostics.
+        first = int(orig.split(".")[0])
+        if (orig.startswith("127.") or orig.startswith("0.")
+                or orig == "255.255.255.255" or 224 <= first <= 239):
+            continue
+        if orig in seen:
+            continue
+        seen.add(orig)
+        hits.append((orig, _stable_token("IPV4", orig)))
+    return hits
+
+
+def _detect_ipv6(text: str) -> List[Tuple[str, str]]:
+    return [(m.group(0), _stable_token("IPV6", m.group(0)))
+            for m in _IPV6_PAT.finditer(text)]
+
+
+def _detect_mac(text: str) -> List[Tuple[str, str]]:
+    return [(m.group(0), _stable_token("MAC", m.group(0)))
+            for m in _MAC_PAT.finditer(text)]
+
+
+def _detect_url_creds(text: str) -> List[Tuple[str, str]]:
+    """URLs with `scheme://user:pass@host` — always fatal-class secrets."""
+    return [(m.group(0), "<URL_WITH_CREDS_***>") for m in _URL_CRED_PAT.finditer(text)]
+
+
 # ── Scope → active detector set ──────────────────────────────────────────────
 
 _ALL_DETECTORS = [
-    "api_key", "ssn", "ein", "credit_card", "routing", "account",
-    "email", "phone", "address", "entity_name", "person_name", "counterparty",
+    "api_key", "ssn", "ein", "itin", "credit_card", "routing", "account",
+    "iban", "swift", "email", "phone", "address", "zip4",
+    "driver_license", "passport", "dob",
+    "ipv4", "ipv6", "mac", "url_creds",
+    "entity_name", "person_name", "counterparty",
 ]
 
 _SCOPE_DETECTORS: Dict[str, List[str]] = {
@@ -419,10 +608,20 @@ _SCOPE_DETECTORS: Dict[str, List[str]] = {
     "ai_context":   _ALL_DETECTORS,
     "mcp_response": _ALL_DETECTORS,
     "memory_file":  [
-        "api_key", "ssn", "ein", "credit_card", "routing",
-        "account", "email", "phone", "entity_name", "person_name",
+        "api_key", "ssn", "ein", "itin", "credit_card", "routing",
+        "account", "iban", "swift", "email", "phone",
+        "driver_license", "passport", "dob",
+        "url_creds", "entity_name", "person_name",
     ],
-    "log": ["api_key", "ssn", "ein"],
+    # Log scope tightened: previously SSN/EIN/API-keys only; now adds the high-
+    # signal structural identifiers and partner/entity names so log lines never
+    # leak the substance of a record even if a caller forgets to redact first.
+    "log": [
+        "api_key", "ssn", "ein", "itin", "credit_card", "routing", "account",
+        "iban", "swift", "email", "phone",
+        "driver_license", "passport", "dob",
+        "url_creds", "entity_name", "person_name",
+    ],
 }
 
 
@@ -475,8 +674,14 @@ def redact(
         replacements.extend(_detect_ssn(text))
     if "ein" in detectors:
         replacements.extend(_detect_ein(text))
+    if "itin" in detectors:
+        replacements.extend(_detect_itin(text))
     if "credit_card" in detectors:
         replacements.extend(_detect_credit_cards(text))
+    if "iban" in detectors:
+        replacements.extend(_detect_iban(text))
+    if "swift" in detectors:
+        replacements.extend(_detect_swift(text))
     if "routing" in detectors:
         replacements.extend(_detect_routing(text))
     if "account" in detectors:
@@ -487,6 +692,22 @@ def redact(
         replacements.extend(_detect_phones(text))
     if "address" in detectors:
         replacements.extend(_detect_addresses(text))
+    if "zip4" in detectors:
+        replacements.extend(_detect_zip4(text))
+    if "driver_license" in detectors:
+        replacements.extend(_detect_driver_license(text))
+    if "passport" in detectors:
+        replacements.extend(_detect_passport(text))
+    if "dob" in detectors:
+        replacements.extend(_detect_dob(text))
+    if "ipv4" in detectors:
+        replacements.extend(_detect_ipv4(text))
+    if "ipv6" in detectors:
+        replacements.extend(_detect_ipv6(text))
+    if "mac" in detectors:
+        replacements.extend(_detect_mac(text))
+    if "url_creds" in detectors:
+        replacements.extend(_detect_url_creds(text))
     # entity_name must run BEFORE person_name — exact match wins over heuristic
     if "entity_name" in detectors and eff_entity:
         replacements.extend(_detect_entity_name(text, eff_entity))
@@ -594,17 +815,27 @@ def audit_egress(payload: Any) -> None:
                 "audit_egress: API key detected in outbound payload. Blocked."
             )
 
-    # High-confidence structural PII
+    # High-confidence structural PII (every detector below is high-precision
+    # enough that any hit in an outbound payload is grounds to fail the call).
     violations: List[str] = []
 
     if _SSN_HYPH.search(text):
         violations.append("SSN")
     if _EIN_PAT.search(text):
         violations.append("EIN")
+    if _ITIN_PAT.search(text):
+        violations.append("ITIN")
     if _detect_credit_cards(text):
         violations.append("credit_card")
     if _detect_routing(text):
         violations.append("routing")
+    if _detect_iban(text):
+        violations.append("IBAN")
+    if _URL_CRED_PAT.search(text):
+        violations.append("URL_credentials")
+    # private-key blocks should NEVER appear in an outbound payload
+    if "-----BEGIN " in text and "PRIVATE KEY-----" in text:
+        violations.append("private_key_block")
 
     if violations:
         raise PrivacyLeakError(
