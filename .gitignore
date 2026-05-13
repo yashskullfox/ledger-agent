@@ -1,0 +1,80 @@
+# FinancialIntelligence – Git Ignore
+# ─────────────────────────────────────────────────────────────
+
+# ── Secrets & config ──────────────────────────────────────────────────────────
+.env
+*.env
+.env.local
+.env.*.local
+
+# ── Financial data (NEVER commit real statements or databases) ────────────────
+data/
+*.db
+*.db-wal
+*.db-shm
+*.pdf
+*.PDF
+
+# ── Python virtual environment ────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# ── Build & distribution ──────────────────────────────────────────────────────
+build/
+dist/
+*.egg-info/
+*.egg
+MANIFEST
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# ── Pytest & coverage ─────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# ── Type checking ─────────────────────────────────────────────────────────────
+.mypy_cache/
+.pytype/
+.pyre/
+
+# ── Editors & OS ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Exports (generated output – don't commit) ────────────────────────────────
+data/exports/
+
+# ── Temporary files ───────────────────────────────────────────────────────────
+*.tmp
+*.temp
+tmp/
+temp/
