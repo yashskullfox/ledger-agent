@@ -36,6 +36,7 @@ FinancialIntelligence/
 │   └── logging_setup.py     Structured logging: rich | json | plain
 │
 ├── parsers/                 Statement PDF parser plugins
+│   ├── __init__.py          Auto-discovery via pkgutil.iter_modules — no manual registration
 │   ├── base.py              BaseStatementParser ABC + shared helpers
 │   ├── registry.py          @ParserRegistry.register decorator and auto-detect
 │   ├── truist_checking.py   Truist Simple Business Checking
@@ -74,7 +75,10 @@ FinancialIntelligence/
 │
 ├── cli/
 │   ├── commands.py          Command functions called by main.py
-│   ├── quick_scan.py        ⚡ Folder → auto-import all PDFs → reports
+│   ├── quick_scan.py        ⚡ Folder → auto-import all PDFs → reports; delegates
+│   │                        coverage check to onboarding wizard before importing
+│   ├── onboarding.py        📅 R-45 coverage wizard: 12-month rolling gap analysis,
+│   │                        interactive gap-fill loop, CI-safe --no-prompt mode
 │   └── prompts.py           Interactive prompts (questionary + rich)
 │
 ├── tests/
@@ -83,7 +87,8 @@ FinancialIntelligence/
 │   ├── test_parsers.py
 │   ├── test_classifier.py
 │   ├── test_balance_sheet.py
-│   └── test_tax_estimator.py
+│   ├── test_tax_estimator.py
+│   └── test_onboarding.py   R-45 coverage wizard unit tests
 │
 └── data/                    ← NOT committed (gitignored)
     ├── statements/          PDF statements
@@ -98,7 +103,12 @@ FinancialIntelligence/
 ## Data Flow
 
 ```
-PDF file
+Coverage Discovery (R-45: ./run.sh scan)
+  │  Resolve folder → discover PDFs → probe each (parser + period + account)
+  │  Build 12-month coverage matrix → render ✅/⚠/❌ table
+  │  Gap-fill interactive loop → wait for missing months
+  ▼
+PDF file (each discovered statement)
    │
    ▼ parsers/registry.py → detect parser by can_parse() fingerprint
    │
@@ -161,6 +171,9 @@ class WellsFargoParser(BaseStatementParser):
     PARSER_ID   = "wells_fargo"
     INSTITUTION = "Wells Fargo"
 
+    # Optional: improves gap-fill prompts in the onboarding coverage wizard
+    EXPECTED_FILENAME_HINT = "wells_fargo_*_{period}*.pdf"
+
     @classmethod
     def can_parse(cls, text: str) -> bool:
         return "WELLS FARGO" in text.upper() and "BUSINESS" in text.upper()
@@ -171,11 +184,20 @@ class WellsFargoParser(BaseStatementParser):
         return ParsedStatement(parser_id=self.PARSER_ID, ...)
 ```
 
-Then add `"parsers.wells_fargo"` to the loader lists in:
-- `cli/commands.py` → `cmd_import()`
-- `cli/quick_scan.py` → `_load_all_parsers()`
+That's it. `parsers/__init__.py` uses `pkgutil.iter_modules` to auto-discover every
+module in the `parsers/` package at startup — the decorator registers the class and
+`can_parse()` fingerprinting selects it automatically. **No edits to any other file
+are needed.**
 
-No other changes required.
+Steps in full:
+
+1. Create `parsers/wells_fargo.py`
+2. Subclass `BaseStatementParser`, implement `can_parse()` and `parse()`
+3. Decorate with `@ParserRegistry.register`
+4. Done — the file is auto-discovered on next run
+
+Optionally add `EXPECTED_FILENAME_HINT = "wells_fargo_*_{period}*.pdf"` as a class
+attribute to produce more helpful gap-fill prompts in the R-45 onboarding wizard.
 
 ---
 
@@ -212,7 +234,9 @@ The MCP server (`mcp_server/server.py`) is a pure-stdlib JSON-RPC 2.0 server
 over stdio. It uses **MCP-spec newline-delimited JSON framing** (one JSON object
 per line, no `Content-Length` headers), compatible with Claude Desktop, Cursor,
 Cline, Continue, and the reference `mcp` Python SDK. It requires no external
-dependencies and exposes six read-only tools to any MCP-compatible client.
+dependencies and exposes six read-only tools to any MCP-compatible client. All
+six tools are covered by smoke tests (subprocess-level: `test_initialize`,
+`test_tools_list`, `test_list_periods_empty_db`).
 
 **Claude Desktop config** (`~/.claude/claude_desktop_config.json`):
 ```json
@@ -243,38 +267,42 @@ dependencies and exposes six read-only tools to any MCP-compatible client.
 
 All configuration via environment variables. Copy `.env.example` to `.env`.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `FI_AI_BACKEND` | `local` | `local` / `openai` / `gemini` |
-| `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65` | Below this, local escalates to remote AI |
-| `FI_AUTO_CLASSIFY_THRESHOLD` | `85` | Memory fuzzy-match score to auto-apply (0–100) |
-| `FI_OPENAI_API_KEY` | — | Required if backend=openai |
-| `FI_GEMINI_API_KEY` | — | Required if backend=gemini |
-| `FI_OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model |
-| `FI_GEMINI_MODEL` | `gemini-1.5-flash` | Gemini model |
-| `FI_DB_PATH` | `data/db/financials.db` | SQLite database path |
-| `FI_DATA_DIR` | `data/` | Data root |
-| `FI_MEMORY_FILE` | `data/db/classification_memory.json` | Learned rules |
-| `FI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-| `FI_LOG_FORMAT` | `rich` | `rich` / `json` / `plain` |
-| `FI_SE_TAX_RATE` | `0.153` | Self-employment tax rate |
-| `FI_FED_INCOME_RATE` | `0.22` | Federal income tax rate |
-| `FI_STATE_TAX_RATE` | `0.05` | State income tax rate |
-| `FI_QBI_DEDUCTION` | `0.20` | Qualified Business Income deduction |
+| Variable                        | Default                              | Purpose                                                |
+|---------------------------------|--------------------------------------|--------------------------------------------------------|
+| `FI_AI_BACKEND`                 | `local`                              | `local` / `openai` / `gemini`                          |
+| `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65`                               | Below this, local escalates to remote AI               |
+| `FI_AUTO_CLASSIFY_THRESHOLD`    | `85`                                 | Memory fuzzy-match score to auto-apply (0–100)         |
+| `FI_OPENAI_API_KEY`             | —                                    | Required if backend=openai                             |
+| `FI_GEMINI_API_KEY`             | —                                    | Required if backend=gemini                             |
+| `FI_OPENAI_MODEL`               | `gpt-4o-mini`                        | OpenAI model                                           |
+| `FI_GEMINI_MODEL`               | `gemini-1.5-flash`                   | Gemini model                                           |
+| `FI_DB_PATH`                    | `data/db/financials.db`              | SQLite database path                                   |
+| `FI_DATA_DIR`                   | `data/`                              | Data root                                              |
+| `FI_MEMORY_FILE`                | `data/db/classification_memory.json` | Learned rules                                          |
+| `FI_STATEMENTS_DIR`             | `data/statements/`                   | Override default statements folder for coverage wizard |
+| `FI_STATEMENT_GLOB`             | `*.pdf`                              | Glob pattern for statement discovery                   |
+| `FI_LOG_LEVEL`                  | `INFO`                               | `DEBUG` / `INFO` / `WARNING` / `ERROR`                 |
+| `FI_LOG_FORMAT`                 | `rich`                               | `rich` / `json` / `plain`                              |
+| `FI_SE_TAX_RATE`                | `0.153`                              | Self-employment tax rate                               |
+| `FI_FED_INCOME_RATE`            | `0.22`                               | Federal income tax rate                                |
+| `FI_STATE_TAX_RATE`             | `0.05`                               | State income tax rate                                  |
+| `FI_QBI_DEDUCTION`              | `0.20`                               | Qualified Business Income deduction                    |
 
 ---
 
 ## Key Design Decisions
 
-| Decision | Rationale |
-|---|---|
-| SQLite over Postgres | Zero-infra, single-file, works on any laptop |
-| Decimal over float | Exact monetary arithmetic, no IEEE 754 rounding |
-| Plugin parser registry | New banks require no changes to core code |
-| JSON classification memory | Human-readable, diff-friendly, committable to git |
-| Local-first AI | Small business runs free; cloud AI is opt-in validation |
-| No hardcoded credentials | Secret guard in config.py prevents accidental commits |
-| MCP as interface only | Financial data stays local; MCP exposes summaries only |
+| Decision                         | Rationale                                                                     |
+|----------------------------------|-------------------------------------------------------------------------------|
+| SQLite over Postgres             | Zero-infra, single-file, works on any laptop                                  |
+| Decimal over float               | Exact monetary arithmetic, no IEEE 754 rounding                               |
+| Plugin parser registry           | New banks require no changes to core code                                     |
+| JSON classification memory       | Human-readable, diff-friendly, committable to git                             |
+| Local-first AI                   | Small business runs free; cloud AI is opt-in validation                       |
+| No hardcoded credentials         | Secret guard in config.py prevents accidental commits                         |
+| MCP as interface only            | Financial data stays local; MCP exposes summaries only                        |
+| Auto-discovering parser registry | Drop one file in parsers/ — pkgutil.iter_modules picks it up automatically    |
+| Coverage wizard (R-45)           | 12-month rolling window shows gaps before importing; CI-safe --no-prompt mode |
 
 ---
 
@@ -282,7 +310,7 @@ All configuration via environment variables. Copy `.env.example` to `.env`.
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest                                    # 64 tests
+pytest                                    # 127 tests
 pytest --cov=. --cov-report=term-missing  # with coverage
 pytest tests/test_parsers.py -v           # single file
 ```
@@ -296,6 +324,12 @@ pytest tests/test_parsers.py -v           # single file
 - `config.py` scans itself at import for accidentally committed keys (secret guard)
 - Account numbers stored as last-4 masked strings only
 - MCP server is local stdio only — no network exposure unless you proxy it
+- When using remote AI backends (OpenAI/Gemini), transaction descriptions flow to the
+  remote API. Account numbers are masked. Counterparty names and amounts are not
+  currently redacted. R-46 will introduce a tokenizing redactor (in backlog).
+- **R-46 (planned): Privacy firewall** — tokenizes PII in descriptions before outbound
+  API calls, replacing counterparty names and sensitive terms with reversible tokens
+  so raw descriptions never leave the machine.
 
 ---
 

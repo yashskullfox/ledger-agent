@@ -23,6 +23,8 @@ Environment variables (prefix: FI_):
   FI_FED_INCOME_RATE        Federal effective income tax rate (default 0.22)
   FI_STATE_TAX_RATE         State income tax rate (default 0.05)
   FI_QBI_DEDUCTION          QBI deduction rate (default 0.20)
+  FI_STATEMENTS_DIR         Override default statements folder (data/statements/)
+  FI_STATEMENT_GLOB         Glob pattern for statement files (default *.pdf)
 """
 from __future__ import annotations
 
@@ -86,9 +88,12 @@ _assert_no_hardcoded_secrets()
 # ── Root paths ────────────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).parent.resolve()
 DATA_DIR = _env_path("FI_DATA_DIR", ROOT_DIR / "data")
-STATEMENTS_DIR = DATA_DIR / "statements"
+STATEMENTS_DIR = _env_path("FI_STATEMENTS_DIR", DATA_DIR / "statements")
 DB_DIR = DATA_DIR / "db"
 EXPORTS_DIR = DATA_DIR / "exports"
+
+# Glob pattern for statement discovery (R-45)
+STATEMENT_GLOB = _env_str("FI_STATEMENT_GLOB", "*.pdf")
 
 for _d in (STATEMENTS_DIR, DB_DIR, EXPORTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)

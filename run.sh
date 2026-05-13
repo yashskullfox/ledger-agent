@@ -3,7 +3,8 @@
 #
 # Usage:
 #   ./run.sh                                  # interactive menu
-#   ./run.sh scan   [FOLDER] [--force]        # ⚡ quick scan: import all PDFs in folder
+#   ./run.sh scan   [FOLDER] [FLAGS]          # 📅 coverage wizard + import (R-45)
+#   ./run.sh onboard [FOLDER] [FLAGS]         # alias for scan
 #   ./run.sh import path/to/file.pdf          # import a single statement PDF
 #   ./run.sh balance 2025-01                  # view balance sheet
 #   ./run.sh tax 2025-01                      # view tax obligation estimate
@@ -14,6 +15,22 @@
 #   ./run.sh summary
 #   ./run.sh setup
 #   ./run.sh mcp                              # start MCP stdio server (for Claude Desktop / Cursor)
+#
+# scan / onboard flags:
+#   --force                          Re-import already-imported statements
+#   --no-prompt                      CI mode: emit JSON coverage matrix, exit 0/2
+#   --window 2025-01:2025-12         Override rolling 12-month window
+#   --report                         Show balance sheet + tax after import
+#
+# Folder resolution order (scan / onboard):
+#   1. Positional argument           ./run.sh scan ~/Documents/statements/
+#   2. FI_STATEMENTS_DIR env var     FI_STATEMENTS_DIR=~/Statements ./run.sh scan
+#   3. Last-used path (cached)
+#   4. Default data/statements/
+#
+# CI / scripted usage:
+#   ./run.sh scan FOLDER --no-prompt < /dev/null
+#   → prints JSON coverage matrix; exit 0 if complete, 2 if gaps remain
 #
 # AI Modes (set FI_AI_BACKEND env var):
 #   FI_AI_BACKEND=local   ./run.sh            # rule-based, no API key (default)

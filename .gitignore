@@ -1,26 +1,56 @@
 # FinancialIntelligence — Git Ignore
+# ─────────────────────────────────────────────────────────────────────────────
+# SECURITY RULE: Never commit real financial data, statements, or API keys.
+# The patterns below enforce this at the repository level.
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Secrets & config
+# ── Secrets & credentials ─────────────────────────────────────────────────────
 .env
 *.env
 .env.local
 .env.*.local
 
-# Financial data — NEVER commit real statements or databases
+# ── PDF statement files — NEVER commit real bank statements ──────────────────
+# (catch-all regardless of location in the repo)
+*.pdf
+*.PDF
+*.ofx
+*.qfx
+*.qbo
+
+# ── Financial data directory — NEVER commit ───────────────────────────────────
+# Covers: data/statements/, data/db/, data/exports/, data/.last_statements_dir,
+#         data/.discovery_cache.json, and any other file in data/
 data/
+
+# ── SQLite database files (belt + suspenders on top of data/) ─────────────────
 *.db
 *.db-wal
 *.db-shm
-*.pdf
-*.PDF
+*.sqlite
+*.sqlite3
 
-# Python virtual environment
+# ── Generated reports & exports ───────────────────────────────────────────────
+# These live in data/exports/ (covered above) but extra safety patterns:
+*.xlsx
+*.csv
+*_report.json
+*_context.json
+ai_context_*.json
+balance_sheet_*.json
+balance_sheet_*.csv
+
+# ── Classification memory (contains learned transaction patterns) ──────────────
+classification_memory.json
+*_memory.json
+
+# ── Python virtual environment ────────────────────────────────────────────────
 .venv/
 venv/
 env/
 ENV/
 
-# Python cache
+# ── Python cache ──────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -28,7 +58,7 @@ __pycache__/
 *.pyd
 .Python
 
-# Build & distribution
+# ── Build & distribution ──────────────────────────────────────────────────────
 build/
 dist/
 *.egg-info/
@@ -38,7 +68,7 @@ MANIFEST
 wheels/
 pip-wheel-metadata/
 
-# Pytest & coverage
+# ── Pytest & coverage ─────────────────────────────────────────────────────────
 .pytest_cache/
 .coverage
 .coverage.*
@@ -47,13 +77,13 @@ htmlcov/
 .tox/
 .nox/
 
-# Type checking
+# ── Type checking ─────────────────────────────────────────────────────────────
 .mypy_cache/
 .pytype/
 .pyre/
 .ruff_cache/
 
-# Editors & OS
+# ── Editors & OS ──────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
@@ -63,18 +93,15 @@ htmlcov/
 Thumbs.db
 desktop.ini
 
-# Jupyter
+# ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 logs/
 
-# Exports (generated output)
-data/exports/
-
-# Temporary & scratch files
+# ── Temporary & scratch files ─────────────────────────────────────────────────
 *.tmp
 *.temp
 tmp/
@@ -84,26 +111,22 @@ sandbox/
 experiments/
 dev/
 
-# Profiling & benchmarks
+# ── Profiling & benchmarks ────────────────────────────────────────────────────
 *.prof
 *.profile
 profile_output/
 benchmarks/results/
 *.lprof
 
-# Property-based testing
+# ── Property-based testing ────────────────────────────────────────────────────
 .hypothesis/
 
-# Development scripts — manual test scripts not meant for CI
+# ── Development scripts — manual test scripts not meant for CI ────────────────
 debug_*.py
 scratch_*.py
 test_manual_*.py
 explore_*.py
 
-# Plan files (Wibey AI planning artifacts)
+# ── Plan files (Wibey AI planning artifacts) ──────────────────────────────────
 *.plan.md
 .wibey/
-
-# Generated CSV / Excel exports (live in data/ but extra safety)
-*.xlsx
-*.csv

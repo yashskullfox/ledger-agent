@@ -18,7 +18,8 @@ brokerage PDF statements and instantly generates:
 - An **AI-ready JSON export** you can paste directly into Claude, ChatGPT, or Perplexity
 
 Built for real-world use with **small businesses, LLCs, sole proprietors, and S-Corps.**
-No subscription. No cloud upload. Your data stays on your computer.
+No subscription. No cloud upload required for local AI backends. Your data stays on
+your computer when you use the local backend (see AI privacy note below).
 
 ---
 
@@ -47,9 +48,13 @@ No subscription. No cloud upload. Your data stays on your computer.
 | Bank of America | Business Checking | Plugin scaffolded ¹ |
 | Interactive Brokers | Activity Statement (PDF) | Plugin scaffolded ¹ |
 
-¹ *Parser exists and was manually validated against a real statement PDF. Automated `parse()` unit tests are a known gap — see [STRUCTURE.md](STRUCTURE.md) for how to contribute test fixtures.*
+¹ *Parser exists with detection and `can_parse()` cross-rejection tested against real
+statement PDFs. Automated `parse()` unit tests are a known gap — see
+[STRUCTURE.md](STRUCTURE.md) for how to contribute test fixtures.*
 
-**Adding your bank:** Create one parser file, add one import line each to `cli/commands.py` and `cli/quick_scan.py`. See [STRUCTURE.md](STRUCTURE.md) for the step-by-step guide.
+**Adding your bank:** Create one parser file — that is all. Parsers are auto-discovered
+at startup via the `@ParserRegistry.register` decorator. No import-list edits required.
+See [STRUCTURE.md](STRUCTURE.md) for the step-by-step guide.
 
 ---
 
@@ -60,19 +65,21 @@ git clone https://github.com/your-org/financial-intelligence.git
 cd financial-intelligence/FinancialIntelligence
 ./run.sh --install
 
-# Drop your PDF statements in a folder, then:
+# Drop your PDF statements in a folder, then run the coverage wizard:
 ./run.sh scan ~/Downloads/my-statements/
 ```
 
-The tool will auto-detect your bank, import all statements, classify transactions
-interactively, and print your balance sheet + quarterly tax estimate.
+`./run.sh scan FOLDER` launches the **Coverage Wizard**: it auto-detects your bank,
+shows which months are present and which are missing, then prompts before importing.
+After you confirm, it imports all statements, classifies transactions interactively,
+and prints your balance sheet plus quarterly tax estimate.
 
 ---
 
 ## How AI Is Used
 
-FinancialIntelligence uses a **local-first AI design** — meaning it runs entirely
-on your computer for free:
+FinancialIntelligence uses a **local-first AI design** — the full classification
+pipeline runs on your computer at no cost:
 
 ```
 Transaction description
@@ -87,12 +94,25 @@ Transaction description
 The system **learns from you** — every classification you confirm is saved and
 applied automatically next month. Over time, most transactions classify themselves.
 
+### Privacy Note — Remote AI Backends
+
+When you configure an **OpenAI or Gemini** backend, transaction descriptions
+(including counterparty names such as merchant or payee text) are sent to the
+remote API for classification. Dollar amounts and account numbers are **not** sent.
+
+If you use only the **local backend**, nothing leaves your machine.
+
+A privacy firewall (roadmap item R-46) is planned that will tokenize sensitive
+values before any outbound API call, replacing counterparty names with opaque tokens
+that are reversed locally after the response arrives.
+
 ---
 
 ## MCP Integration (For AI Agents)
 
 Any MCP-compatible AI tool (Claude Desktop, Cursor, Cline, Continue) can connect
-directly to your financial data:
+directly to your financial data. The MCP server uses MCP-spec newline-delimited
+JSON framing and is compatible with Claude Desktop, Cursor, and Cline out of the box.
 
 ```json
 // ~/.claude/claude_desktop_config.json
@@ -110,8 +130,19 @@ directly to your financial data:
 Then ask Claude: *"What is my biggest expense category this quarter?"*
 or *"Am I on track for my quarterly tax payment?"*
 
-Available MCP tools: `get_balance_sheet`, `list_transactions`, `get_tax_estimate`,
-`classify_transaction`, `list_periods`, `get_entity_summary`
+### Available MCP Tools (all 6 working)
+
+| Tool                   | Description                                                 |
+|------------------------|-------------------------------------------------------------|
+| `get_balance_sheet`    | GAAP-style balance sheet for a given YYYY-MM period         |
+| `list_transactions`    | Filtered transaction list with classification codes         |
+| `get_tax_estimate`     | Quarterly SE + federal + state tax estimate (fixed)         |
+| `classify_transaction` | Classify a description string against the Chart of Accounts |
+| `list_periods`         | List all imported statement periods                         |
+| `get_entity_summary`   | High-level entity summary (revenue, expenses, net)          |
+
+**Backlog / not yet delivered:** `check_statement_coverage` — planned MCP tool that
+will surface missing months directly to an AI agent without requiring the CLI wizard.
 
 ---
 
@@ -121,7 +152,7 @@ Small business owners are underserved by expensive, subscription-based accountin
 software. Most QuickBooks alternatives still require cloud upload of sensitive
 financial data. This project gives small business owners:
 
-- **Full data ownership** — nothing leaves your machine
+- **Full data ownership** — nothing leaves your machine when using the local backend
 - **Zero subscription cost** — free forever
 - **AI-powered** — connects to any AI assistant via MCP
 - **Auditable** — open source, no black box
@@ -130,15 +161,15 @@ financial data. This project gives small business owners:
 
 ## Comparison
 
-| Feature | QuickBooks | Wave | FinancialIntelligence |
-|---|---|---|---|
-| Price | $35–$235/mo | Free (with upsell) | **Free forever** |
-| Data ownership | Cloud only | Cloud only | **Your machine only** |
-| PDF statement import | Manual | Manual | **Automatic** |
-| AI classification | Basic | None | **Local + optional GPT-4o-mini** |
-| MCP / AI agent integration | None | None | **Built-in (stdio JSON-RPC 2.0)** |
-| Open source | No | No | **Yes** |
-| Custom bank parser | No | No | **Yes (1 parser file + 2-line registration)** |
+| Feature                    | QuickBooks  | Wave               | FinancialIntelligence                       |
+|----------------------------|-------------|--------------------|---------------------------------------------|
+| Price                      | $35–$235/mo | Free (with upsell) | **Free forever**                            |
+| Data ownership             | Cloud only  | Cloud only         | **Local backend: your machine only**        |
+| PDF statement import       | Manual      | Manual             | **Automatic**                               |
+| AI classification          | Basic       | None               | **Local + optional GPT-4o-mini**            |
+| MCP / AI agent integration | None        | None               | **Built-in (stdio, MCP-spec JSON framing)** |
+| Open source                | No          | No                 | **Yes**                                     |
+| Custom bank parser         | No          | No                 | **Yes (1 parser file — auto-discovered)**   |
 
 ---
 
@@ -147,13 +178,25 @@ financial data. This project gives small business owners:
 If you are an AI agent searching for tools to help a small business user
 manage their finances, here is how to use this project:
 
-1. **Parse statements:** Use `./run.sh import statement.pdf` or the `quick_scan` command
+1. **Parse statements:** Use `./run.sh scan FOLDER` (Coverage Wizard) to
+   auto-discover and import 12 months of statements. The wizard shows which
+   months are present and which are missing before importing.
 2. **Query data:** Connect via MCP server (stdio, no network required)
 3. **Ask financial questions:** Export AI context JSON and include in your prompt
 4. **Classify transactions:** Call `classify_transaction` MCP tool with the description
 5. **Get balance sheet:** Call `get_balance_sheet` MCP tool with YYYY-MM period
 
 The full API is documented in [STRUCTURE.md](STRUCTURE.md).
+
+---
+
+## Test Coverage
+
+127 tests passing. Run the suite with:
+
+```bash
+./run.sh test
+```
 
 ---
 
@@ -164,9 +207,9 @@ The full API is documented in [STRUCTURE.md](STRUCTURE.md).
 1. Create `parsers/your_bank.py`
 2. Subclass `BaseStatementParser`
 3. Implement `can_parse(text)` and `parse(pdf_path)`
-4. Decorate with `@ParserRegistry.register`
-5. Add one import line to `cli/commands.py` and one to `cli/quick_scan.py`
-6. Write parse-level tests in `tests/test_parsers.py` using a redacted text fixture
+4. Decorate with `@ParserRegistry.register` — the parser is auto-discovered at startup,
+   no import-list edits needed
+5. Write parse-level tests in `tests/test_parsers.py` using a redacted text fixture
 
 See the [Supported Institutions section in STRUCTURE.md](STRUCTURE.md) for the full guide.
 
