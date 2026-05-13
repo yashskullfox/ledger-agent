@@ -11,13 +11,15 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from config import MEMORY_FILE, AUTO_CLASSIFY_THRESHOLD
+from config import MEMORY_FILE
 
 try:
     from rapidfuzz import fuzz, process as rf_process
+
     _FUZZY_AVAILABLE = True
 except ImportError:
     _FUZZY_AVAILABLE = False
+
 
 class ClassificationMemory:
     """
@@ -63,7 +65,7 @@ class ClassificationMemory:
         # 2. Fuzzy match
         if _FUZZY_AVAILABLE:
             choices = {r["pattern"]: r for r in self._rules}
-            result  = rf_process.extractOne(
+            result = rf_process.extractOne(
                 desc_norm,
                 list(choices.keys()),
                 scorer=fuzz.WRatio,
@@ -78,21 +80,32 @@ class ClassificationMemory:
 
     def remember(self, description: str, coa_code: str, coa_name: str,
                  is_transfer: bool = False) -> None:
-        """Persist a new (or update existing) rule."""
-        desc_norm = self._normalise(description)
+        """
+        Persist a new (or update existing) rule.
+        The pattern is redacted via privacy.redact() before writing to disk
+        so the on-disk JSON is git-safe — no raw counterparty names (R-46).
+        """
+        # Redact PII from the pattern before persisting (R-46)
+        try:
+            from core.privacy import redact
+            safe_description, _ = redact(description, scope="memory_file")
+        except Exception:
+            safe_description = description  # Never fail a user confirmation
+
+        desc_norm = self._normalise(safe_description)
         for r in self._rules:
             if self._normalise(r["pattern"]) == desc_norm:
-                r["coa_code"]      = coa_code
-                r["coa_name"]      = coa_name
-                r["is_transfer"]   = is_transfer
+                r["coa_code"] = coa_code
+                r["coa_name"] = coa_name
+                r["is_transfer"] = is_transfer
                 r["confirmed_count"] = r.get("confirmed_count", 1) + 1
                 self._save()
                 return
         self._rules.append({
-            "pattern":         description,
-            "coa_code":        coa_code,
-            "coa_name":        coa_name,
-            "is_transfer":     is_transfer,
+            "pattern": safe_description,
+            "coa_code": coa_code,
+            "coa_name": coa_name,
+            "is_transfer": is_transfer,
             "confirmed_count": 1,
         })
         self._save()
@@ -123,24 +136,31 @@ class ClassificationMemory:
 
     def _seed_defaults(self) -> None:
         defaults = [
-            ("INCFILE LLC",          "5010", "Software & Subscriptions",     False),
-            ("PAYPAL *QUICKBOOKS",   "5010", "Software & Subscriptions",     False),
-            ("GOOGLE",               "5010", "Software & Subscriptions",     False),
-            ("USATAXPYMT IRS",       "5050", "Federal Income Tax Expense",   False),
-            ("TAX PAYROLL",          "5040", "Payroll Tax Expense",          False),
-            ("TRAN FEE INTUIT",      "5020", "Bank & Transaction Fees",      False),
-            ("MONEYLINE FID BKG",    "3010", "Members Capital Contributions", True),
-            ("DEPOSIT INTUIT",       "4020", "Service Revenue",              False),
-            ("EFT FUNDS PAID",       "3010", "Members Capital Contributions", True),
-            ("MARGIN INTEREST",      "5030", "Margin Interest Expense",      False),
+            # Software — canonical 5010
+            ("INCFILE LLC", "5071", "Legal & Professional Fees", False),
+            ("PAYPAL *QUICKBOOKS", "5010", "Software & Subscriptions", False),
+            ("GOOGLE", "5010", "Software & Subscriptions", False),
+            # Federal tax — canonical 5050
+            ("USATAXPYMT IRS", "5050", "Federal Income Tax Expense", False),
+            # Payroll tax — canonical 5040
+            ("TAX PAYROLL", "5040", "Payroll Tax Expense", False),
+            # Bank fees — canonical 5020
+            ("TRAN FEE INTUIT", "5020", "Bank & Transaction Fees", False),
+            # Transfers — canonical 9000 (is_transfer=True excluded from P&L)
+            ("MONEYLINE FID BKG", "9000", "Inter-Account Transfer (Clearing)", True),
+            ("EFT FUNDS PAID", "9000", "Inter-Account Transfer (Clearing)", True),
+            # Service revenue — canonical 4020
+            ("DEPOSIT INTUIT", "4020", "Service Revenue", False),
+            # Margin interest — canonical 5030
+            ("MARGIN INTEREST", "5030", "Margin Interest Expense", False),
         ]
         for pattern, code, name, is_xfer in defaults:
             self._rules.append({
-                "pattern":         pattern,
-                "coa_code":        code,
-                "coa_name":        name,
-                "is_transfer":     is_xfer,
-                "confirmed_count": 0,   # 0 = seeded, not user-confirmed
+                "pattern": pattern,
+                "coa_code": code,
+                "coa_name": name,
+                "is_transfer": is_xfer,
+                "confirmed_count": 0,  # 0 = seeded, not user-confirmed
             })
         self._save()
 
@@ -156,13 +176,15 @@ class ClassificationMemory:
         import re
         # Upper-case, collapse spaces, strip date tokens like "01-08"
         text = text.upper().strip()
-        text = re.sub(r"\b\d{2}-\d{2}\b", "", text)   # remove MM-DD
-        text = re.sub(r"\b\d{6,}\b", "", text)          # remove long numbers
+        text = re.sub(r"\b\d{2}-\d{2}\b", "", text)  # remove MM-DD
+        text = re.sub(r"\b\d{6,}\b", "", text)  # remove long numbers
         text = re.sub(r"\s+", " ", text).strip()
         return text
 
+
 # Module-level singleton
 _memory: Optional[ClassificationMemory] = None
+
 
 def get_memory() -> ClassificationMemory:
     global _memory

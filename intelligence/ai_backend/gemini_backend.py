@@ -6,6 +6,11 @@ Requires:  pip install google-generativeai tenacity
 Env vars:
   FI_GEMINI_API_KEY   Your Google AI API key
   FI_GEMINI_MODEL     Model name (default: gemini-1.5-flash)
+
+Privacy (R-46):
+  All outbound payloads are run through core.privacy.redact() before sending.
+  core.privacy.audit_egress() is called immediately before every generate call.
+  Set FI_AI_EGRESS_MODE=mock to disable network calls (CI / offline use).
 """
 from __future__ import annotations
 
@@ -25,11 +30,26 @@ _SYSTEM_INSTRUCTION = (
 )
 
 _COA_HINT = (
-    "COA: 4000=Revenue,4010=Gains,4020=Dividends,4030=Interest Income,"
-    "5010=Software,5020=Payroll,5030=Ads,5050=Federal Tax,5055=State Tax,"
-    "5060=Supplies,5070=Legal,5080=Bank Fees,5090=Interest Exp,"
-    "5100=Travel,5999=Uncategorized,9000=Transfer"
+    "COA(canonical): 4010=Realised Trading Gains,4020=Service Revenue,"
+    "4021=Dividend Income,4031=Interest Income,"
+    "5010=Software & Subscriptions,5020=Bank & Transaction Fees,"
+    "5021=Payroll & Wages,5030=Margin Interest Expense,"
+    "5031=Advertising & Marketing,5040=Payroll Tax Expense,"
+    "5050=Federal Income Tax Expense,5055=State & Local Taxes,"
+    "5061=Office & Shipping Supplies,5071=Legal & Professional Fees,"
+    "5080=Other Operating Expenses,5090=Interest Expense,"
+    "5100=Travel & Transportation,5999=Uncategorized Expense,9000=Inter-Account Transfer"
 )
+
+_MOCK_CLASSIFICATION: Dict[str, Any] = {
+    "coa_code": "5999",
+    "coa_name": "Uncategorized Expense",
+    "is_transfer": False,
+    "confidence": 0.50,
+    "source": "mock",
+    "reason": "Mock mode — no remote call made.",
+}
+
 
 class GeminiBackend(AIBackend):
     """Google Gemini backend with graceful local fallback."""
@@ -59,6 +79,10 @@ class GeminiBackend(AIBackend):
         """Send a prompt and return text response with basic retry."""
         try:
             from tenacity import retry, stop_after_attempt, wait_exponential
+            from core.privacy import audit_egress
+
+            # Hard pre-flight PII audit before any network call
+            audit_egress(prompt)
 
             @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=20))
             def _call() -> str:
@@ -72,7 +96,6 @@ class GeminiBackend(AIBackend):
 
     def _parse_json(self, raw: str) -> Dict[str, Any]:
         """Extract JSON from Gemini response (which may include markdown fences)."""
-        # Strip ```json ... ``` fences if present
         raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
         return json.loads(raw)
 
@@ -82,10 +105,18 @@ class GeminiBackend(AIBackend):
             amount: float,
             context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact, unredact_result
+
+        if AI_EGRESS_MODE == "mock":
+            log.info("Gemini mock mode: skipping remote call")
+            return dict(_MOCK_CLASSIFICATION)
+
+        safe_desc, mapping = redact(description, scope="gemini")
         direction = "credit/income" if amount >= 0 else "debit/expense"
         prompt = (
             f"Classify this transaction for a small business LLC.\n"
-            f"Description: {description}\n"
+            f"Description: {safe_desc}\n"
             f"Amount: ${abs(amount):,.2f} ({direction})\n"
             f"{_COA_HINT}\n"
             f'Respond ONLY with JSON: {{"coa_code":"","coa_name":"","is_transfer":false,"confidence":0.85,"reason":""}}'
@@ -94,7 +125,7 @@ class GeminiBackend(AIBackend):
             raw = self._generate(prompt)
             result = self._parse_json(raw)
             result.setdefault("confidence", 0.80)
-            return result
+            return unredact_result(result, mapping)
         except Exception as exc:
             log.warning("Gemini classify failed, using local fallback", extra={"error": str(exc)})
             from intelligence.ai_backend.local_backend import LocalBackend
@@ -106,9 +137,16 @@ class GeminiBackend(AIBackend):
             coa_code: str,
             confirmed_count: int,
     ) -> Dict[str, Any]:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact
+
+        if AI_EGRESS_MODE == "mock":
+            return {"enhanced_pattern": pattern, "suggested_aliases": [], "confidence": 0.50, "source": "mock"}
+
+        safe_pattern, _ = redact(pattern, scope="gemini")
         prompt = (
             f"Enhance this classification pattern for a financial transaction classifier.\n"
-            f"Pattern: '{pattern}', COA code: {coa_code}, confirmed {confirmed_count} times.\n"
+            f"Pattern: '{safe_pattern}', COA code: {coa_code}, confirmed {confirmed_count} times.\n"
             f'Respond ONLY with JSON: {{"enhanced_pattern":"","suggested_aliases":[],"confidence":0.8}}'
         )
         try:
@@ -124,11 +162,19 @@ class GeminiBackend(AIBackend):
             coa_code: str,
             coa_name: str,
     ) -> str:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact, unredact
+
+        if AI_EGRESS_MODE == "mock":
+            return f"Transaction classified as [{coa_code}] {coa_name} (mock mode)."
+
+        safe_desc, mapping = redact(description, scope="gemini")
         prompt = (
-            f"In 1-2 sentences, explain why '{description}' is classified "
+            f"In 1-2 sentences, explain why '{safe_desc}' is classified "
             f"as [{coa_code}] {coa_name} for a small business."
         )
         try:
-            return self._generate(prompt).strip()
+            raw = self._generate(prompt).strip()
+            return unredact(raw, mapping)
         except Exception:
             return f"Transaction classified as [{coa_code}] {coa_name} via Gemini AI."

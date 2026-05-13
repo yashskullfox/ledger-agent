@@ -21,10 +21,11 @@ def seeded_db(db):
         Transaction, TransactionType,
     )
     init_db()
-    # Clear tables so each test gets a clean slate
+    # Clear tables in FK-safe order (children before parents)
     with get_conn() as conn:
-        for table in ("transactions", "account_snapshots", "positions",
-                      "accounts", "entities", "imported_statements"):
+        for table in ("realised_trades", "transactions", "account_snapshots",
+                      "positions", "imported_statements",
+                      "accounts", "entities"):
             conn.execute(f"DELETE FROM {table}")
 
     entity = Entity(name="TEST LLC", entity_type="LLC", state="MO")

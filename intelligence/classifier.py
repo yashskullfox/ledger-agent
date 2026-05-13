@@ -23,7 +23,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Callable, List, Optional, Tuple
 
-from config import AUTO_CLASSIFY_THRESHOLD
+from config import AUTO_CLASSIFY_THRESHOLD, LOCAL_CONFIDENCE_THRESHOLD
 from core.database import COARepo, TransactionRepo
 from core.logging_setup import get_logger
 from core.models import COAEntry, Transaction
@@ -34,6 +34,7 @@ log = get_logger(__name__)
 # Sentinel for "user skipped classification"
 UNCLASSIFIED_CODE = "9999"
 UNCLASSIFIED_NAME = "Unclassified – Review Required"
+
 
 def _keyword_match(description: str,
                    coa_entries: List[COAEntry]) -> Optional[COAEntry]:
@@ -52,10 +53,11 @@ def _keyword_match(description: str,
         return matches[0]
     return None
 
+
 def classify_transaction(
-    txn: Transaction,
-    coa_entries: List[COAEntry],
-    prompt_fn: Optional[Callable[[Transaction, List[COAEntry]], Optional[Tuple[str, str, bool]]]] = None,
+        txn: Transaction,
+        coa_entries: List[COAEntry],
+        prompt_fn: Optional[Callable[[Transaction, List[COAEntry]], Optional[Tuple[str, str, bool]]]] = None,
 ) -> Transaction:
     """
     Classify a single transaction in-place (mutates coa_code / coa_name).
@@ -72,8 +74,8 @@ def classify_transaction(
     if result:
         code, name, is_xfer, score = result
         if score >= AUTO_CLASSIFY_THRESHOLD:
-            txn.coa_code    = code
-            txn.coa_name    = name
+            txn.coa_code = code
+            txn.coa_name = name
             txn.is_transfer = is_xfer
             return txn
         # Medium confidence: note it but still check keyword scan
@@ -86,7 +88,7 @@ def classify_transaction(
             description=txn.description,
             amount=float(txn.amount),
         )
-        if ai_result and ai_result.get("confidence", 0) >= 0.75:
+        if ai_result and ai_result.get("confidence", 0) >= LOCAL_CONFIDENCE_THRESHOLD:
             code = ai_result.get("coa_code", "")
             name = ai_result.get("coa_name", "")
             xfer = bool(ai_result.get("is_transfer", False))
@@ -120,8 +122,8 @@ def classify_transaction(
         user_result = prompt_fn(txn, coa_entries)
         if user_result:
             code, name, is_xfer = user_result
-            txn.coa_code    = code
-            txn.coa_name    = name
+            txn.coa_code = code
+            txn.coa_name = name
             txn.is_transfer = is_xfer
             memory.remember(txn.description, code, name, is_xfer)
             # Signal the AI backend to learn from this confirmation
@@ -137,9 +139,10 @@ def classify_transaction(
     txn.coa_name = UNCLASSIFIED_NAME
     return txn
 
+
 def classify_batch(
-    transactions: List[Transaction],
-    prompt_fn: Optional[Callable] = None,
+        transactions: List[Transaction],
+        prompt_fn: Optional[Callable] = None,
 ) -> Tuple[List[Transaction], int, int]:
     """
     Classify a list of transactions.
@@ -165,6 +168,7 @@ def classify_batch(
 
     return transactions, auto, prompted
 
+
 def coa_choices_for_prompt(coa_entries: List[COAEntry]) -> List[Tuple[str, str]]:
     """
     Return a list of (display_label, code) for presenting to the user.
@@ -172,6 +176,7 @@ def coa_choices_for_prompt(coa_entries: List[COAEntry]) -> List[Tuple[str, str]]
     """
     leaves = [e for e in coa_entries if e.parent_code is not None]
     return [(f"{e.code}  {e.name}", e.code) for e in leaves]
+
 
 def suggest_classification(description: str, amount: float = 0.0) -> dict:
     """
@@ -228,7 +233,7 @@ def summarise_classifications(transactions: List[Transaction]) -> dict:
         code = t.coa_code or UNCLASSIFIED_CODE
         if code not in summary:
             summary[code] = {
-                "name":  t.coa_name or UNCLASSIFIED_NAME,
+                "name": t.coa_name or UNCLASSIFIED_NAME,
                 "total": Decimal("0"),
                 "count": 0,
             }

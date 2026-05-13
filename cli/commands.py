@@ -21,6 +21,7 @@ from core.database import (
 from core.exceptions import ParserNotFoundError
 from core.models import Account, AccountType, Entity, StatementType
 
+
 def cmd_setup() -> Entity:
     """First-run wizard: create entity record in DB."""
     init_db()
@@ -30,7 +31,7 @@ def cmd_setup() -> Entity:
         if not ask_confirm("Re-run setup wizard?", default=False):
             return existing[0]
 
-    data   = wizard_entity()
+    data = wizard_entity()
     entity = Entity(
         name=data["name"],
         entity_type=data["entity_type"],
@@ -42,6 +43,7 @@ def cmd_setup() -> Entity:
     print_success(f"Entity '{entity.name}' saved.")
     return entity
 
+
 def _get_or_setup_entity() -> Optional[Entity]:
     """Return first entity or run setup wizard if none exists."""
     entities = EntityRepo.list_all()
@@ -50,9 +52,10 @@ def _get_or_setup_entity() -> Optional[Entity]:
         return cmd_setup()
     if len(entities) == 1:
         return entities[0]
-    names  = [e.name for e in entities]
+    names = [e.name for e in entities]
     choice = ask_select("Select entity:", choices=names)
     return next((e for e in entities if e.name == choice), entities[0])
+
 
 def cmd_import(pdf_path: Optional[str] = None) -> None:
     """
@@ -79,22 +82,8 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     pdf_path = Path(pdf_path)
     print_info(f"Reading PDF: {pdf_path.name} …")
 
+    import parsers  # noqa: F401  – triggers auto-discovery in parsers/__init__.py
     from parsers.registry import ParserRegistry
-    # Ensure parsers are loaded (import triggers registration decorators)
-    import importlib
-    for _mod in [
-        "parsers.truist_checking",
-        "parsers.fidelity_brokerage",
-        "parsers.chase_checking",
-        "parsers.bofa_checking",
-        "parsers.usbank_checking",
-        "parsers.usbank_creditcard",
-        "parsers.ibkr",
-    ]:
-        try:
-            importlib.import_module(_mod)
-        except Exception:
-            pass
 
     from parsers.base import BaseStatementParser
     raw_text = BaseStatementParser.extract_text(pdf_path)
@@ -108,7 +97,7 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     print_info(f"Parser detected: [bold]{parser_cls.INSTITUTION}[/bold]")
 
     parser = parser_cls()
-    stmt   = parser.parse(pdf_path)
+    stmt = parser.parse(pdf_path)
     print_success(
         f"Parsed {stmt.statement_period}  |  "
         f"{len(stmt.transactions)} transactions  |  "
@@ -171,6 +160,7 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     ImportRegistry.record(str(pdf_path), stmt.parser_id, acct.id, stmt.statement_period)
     print_success(f"Import complete for {stmt.statement_period}!")
 
+
 def cmd_balance_sheet(period: Optional[str] = None) -> None:
     """Build and display the balance sheet for a given period."""
     init_db()
@@ -180,7 +170,7 @@ def cmd_balance_sheet(period: Optional[str] = None) -> None:
 
     # Discover available periods
     snapshots = SnapshotRepo.list_for_entity(entity.id)
-    periods   = sorted({s.statement_period for s in snapshots}, reverse=True)
+    periods = sorted({s.statement_period for s in snapshots}, reverse=True)
     if not periods:
         print_warning("No imported statements found. Import a statement first.")
         return
@@ -218,6 +208,7 @@ def cmd_balance_sheet(period: Optional[str] = None) -> None:
         path = export_balance_sheet_json(bs)
         print_success(f"Saved: {path}")
 
+
 def cmd_transactions(period: Optional[str] = None) -> None:
     """Display and optionally export transactions for a period."""
     init_db()
@@ -226,7 +217,7 @@ def cmd_transactions(period: Optional[str] = None) -> None:
         return
 
     snapshots = SnapshotRepo.list_for_entity(entity.id)
-    periods   = sorted({s.statement_period for s in snapshots}, reverse=True)
+    periods = sorted({s.statement_period for s in snapshots}, reverse=True)
     if not periods:
         print_warning("No imported statements found.")
         return
@@ -243,6 +234,7 @@ def cmd_transactions(period: Optional[str] = None) -> None:
         path = export_transactions_csv(txns, period)
         print_success(f"Saved: {path}")
 
+
 def cmd_classify() -> None:
     """Interactively classify any unclassified transactions."""
     init_db()
@@ -257,11 +249,12 @@ def cmd_classify() -> None:
     classify_batch(unclassified, prompt_fn=prompt_classify)
     print_success("Classification pass complete.")
 
+
 def cmd_memory() -> None:
     """Show and manage the classification memory (learned rules)."""
     from intelligence.memory import get_memory
     memory = get_memory()
-    rules  = memory.list_rules()
+    rules = memory.list_rules()
     if not rules:
         print_info("No rules in memory yet.")
         return
@@ -275,10 +268,10 @@ def cmd_memory() -> None:
 
     if _r:
         tbl = Table(title="Classification Memory", show_lines=True)
-        tbl.add_column("Pattern",     style="cyan",  max_width=35)
-        tbl.add_column("COA Code",    style="yellow", width=10)
-        tbl.add_column("COA Name",    style="white",  max_width=30)
-        tbl.add_column("Transfer?",   width=10)
+        tbl.add_column("Pattern", style="cyan", max_width=35)
+        tbl.add_column("COA Code", style="yellow", width=10)
+        tbl.add_column("COA Name", style="white", max_width=30)
+        tbl.add_column("Transfer?", width=10)
         tbl.add_column("Confirmed #", justify="right", width=12)
         for r in rules:
             tbl.add_row(
@@ -296,6 +289,7 @@ def cmd_memory() -> None:
         sel = ask_select("Select rule to delete:", choices=patterns)
         if memory.remove_rule(sel):
             print_success(f"Rule deleted: {sel}")
+
 
 def cmd_mom_summary() -> None:
     """Show month-over-month balance sheet comparison."""
@@ -321,10 +315,10 @@ def cmd_mom_summary() -> None:
         for p in all_periods:
             tbl.add_column(p, justify="right", min_width=14)
         rows_def = [
-            ("Total Assets",      "total_assets"),
+            ("Total Assets", "total_assets"),
             ("Total Liabilities", "total_liabilities"),
-            ("Total Equity",      "total_equity"),
-            ("Net Income",        "net_income"),
+            ("Total Equity", "total_equity"),
+            ("Net Income", "net_income"),
         ]
         for label, attr in rows_def:
             row = [label]
@@ -341,6 +335,7 @@ def cmd_mom_summary() -> None:
                   f"Equity: ${bs.total_equity:,.2f}  "
                   f"NI: ${bs.net_income:,.2f}")
 
+
 def _infer_account_type(stmt_type: StatementType) -> AccountType:
     if stmt_type == StatementType.BANK_CHECKING:
         return AccountType.CHECKING
@@ -348,12 +343,15 @@ def _infer_account_type(stmt_type: StatementType) -> AccountType:
         return AccountType.SAVINGS
     if stmt_type == StatementType.BROKERAGE:
         return AccountType.BROKERAGE
+    if stmt_type == StatementType.CREDIT_CARD:
+        return AccountType.CREDIT_CARD
     return AccountType.OTHER
+
 
 def _default_account_name(stmt_type: StatementType) -> str:
     mapping = {
         StatementType.BANK_CHECKING: "Business Checking",
-        StatementType.BANK_SAVINGS:  "Business Savings",
-        StatementType.BROKERAGE:     "Brokerage Account",
+        StatementType.BANK_SAVINGS: "Business Savings",
+        StatementType.BROKERAGE: "Brokerage Account",
     }
     return mapping.get(stmt_type, "Account")

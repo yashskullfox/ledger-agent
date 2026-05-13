@@ -23,8 +23,23 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import List
 
+
 def _env_decimal(key: str, default: str) -> Decimal:
-    return Decimal(os.environ.get(key, default))
+    """Read a Decimal from an env var; silently fall back to *default* if malformed."""
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return Decimal(default)
+    try:
+        return Decimal(raw)
+    except Exception:
+        import warnings
+        warnings.warn(
+            f"[tax_estimator] {key}={raw!r} is not a valid decimal; "
+            f"using default {default}",
+            stacklevel=2,
+        )
+        return Decimal(default)
+
 
 SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # 15.3%
 FEDERAL_INCOME_RATE = _env_decimal("FI_FED_INCOME_RATE", "0.22")  # ~22% effective
@@ -39,12 +54,14 @@ QUARTERLY_DUE_DATES = {
     "Q4": "January 15 (next year)",
 }
 
+
 @dataclass
 class QuarterlyPayment:
     quarter: str  # "Q1", "Q2", etc.
     due_date: str
     amount: Decimal
     description: str
+
 
 @dataclass
 class TaxEstimate:
@@ -63,6 +80,7 @@ class TaxEstimate:
         if self.net_income == 0:
             return Decimal("0")
         return (self.total_annual_tax / self.net_income * 100).quantize(Decimal("0.01"))
+
 
 class TaxEstimator:
     """
@@ -85,6 +103,35 @@ class TaxEstimator:
                                (e.g., Decimal("12") if net_income is for 1 month).
         """
         annual_ni = net_income * annualize_factor
+
+        # SE tax applies only to positive net self-employment income (>$400 IRS rule).
+        # For a loss or break-even period, return a zero-tax estimate rather than
+        # computing nonsensical negative payments.
+        if annual_ni <= Decimal("0"):
+            zero = Decimal("0.00")
+            payments = [
+                QuarterlyPayment(
+                    quarter=q,
+                    due_date=QUARTERLY_DUE_DATES[q],
+                    amount=zero,
+                    description=f"No estimated payment due – net income is not positive ({QUARTERLY_DUE_DATES[q]})",
+                )
+                for q in ("Q1", "Q2", "Q3", "Q4")
+            ]
+            return TaxEstimate(
+                entity_name=self.entity_name,
+                period=str(self.year),
+                net_income=annual_ni,
+                se_tax=zero,
+                federal_income_tax=zero,
+                state_income_tax=zero,
+                total_annual_tax=zero,
+                quarterly_payments=payments,
+                notes=[
+                    "ℹ️  Net income is zero or negative — no estimated tax payments are due.",
+                    "⚠️  These are rough estimates only — consult a CPA for actual tax filings.",
+                ],
+            )
 
         # Self-employment tax (only on net self-employment income)
         # SE tax deduction: 50% of SE tax is deductible
@@ -158,6 +205,7 @@ class TaxEstimator:
             balance_sheet.net_income,
             annualize_factor=annualize,
         )
+
 
 def render_tax_estimate(est: TaxEstimate) -> None:
     """Print a formatted tax estimate to stdout."""

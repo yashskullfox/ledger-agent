@@ -5,7 +5,8 @@ main.py  –  FinancialIntelligence  CLI entry point
 Usage:
     python main.py                        # interactive menu
     python main.py import [PDF_PATH]      # import a statement PDF
-    python main.py scan   [FOLDER_PATH]   # ⚡ quick-scan: import all PDFs in folder
+    python main.py scan   [FOLDER_PATH]   # ⚡ coverage wizard + import all PDFs
+    python main.py onboard [FOLDER]       # alias for scan (R-45 coverage wizard)
     python main.py balance [PERIOD]       # show balance sheet  (e.g. 2025-01)
     python main.py transactions [PERIOD]
     python main.py classify               # classify pending transactions
@@ -14,6 +15,12 @@ Usage:
     python main.py tax     [PERIOD]       # show tax obligation estimate
     python main.py context [PERIOD]       # export AI-consumable context JSON
     python main.py setup                  # re-run entity setup wizard
+
+Flags (scan / onboard):
+    --force       Re-import already-imported statements
+    --no-prompt   Non-interactive / CI mode (emit JSON coverage matrix)
+    --window YYYY-MM:YYYY-MM   Override the default 12-month rolling window
+    --report      Show balance sheet + tax after ingestion
 
 Modes (set via FI_AI_BACKEND env var):
     local   – Rule-based classifier, no API key required (default)
@@ -40,6 +47,7 @@ from core.database import init_db
 from core.logging_setup import configure_logging
 from cli.prompts import ask_select, print_error, print_info
 
+
 def _boot() -> None:
     """Ensure DB, directories, and logging are initialised before any command runs."""
     configure_logging()
@@ -50,6 +58,7 @@ def _boot() -> None:
         load_dotenv(override=False)  # don't override already-set env vars
     except ImportError:
         pass
+
 
 MENU_CHOICES = [
     "⚡  Quick Scan (import folder → balance sheet + tax)",
@@ -64,6 +73,7 @@ MENU_CHOICES = [
     "⚙️   Entity setup",
     "🚪  Exit",
 ]
+
 
 def interactive_menu() -> None:
     """Main interactive menu loop."""
@@ -82,8 +92,8 @@ def interactive_menu() -> None:
         choice = ask_select("\nWhat would you like to do?", choices=MENU_CHOICES)
 
         if choice and "Quick Scan" in choice:
-            from cli.quick_scan import cmd_quick_scan
-            cmd_quick_scan()
+            from cli.onboarding import cmd_onboard
+            cmd_onboard(show_report=True)
 
         elif choice and "Import" in choice:
             from cli.commands import cmd_import
@@ -123,6 +133,7 @@ def interactive_menu() -> None:
             print_info("Goodbye! 👋")
             sys.exit(0)
 
+
 def _cmd_tax(period: str | None = None) -> None:
     """Show tax obligation estimate for a period."""
     init_db()
@@ -143,6 +154,7 @@ def _cmd_tax(period: str | None = None) -> None:
     bs = BalanceSheetBuilder(entity.id, period).build()
     est = TaxEstimator(entity.name, int(period[:4])).estimate_from_balance_sheet(bs)
     render_tax_estimate(est)
+
 
 def _cmd_context(period: str | None = None) -> None:
     """Export AI-consumable context JSON for a period."""
@@ -168,6 +180,7 @@ def _cmd_context(period: str | None = None) -> None:
     print_info("\n[bold]Compact text prompt (paste into any AI):[/bold]")
     print(context_to_prompt(ctx))
 
+
 def main() -> None:
     _boot()
     args = sys.argv[1:]
@@ -179,11 +192,24 @@ def main() -> None:
     cmd = args[0].lower()
     rest = args[1:]
 
-    if cmd in ("scan", "s"):
-        from cli.quick_scan import cmd_quick_scan
+    if cmd in ("scan", "s", "onboard", "o"):
+        from cli.onboarding import cmd_onboard
         force = "--force" in rest or "-f" in rest
+        no_prompt = "--no-prompt" in rest
+        show_report = "--report" in rest
+        window_arg = next(
+            (rest[i + 1] for i, r in enumerate(rest) if r == "--window" and i + 1 < len(rest)),
+            None,
+        )
         folder = next((r for r in rest if not r.startswith("-")), None)
-        cmd_quick_scan(folder=folder, force=force)
+        code = cmd_onboard(
+            folder=folder,
+            window_arg=window_arg,
+            no_prompt=no_prompt,
+            force=force,
+            show_report=show_report,
+        )
+        sys.exit(code)
 
     elif cmd in ("import", "i"):
         from cli.commands import cmd_import
@@ -230,6 +256,7 @@ def main() -> None:
             "[scan|import|balance|transactions|classify|memory|summary|tax|context|setup]"
         )
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

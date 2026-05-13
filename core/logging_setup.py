@@ -23,6 +23,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+
 class _JsonFormatter(logging.Formatter):
     """Emit each log record as a single JSON line."""
 
@@ -48,10 +49,12 @@ class _JsonFormatter(logging.Formatter):
             obj["exc"] = self.formatException(record.exc_info)
         return json.dumps(obj, default=str)
 
+
 _PLAIN_FMT = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
 _PLAIN_DATE = "%Y-%m-%dT%H:%M:%S"
 
 _configured = False
+
 
 def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
     """
@@ -94,11 +97,19 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
         handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(logging.Formatter(_PLAIN_FMT, datefmt=_PLAIN_DATE))
 
+    # Install PrivacyFilter on the handler so PII is stripped before emit (R-46)
+    try:
+        from core.privacy import PrivacyFilter
+        handler.addFilter(PrivacyFilter())
+    except Exception:
+        pass  # Privacy filter is best-effort; never prevent logging from working
+
     root.addHandler(handler)
 
     # Silence noisy third-party loggers
     for noisy in ("pdfminer", "pdfplumber", "urllib3", "httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> logging.Logger:
     """

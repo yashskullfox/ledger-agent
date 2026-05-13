@@ -26,8 +26,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import pdfplumber
-
 from core.models import (
     AccountSnapshot, ParsedStatement,
     StatementType, Transaction, TransactionType,
@@ -47,9 +45,9 @@ class USBankCreditCardParser(BaseStatementParser):
     def can_parse(cls, text: str) -> bool:
         upper = text.upper()
         return (
-            ("U.S. BANK" in upper or "USBANK" in upper)
-            and ("TRIPLE CASH" in upper or "CREDIT CARD" in upper
-                 or "CENTRAL BILL" in upper or "CARDMEMBER" in upper)
+                ("U.S. BANK" in upper or "USBANK" in upper)
+                and ("TRIPLE CASH" in upper or "CREDIT CARD" in upper
+                     or "CENTRAL BILL" in upper or "CARDMEMBER" in upper)
         )
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
@@ -132,7 +130,7 @@ class USBankCreditCardParser(BaseStatementParser):
     )
 
     def _parse_transactions(
-        self, lines: List[str], year: int, period: str,
+            self, lines: List[str], year: int, period: str,
     ) -> Tuple[List[Transaction], List[Transaction], List[Transaction]]:
         """
         Return (charges, credits, payments).
@@ -233,6 +231,7 @@ class USBankCreditCardParser(BaseStatementParser):
 
 def _extract_lines_by_y(pdf_path: Path) -> List[str]:
     """Reconstruct text lines by grouping PDF chars sharing the same vertical position."""
+    import pdfplumber
     lines: List[str] = []
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page in pdf.pages:

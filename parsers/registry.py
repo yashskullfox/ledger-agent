@@ -10,13 +10,13 @@ Usage:
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Dict, List, Optional, Type
 
 from core.exceptions import ParserNotFoundError
 
+
 class ParserRegistry:
-    _registry: Dict[str, "Type"] = {}   # parser_id → class
+    _registry: Dict[str, "Type"] = {}  # parser_id → class
 
     @classmethod
     def register(cls, parser_cls: "Type") -> "Type":

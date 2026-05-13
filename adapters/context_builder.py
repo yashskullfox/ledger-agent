@@ -20,11 +20,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+
 class _DecimalEncoder(json.JSONEncoder):
     def default(self, obj: Any) -> Any:
         if isinstance(obj, Decimal):
             return float(obj)
         return super().default(obj)
+
 
 def build_context(
         entity_id: str,
@@ -87,8 +89,8 @@ def build_context(
             "is_balanced": bs.is_balanced,
             "lines": [
                 {
-                    "code": line.code,
-                    "name": line.name,
+                    "coa_code": line.coa_code,
+                    "label": line.label,
                     "amount": float(line.amount),
                     "type": line.coa_type.value,
                     "is_subtotal": line.is_subtotal,
@@ -129,20 +131,31 @@ def build_context(
         ),
     }
 
-    # Optionally include transactions
+    # Optionally include transactions — descriptions redacted for AI export (R-46)
     if include_transactions:
         txns = TransactionRepo.list_for_period(period)
-        ctx["transactions"] = [
-            {
+        try:
+            from core.privacy import redact as _redact
+        except Exception:
+            _redact = None  # type: ignore[assignment]
+
+        txn_records = []
+        for t in txns:
+            desc = t.description
+            if _redact is not None:
+                try:
+                    desc, _ = _redact(desc, scope="ai_context")
+                except Exception:
+                    pass  # Never block export on privacy error
+            txn_records.append({
                 "date": t.date.isoformat(),
-                "description": t.description,
+                "description": desc,
                 "amount": float(t.amount),
                 "coa_code": t.coa_code,
                 "type": t.transaction_type.value if t.transaction_type else None,
                 "is_transfer": t.is_transfer,
-            }
-            for t in txns
-        ]
+            })
+        ctx["transactions"] = txn_records
 
     # Optionally include positions
     if include_positions:
@@ -163,11 +176,13 @@ def build_context(
 
     return ctx
 
+
 def save_context(ctx: Dict[str, Any], path: Path) -> Path:
     """Save context dict as pretty-printed JSON. Returns the file path."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(ctx, indent=2, cls=_DecimalEncoder))
     return path
+
 
 def context_to_prompt(ctx: Dict[str, Any]) -> str:
     """
@@ -213,9 +228,11 @@ def context_to_prompt(ctx: Dict[str, Any]) -> str:
 
     return "\n".join(lines)
 
+
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
 
 def _safe_div(a, b) -> Optional[float]:
     try:

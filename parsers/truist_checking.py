@@ -16,48 +16,48 @@ Account summary block supplies beginning / ending balances.
 from __future__ import annotations
 
 import re
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.models import (
-    AccountSnapshot, AccountType, ParsedStatement,
+    AccountSnapshot, ParsedStatement,
     StatementType, Transaction, TransactionType,
 )
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
+
 @ParserRegistry.register
 class TruistCheckingParser(BaseStatementParser):
-
-    PARSER_ID   = "truist_checking"
+    PARSER_ID = "truist_checking"
     INSTITUTION = "Truist Bank"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
-        return (
-            "TRUIST" in text.upper()
-            and ("SIMPLE BUSINESS CHECKING" in text.upper()
-                 or "TRUIST SIMPLE BUSINESS" in text.upper())
+        # pdfplumber sometimes collapses spaces: "TRUISTSIMPLEBUSINESSCHECKING"
+        t = text.upper().replace(" ", "")
+        return "TRUIST" in text.upper() and (
+                "SIMPLEBUSINESSCHECKING" in t
+                or "TRUISTSIMPLEBUSINESS" in t
         )
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
         period, year = self._extract_period(raw_text)
-        account_no   = self._extract_account_number(raw_text)
-        entity_name  = self._extract_entity_name(raw_text)
+        account_no = self._extract_account_number(raw_text)
+        entity_name = self._extract_entity_name(raw_text)
         prev_bal, new_bal = self._extract_balances(raw_text)
 
-        debits  = self._parse_debits(raw_text, year)
+        debits = self._parse_debits(raw_text, year)
         credits = self._parse_credits(raw_text, year)
 
         all_txns = debits + credits
-        total_debits  = sum(abs(t.amount) for t in debits)
+        total_debits = sum(abs(t.amount) for t in debits)
         total_credits = sum(t.amount for t in credits)
 
         snapshot = AccountSnapshot(
-            account_id="",           # filled in by importer after account creation
+            account_id="",  # filled in by importer after account creation
             statement_period=period,
             ending_balance=new_bal if new_bal is not None else Decimal("0"),
             beginning_balance=prev_bal,
@@ -124,14 +124,21 @@ class TruistCheckingParser(BaseStatementParser):
         return "UNKNOWN ENTITY"
 
     def _extract_balances(self, text: str) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+        """
+        Match both spaced and space-collapsed formats:
+          'Your previous balance as of 05/15/2024 $0.00'
+          'Yourpreviousbalanceasof09/30/2024 $742.41'
+        """
         prev = new = None
         m_prev = re.search(
-            r"[Pp]revious\s+balance\s+as\s+of[^$]*\$([0-9,]+\.\d{2})", text
+            r"(?i)previous\s*balance\s*as\s*of\s*\d{2}/\d{2}/\d{4}\s*\$([0-9,]+\.\d{2})",
+            text,
         )
         if m_prev:
             prev = self.parse_amount(m_prev.group(1))
         m_new = re.search(
-            r"[Nn]ew\s+balance\s+as\s+of[^$]*=?\s*\$([0-9,]+\.\d{2})", text
+            r"(?i)new\s*balance\s*as\s*of\s*\d{2}/\d{2}/\d{4}\s*=?\s*\$([0-9,]+\.\d{2})",
+            text,
         )
         if m_new:
             new = self.parse_amount(m_new.group(1))
@@ -161,7 +168,7 @@ class TruistCheckingParser(BaseStatementParser):
                     date=d,
                     description=self._clean_desc(desc),
                     raw_description=desc,
-                    amount=-abs(amt),          # debits are negative
+                    amount=-abs(amt),  # debits are negative
                     transaction_type=self._classify_debit_type(desc),
                     statement_period=self.period_from_date(d),
                 ))
@@ -173,9 +180,17 @@ class TruistCheckingParser(BaseStatementParser):
           "Deposits, credits and interest"  (spaces may be collapsed)
         and:
           "Total deposits, credits"
+        Crucially, we start searching AFTER the debit section end to prevent
+        the account-summary header "Deposits, credits and interest" from
+        being treated as the section start when the statement has no deposits.
         """
+        # Anchor: skip everything up to (and including) the debit section totals
+        debit_end_m = re.search(r"Total\s*other\s*withdrawals", text, re.IGNORECASE)
+        search_offset = debit_end_m.end() if debit_end_m else 0
+        slice_text = text[search_offset:]
+
         section = self._extract_section(
-            text,
+            slice_text,
             start_pattern=r"Deposits,?\s*credits\s*and\s*interest",
             end_pattern=r"Total\s*deposits",
         )
@@ -192,7 +207,7 @@ class TruistCheckingParser(BaseStatementParser):
                     date=d,
                     description=self._clean_desc(desc),
                     raw_description=desc,
-                    amount=abs(amt),           # credits are positive
+                    amount=abs(amt),  # credits are positive
                     transaction_type=txn_type,
                     statement_period=self.period_from_date(d),
                     is_transfer=(txn_type == TransactionType.TRANSFER_IN),
@@ -200,14 +215,14 @@ class TruistCheckingParser(BaseStatementParser):
         return txns
 
     def _extract_section(self, text: str,
-                          start_pattern: str, end_pattern: str) -> str:
+                         start_pattern: str, end_pattern: str) -> str:
         """
         Extract text between start_pattern and end_pattern.
         Uses the LAST occurrence of start_pattern before end_pattern to avoid
         matching the account-summary line that repeats section labels with totals.
         """
         end_m = re.search(end_pattern, text, re.IGNORECASE)
-        end   = end_m.start() if end_m else len(text)
+        end = end_m.start() if end_m else len(text)
 
         # Collect all start-pattern matches that come before the end boundary
         start_matches = [
@@ -219,7 +234,7 @@ class TruistCheckingParser(BaseStatementParser):
 
         # Use the last valid occurrence (the actual detail section, not the summary)
         start_m = start_matches[-1]
-        start   = start_m.end()
+        start = start_m.end()
 
         if start >= end:
             return ""

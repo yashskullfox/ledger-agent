@@ -15,15 +15,14 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
 
-import pdfplumber
-
 from core.models import ParsedStatement
+
 
 class BaseStatementParser(ABC):
     """All statement parsers must implement this interface."""
 
-    PARSER_ID: str = ""          # unique slug, e.g. "truist_checking"
-    INSTITUTION: str = ""        # human-readable, e.g. "Truist Bank"
+    PARSER_ID: str = ""  # unique slug, e.g. "truist_checking"
+    INSTITUTION: str = ""  # human-readable, e.g. "Truist Bank"
 
     @classmethod
     @abstractmethod
@@ -37,6 +36,13 @@ class BaseStatementParser(ABC):
     @staticmethod
     def extract_text(pdf_path: Path) -> str:
         """Concatenate all pages of a PDF into one string."""
+        try:
+            import pdfplumber
+        except ImportError:
+            raise ImportError(
+                "pdfplumber is required to parse PDF files. "
+                "Install it with: pip install pdfplumber"
+            )
         pages: list[str] = []
         with pdfplumber.open(str(pdf_path)) as pdf:
             for page in pdf.pages:
