@@ -5,12 +5,18 @@ Classification pipeline (in order of precedence):
 
   1. Already has a coa_code  →  skip (parser pre-classified it)
   2. Memory lookup (fuzzy)   →  auto-apply if score >= AUTO_CLASSIFY_THRESHOLD
-  3. COA keyword scan        →  auto-apply if exactly one COA entry matches
-  4. Prompt user             →  ask, remember answer for future
+  3. AI backend suggestion   →  use local/OpenAI/Gemini (FI_AI_BACKEND)
+  4. COA keyword scan        →  auto-apply if exactly one COA entry matches
+  5. Prompt user             →  ask, remember answer for future
 
 The `classify_batch()` function is the primary entry point.
 Pass a `prompt_fn` callable if you want interactive classification;
 omit it for batch/non-interactive mode (unclassified txns get code "9999").
+
+AI backend is selected by FI_AI_BACKEND env var:
+  local  (default) – rule-based + rapidfuzz, no API key needed
+  openai           – OpenAI Chat Completions (requires FI_OPENAI_API_KEY)
+  gemini           – Google Gemini (requires FI_GEMINI_API_KEY)
 """
 from __future__ import annotations
 
@@ -19,8 +25,11 @@ from typing import Callable, List, Optional, Tuple
 
 from config import AUTO_CLASSIFY_THRESHOLD
 from core.database import COARepo, TransactionRepo
-from core.models import COAEntry, COAType, Transaction
+from core.logging_setup import get_logger
+from core.models import COAEntry, Transaction
 from intelligence.memory import get_memory
+
+log = get_logger(__name__)
 
 
 # Sentinel for "user skipped classification"
@@ -76,7 +85,36 @@ def classify_transaction(
             return txn
         # Medium confidence: note it but still check keyword scan
 
-    # 3. COA keyword scan
+    # 3. AI backend suggestion
+    try:
+        from intelligence.ai_backend import get_backend
+        backend = get_backend()
+        ai_result = backend.classify_transaction(
+            description=txn.description,
+            amount=float(txn.amount),
+        )
+        if ai_result and ai_result.get("confidence", 0) >= 0.75:
+            code = ai_result.get("coa_code", "")
+            name = ai_result.get("coa_name", "")
+            xfer = bool(ai_result.get("is_transfer", False))
+            if code and code != UNCLASSIFIED_CODE:
+                txn.coa_code = code
+                txn.coa_name = name
+                txn.is_transfer = xfer
+                memory.remember(txn.description, code, name, xfer)
+                log.debug(
+                    "AI classified transaction",
+                    extra={
+                        "backend": backend.backend_name,
+                        "code": code,
+                        "confidence": ai_result.get("confidence"),
+                    },
+                )
+                return txn
+    except Exception as exc:
+        log.debug("AI backend skipped", extra={"error": str(exc)})
+
+    # 4. COA keyword scan
     kw_match = _keyword_match(txn.description, coa_entries)
     if kw_match:
         txn.coa_code = kw_match.code
@@ -84,7 +122,7 @@ def classify_transaction(
         memory.remember(txn.description, kw_match.code, kw_match.name)
         return txn
 
-    # 4. Interactive prompt
+    # 5. Interactive prompt
     if prompt_fn:
         user_result = prompt_fn(txn, coa_entries)
         if user_result:
@@ -93,9 +131,15 @@ def classify_transaction(
             txn.coa_name    = name
             txn.is_transfer = is_xfer
             memory.remember(txn.description, code, name, is_xfer)
+            # Signal the AI backend to learn from this confirmation
+            try:
+                from intelligence.ai_backend import get_backend
+                get_backend().on_user_confirmed(txn.description, code, name, is_xfer)
+            except Exception:
+                pass
             return txn
 
-    # 5. Fallback: unclassified
+    # 6. Fallback: unclassified
     txn.coa_code = UNCLASSIFIED_CODE
     txn.coa_name = UNCLASSIFIED_NAME
     return txn

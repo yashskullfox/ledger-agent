@@ -3,14 +3,22 @@
 main.py  –  FinancialIntelligence  CLI entry point
 ────────────────────────────────────────────────────
 Usage:
-    python main.py                     # interactive menu
-    python main.py import [PDF_PATH]   # import a statement PDF
-    python main.py balance [PERIOD]    # show balance sheet  (e.g. 2025-01)
+    python main.py                        # interactive menu
+    python main.py import [PDF_PATH]      # import a statement PDF
+    python main.py scan   [FOLDER_PATH]   # ⚡ quick-scan: import all PDFs in folder
+    python main.py balance [PERIOD]       # show balance sheet  (e.g. 2025-01)
     python main.py transactions [PERIOD]
-    python main.py classify            # classify pending transactions
-    python main.py memory              # view / manage learned rules
-    python main.py summary             # month-over-month comparison
-    python main.py setup               # re-run entity setup wizard
+    python main.py classify               # classify pending transactions
+    python main.py memory                 # view / manage learned rules
+    python main.py summary                # month-over-month comparison
+    python main.py tax     [PERIOD]       # show tax obligation estimate
+    python main.py context [PERIOD]       # export AI-consumable context JSON
+    python main.py setup                  # re-run entity setup wizard
+
+Modes (set via FI_AI_BACKEND env var):
+    local   – Rule-based classifier, no API key required (default)
+    openai  – OpenAI Chat Completions (requires FI_OPENAI_API_KEY)
+    gemini  – Google Gemini (requires FI_GEMINI_API_KEY)
 
 FinancialIntelligence – generic, extensible financial statement aggregator
 for small business entities (LLCs, etc.).
@@ -29,26 +37,36 @@ from pathlib import Path
 # ── Add project root to sys.path so all imports work when run directly ────────
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import DB_PATH
 from core.database import init_db
+from core.logging_setup import configure_logging
 from cli.prompts import ask_select, print_error, print_info
 
 
 # ── Boot ──────────────────────────────────────────────────────────────────────
 
 def _boot() -> None:
-    """Ensure DB and directories exist before any command runs."""
+    """Ensure DB, directories, and logging are initialised before any command runs."""
+    configure_logging()
     init_db()
+    # Auto-load .env if python-dotenv is installed
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)  # don't override already-set env vars
+    except ImportError:
+        pass
 
 
 # ── Menu ──────────────────────────────────────────────────────────────────────
 
 MENU_CHOICES = [
+    "⚡  Quick Scan (import folder → balance sheet + tax)",
     "📥  Import statement PDF",
     "📊  View balance sheet",
+    "💰  Tax obligation estimate",
     "📋  View transactions",
     "🏷   Classify unclassified transactions",
     "📈  Month-over-month summary",
+    "🤖  Export AI context (for Claude / GPT / Perplexity)",
     "🧠  View / manage memory rules",
     "⚙️   Entity setup",
     "🚪  Exit",
@@ -71,7 +89,11 @@ def interactive_menu() -> None:
     while True:
         choice = ask_select("\nWhat would you like to do?", choices=MENU_CHOICES)
 
-        if choice and "Import" in choice:
+        if choice and "Quick Scan" in choice:
+            from cli.quick_scan import cmd_quick_scan
+            cmd_quick_scan()
+
+        elif choice and "Import" in choice:
             from cli.commands import cmd_import
             cmd_import()
 
@@ -79,9 +101,11 @@ def interactive_menu() -> None:
             from cli.commands import cmd_balance_sheet
             cmd_balance_sheet()
 
+        elif choice and "Tax obligation" in choice:
+            _cmd_tax()
+
         elif choice and "transactions" in choice:
             from cli.commands import cmd_transactions
-
             cmd_transactions()
 
         elif choice and "Classify" in choice:
@@ -91,6 +115,9 @@ def interactive_menu() -> None:
         elif choice and "Month-over-month" in choice:
             from cli.commands import cmd_mom_summary
             cmd_mom_summary()
+
+        elif choice and "AI context" in choice:
+            _cmd_context()
 
         elif choice and "memory" in choice:
             from cli.commands import cmd_memory
@@ -103,6 +130,57 @@ def interactive_menu() -> None:
         elif choice and ("Exit" in choice or "exit" in choice):
             print_info("Goodbye! 👋")
             sys.exit(0)
+
+
+# ── Tax estimate command ──────────────────────────────────────────────────────
+
+def _cmd_tax(period: str | None = None) -> None:
+    """Show tax obligation estimate for a period."""
+    init_db()
+    from cli.commands import _get_or_setup_entity
+    from core.database import SnapshotRepo
+    entity = _get_or_setup_entity()
+    if not entity:
+        return
+    snapshots = SnapshotRepo.list_for_entity(entity.id)
+    periods = sorted({s.statement_period for s in snapshots}, reverse=True)
+    if not periods:
+        print_error("No imported statements found. Import a statement first.")
+        return
+    if not period:
+        period = ask_select("Select period for tax estimate:", choices=periods, default=periods[0])
+    from accounting.balance_sheet import BalanceSheetBuilder
+    from accounting.tax_estimator import TaxEstimator, render_tax_estimate
+    bs = BalanceSheetBuilder(entity.id, period).build()
+    est = TaxEstimator(entity.name, int(period[:4])).estimate_from_balance_sheet(bs)
+    render_tax_estimate(est)
+
+
+# ── AI context export command ─────────────────────────────────────────────────
+
+def _cmd_context(period: str | None = None) -> None:
+    """Export AI-consumable context JSON for a period."""
+    init_db()
+    from cli.commands import _get_or_setup_entity
+    from core.database import SnapshotRepo
+    from cli.prompts import print_success
+    entity = _get_or_setup_entity()
+    if not entity:
+        return
+    snapshots = SnapshotRepo.list_for_entity(entity.id)
+    periods = sorted({s.statement_period for s in snapshots}, reverse=True)
+    if not periods:
+        print_error("No imported statements found.")
+        return
+    if not period:
+        period = ask_select("Select period for AI context:", choices=periods, default=periods[0])
+    from adapters.context_builder import build_context, save_context, context_to_prompt
+    from config import EXPORTS_DIR
+    ctx = build_context(entity.id, period)
+    path = save_context(ctx, EXPORTS_DIR / f"ai_context_{period}.json")
+    print_success(f"AI context saved: {path}")
+    print_info("\n[bold]Compact text prompt (paste into any AI):[/bold]")
+    print(context_to_prompt(ctx))
 
 
 # ── CLI argument dispatch ─────────────────────────────────────────────────────
@@ -118,7 +196,13 @@ def main() -> None:
     cmd = args[0].lower()
     rest = args[1:]
 
-    if cmd in ("import", "i"):
+    if cmd in ("scan", "s"):
+        from cli.quick_scan import cmd_quick_scan
+        force = "--force" in rest or "-f" in rest
+        folder = next((r for r in rest if not r.startswith("-")), None)
+        cmd_quick_scan(folder=folder, force=force)
+
+    elif cmd in ("import", "i"):
         from cli.commands import cmd_import
         cmd_import(rest[0] if rest else None)
 
@@ -142,13 +226,22 @@ def main() -> None:
         from cli.commands import cmd_mom_summary
         cmd_mom_summary()
 
+    elif cmd in ("tax", "taxes"):
+        _cmd_tax(rest[0] if rest else None)
+
+    elif cmd in ("context", "ctx"):
+        _cmd_context(rest[0] if rest else None)
+
     elif cmd in ("setup", "init"):
         from cli.commands import cmd_setup
         cmd_setup()
 
     else:
         print_error(f"Unknown command: '{cmd}'")
-        print_info("Usage: python main.py [import|balance|transactions|classify|memory|summary|setup]")
+        print_info(
+            "Usage: python main.py "
+            "[scan|import|balance|transactions|classify|memory|summary|tax|context|setup]"
+        )
         sys.exit(1)
 
 

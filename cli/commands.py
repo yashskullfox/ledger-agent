@@ -6,22 +6,20 @@ All heavy logic lives in parsers / intelligence / accounting / reports.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Optional
 
-from config import STATEMENTS_DIR, EXPORTS_DIR
-from core.database import (
-    AccountRepo, EntityRepo, ImportRegistry, PositionRepo,
-    RealisedTradeRepo, SnapshotRepo, TransactionRepo, init_db,
-)
-from core.exceptions import DuplicateStatementError, ParserNotFoundError
-from core.models import Account, AccountType, Entity, StatementType
 from cli.prompts import (
-    ask_confirm, ask_select, ask_text,
-    print_error, print_info, print_success, print_warning,
+    ask_confirm, ask_select, print_error, print_info, print_success, print_warning,
     prompt_classify, prompt_statement_file, wizard_entity,
 )
+from config import STATEMENTS_DIR
+from core.database import (
+    AccountRepo, EntityRepo, ImportRegistry, PositionRepo,
+    SnapshotRepo, TransactionRepo, init_db,
+)
+from core.exceptions import ParserNotFoundError
+from core.models import Account, AccountType, Entity, StatementType
 
 
 # ── Setup / first-run ─────────────────────────────────────────────────────────
@@ -92,8 +90,17 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     # ── Auto-detect parser ────────────────────────────────────────────────────
     from parsers.registry import ParserRegistry
     # Ensure parsers are loaded (import triggers registration decorators)
-    import parsers.truist_checking       # noqa: F401
-    import parsers.fidelity_brokerage    # noqa: F401
+    import importlib
+    for _mod in [
+        "parsers.truist_checking",
+        "parsers.fidelity_brokerage",
+        "parsers.chase_checking",
+        "parsers.bofa_checking",
+    ]:
+        try:
+            importlib.import_module(_mod)
+        except Exception:
+            pass
 
     from parsers.base import BaseStatementParser
     raw_text = BaseStatementParser.extract_text(pdf_path)
@@ -168,7 +175,7 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
 
     # ── Reconcile transfers ───────────────────────────────────────────────────
     all_txns = TransactionRepo.list_for_period(stmt.statement_period)
-    from intelligence.reconciler import reconcile, print_reconciliation_report
+    from intelligence.reconciler import reconcile
     matches, unmatched = reconcile(all_txns)
     if matches:
         print_success(f"Reconciled {len(matches)} inter-account transfer(s).")
