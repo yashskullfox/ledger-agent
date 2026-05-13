@@ -29,12 +29,13 @@ Respond ONLY with valid JSON in this exact format:
   "reason": "<brief explanation>"
 }
 
-Common COA codes:
-4000=General Revenue, 4010=Realized Gains/Losses, 4020=Dividend Income,
-4030=Interest Income, 5010=Software & SaaS, 5020=Payroll & Wages,
-5030=Advertising & Marketing, 5040=Estimated Tax Payments, 5050=Federal Income Tax,
-5055=State & Local Taxes, 5060=Office Supplies, 5070=Legal & Professional,
-5080=Bank Fees, 5090=Interest Expense, 5100=Travel & Transportation,
+Common COA codes (canonical — use these exact codes and names):
+4010=Realised Trading Gains, 4020=Service Revenue, 4021=Dividend Income,
+4031=Interest Income, 5010=Software & Subscriptions, 5020=Bank & Transaction Fees,
+5021=Payroll & Wages, 5030=Margin Interest Expense, 5031=Advertising & Marketing,
+5040=Payroll Tax Expense, 5050=Federal Income Tax Expense, 5055=State & Local Taxes,
+5061=Office & Shipping Supplies, 5071=Legal & Professional Fees, 5080=Other Operating Expenses,
+5090=Interest Expense, 5100=Travel & Transportation,
 5999=Uncategorized Expense, 9000=Inter-Account Transfer
 """
 

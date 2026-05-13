@@ -7,7 +7,8 @@ Never hard-code secrets, API keys, or personal data in this file.
 Environment variables (prefix: FI_):
   FI_DB_PATH                Override SQLite database path
   FI_DATA_DIR               Override data directory
-  FI_AUTO_CLASSIFY_THRESHOLD  Fuzzy match threshold (0-100, default 85)
+  FI_AUTO_CLASSIFY_THRESHOLD      Fuzzy match threshold (0-100, default 85)
+  FI_LOCAL_CONFIDENCE_THRESHOLD   Chain escalation threshold (0.0-1.0, default 0.65)
   FI_LOG_LEVEL              Logging level: DEBUG/INFO/WARNING/ERROR (default INFO)
   FI_LOG_FORMAT             Logging format: json/rich/plain (default rich)
   FI_AI_BACKEND             AI backend: local/openai/gemini (default local)
@@ -18,6 +19,10 @@ Environment variables (prefix: FI_):
   FI_MEMORY_FILE            Override classification memory JSON path
   FI_DEFAULT_ENTITY_NAME    Pre-fill entity name in setup wizard
   FI_DEFAULT_ENTITY_STATE   Pre-fill entity state in setup wizard
+  FI_SE_TAX_RATE            Self-employment tax rate (default 0.153)
+  FI_FED_INCOME_RATE        Federal effective income tax rate (default 0.22)
+  FI_STATE_TAX_RATE         State income tax rate (default 0.05)
+  FI_QBI_DEDUCTION          QBI deduction rate (default 0.20)
 """
 from __future__ import annotations
 
@@ -38,6 +43,14 @@ def _env_int(key: str, default: int) -> int:
     raw = os.environ.get(key, "")
     try:
         return int(raw)
+    except (ValueError, TypeError):
+        return default
+
+
+def _env_float(key: str, default: float) -> float:
+    raw = os.environ.get(key, "")
+    try:
+        return float(raw)
     except (ValueError, TypeError):
         return default
 
@@ -95,6 +108,10 @@ FISCAL_YEAR_START_MM = _env_int("FI_FISCAL_YEAR_START_MM", 1)
 # ── Parser confidence thresholds ─────────────────────────────────────────────
 AUTO_CLASSIFY_THRESHOLD = _env_int("FI_AUTO_CLASSIFY_THRESHOLD", 85)
 
+# Minimum local-backend confidence before the chain escalates to remote AI.
+# Range 0.0–1.0.  Higher = fewer API calls (more local-only).  Default: 0.65.
+LOCAL_CONFIDENCE_THRESHOLD = _env_float("FI_LOCAL_CONFIDENCE_THRESHOLD", 0.65)
+
 # ── Intelligence / memory ────────────────────────────────────────────────────
 MEMORY_FILE = _env_path("FI_MEMORY_FILE", DB_DIR / "classification_memory.json")
 
@@ -137,6 +154,9 @@ KNOWN_PARSERS = {
     "fidelity_brokerage": "Fidelity Brokerage / Investment Account",
     "chase_checking": "Chase Business Complete Checking",
     "bofa_checking": "Bank of America Business Checking",
+    "usbank_checking": "U.S. Bank Business Essentials Checking",
+    "usbank_creditcard": "U.S. Bank Business Credit Card",
+    "ibkr": "Interactive Brokers Activity Statement",
 }
 
 # ── Chart-of-Accounts account-type labels ────────────────────────────────────

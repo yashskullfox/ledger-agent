@@ -2,8 +2,9 @@
 mcp_server/server.py  –  MCP stdio server for FinancialIntelligence
 
 Implements the Model Context Protocol (JSON-RPC 2.0 over stdio) without
-any external dependencies, making it compatible with every MCP client:
-Claude Desktop, Cursor, Cline, Continue, and any custom integration.
+any external dependencies. Uses MCP-spec newline-delimited JSON framing
+(one JSON object per line), compatible with Claude Desktop, Cursor, Cline,
+Continue, and the reference MCP Python SDK.
 
 Exposed tools:
   get_balance_sheet       – Balance sheet for a statement period
@@ -239,14 +240,17 @@ def _handle_get_tax_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
         "entity": entity.name,
         "period": period,
         "year": year,
-        "net_income_monthly": float(est.net_income_monthly),
-        "net_income_annual": float(est.net_income_annual),
+        "net_income_annual": float(est.net_income),
         "se_tax": float(est.se_tax),
         "federal_income_tax": float(est.federal_income_tax),
         "state_income_tax": float(est.state_income_tax),
         "total_annual_tax": float(est.total_annual_tax),
-        "quarterly_payment": float(est.quarterly_payment),
-        "effective_rate_pct": float(est.effective_rate_pct),
+        "quarterly_payment": float(est.quarterly_payments[0].amount) if est.quarterly_payments else 0.0,
+        "effective_rate_pct": float(est.effective_rate),
+        "quarterly_payments": [
+            {"quarter": p.quarter, "due_date": p.due_date, "amount": float(p.amount)}
+            for p in est.quarterly_payments
+        ],
     }
 
 
@@ -329,7 +333,7 @@ _HANDLERS = {
 
 def _respond(msg_id: Any, result: Any) -> None:
     payload = json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result})
-    sys.stdout.write(f"Content-Length: {len(payload)}\r\n\r\n{payload}")
+    sys.stdout.write(payload + "\n")
     sys.stdout.flush()
 
 
@@ -339,29 +343,19 @@ def _error(msg_id: Any, code: int, message: str) -> None:
         "id": msg_id,
         "error": {"code": code, "message": message},
     })
-    sys.stdout.write(f"Content-Length: {len(payload)}\r\n\r\n{payload}")
+    sys.stdout.write(payload + "\n")
     sys.stdout.flush()
 
 
 def _read_message() -> Optional[Dict[str, Any]]:
-    """Read one JSON-RPC message from stdin using Content-Length framing."""
-    headers: Dict[str, str] = {}
-    while True:
-        line = sys.stdin.readline()
-        if not line:
-            return None
-        line = line.rstrip("\r\n")
-        if not line:
-            break
-        if ":" in line:
-            key, _, val = line.partition(":")
-            headers[key.strip().lower()] = val.strip()
-
-    length = int(headers.get("content-length", 0))
-    if length == 0:
+    """Read one JSON-RPC message from stdin (MCP newline-delimited JSON)."""
+    line = sys.stdin.readline()
+    if not line:
         return None
-    raw = sys.stdin.read(length)
-    return json.loads(raw)
+    line = line.strip()
+    if not line:
+        return None
+    return json.loads(line)
 
 
 def _dispatch(msg: Dict[str, Any]) -> None:

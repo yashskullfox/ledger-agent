@@ -10,31 +10,37 @@ via a plug-in parser registry.
 
 ## Features
 
-| Feature                  | Description                                                                   |
-|--------------------------|-------------------------------------------------------------------------------|
-| 📄 **PDF Import**        | Auto-detect and parse bank & brokerage statements — no manual data entry      |
-| 📊 **Balance Sheet**     | Full GAAP-style balance sheet: Assets, Liabilities, Members' Equity           |
-| 💰 **Tax Estimator**     | Quarterly estimated tax payments (SE tax + federal + state)                   |
-| 🤖 **AI Classification** | Local rules, OpenAI GPT-4o, or Google Gemini (choose your backend)            |
-| 🧠 **Memory / Learning** | Learns from your confirmations — gets smarter every month                     |
-| ⚡ **Quick Scan**         | One command: drop a folder of PDFs → instant reports                          |
-| 🔌 **Extensible**        | Add any bank in one file — zero changes to core code                          |
-| 🔐 **Secure**            | Zero hardcoded secrets; all config via environment variables                  |
-| 📤 **AI Context Export** | JSON export for Claude, GPT-4, Perplexity — ask questions about your finances |
+| Feature                  | Description                                                                      |
+|--------------------------|----------------------------------------------------------------------------------|
+| 📄 **PDF Import**        | Auto-detect and parse bank & brokerage statements — no manual data entry         |
+| 📊 **Balance Sheet**     | Full GAAP-style balance sheet: Assets, Liabilities, Members' Equity              |
+| 💰 **Tax Estimator**     | Quarterly estimated tax payments (SE tax + federal + state)                      |
+| 🤖 **AI Classification** | Local rules, OpenAI GPT-4o-mini, or Google Gemini (choose your backend)          |
+| 🧠 **Memory / Learning** | Learns from your confirmations — gets smarter every month                        |
+| ⚡ **Quick Scan**         | One command: drop a folder of PDFs → instant reports                             |
+| 🔌 **Extensible**        | Add any bank: one parser file + two-line import in `commands.py`/`quick_scan.py` |
+| 🔐 **Secure**            | Zero hardcoded secrets; all config via environment variables                     |
+| 📤 **AI Context Export** | JSON export for Claude, GPT-4, Perplexity — ask questions about your finances    |
 
 ---
 
 ## Supported Institutions
 
-| Institution          | Statement Type                | Parser               |
-|----------------------|-------------------------------|----------------------|
-| Truist Bank          | Simple Business Checking      | `truist_checking`    |
-| Fidelity Investments | Brokerage / Investment Report | `fidelity_brokerage` |
-| Chase Bank           | Business Complete Checking    | `chase_checking`     |
-| Bank of America      | Business Checking             | `bofa_checking`      |
+| Institution          | Statement Type                | Parser               | Test Coverage       |
+|----------------------|-------------------------------|----------------------|---------------------|
+| Truist Bank          | Simple Business Checking      | `truist_checking`    | End-to-end          |
+| Fidelity Investments | Brokerage / Investment Report | `fidelity_brokerage` | Detection only      |
+| Chase Bank           | Business Complete Checking    | `chase_checking`     | Plugin scaffolded ¹ |
+| Bank of America      | Business Checking             | `bofa_checking`      | Plugin scaffolded ¹ |
+| U.S. Bank            | Business Essentials Checking  | `usbank_checking`    | Plugin scaffolded ¹ |
+| U.S. Bank            | Business Credit Card          | `usbank_creditcard`  | Plugin scaffolded ¹ |
+| Interactive Brokers  | Activity Statement            | `ibkr`               | Plugin scaffolded ¹ |
+
+¹ *Parser exists and was manually validated against a real statement PDF, but does not yet have an automated `parse()`
+unit test. Contributions welcome — see the testing guide in `STRUCTURE.md`.*
 
 → **Adding a new institution:** Create `parsers/my_bank.py`, subclass `BaseStatementParser`, decorate with
-`@ParserRegistry.register`. Done — no other changes needed.
+`@ParserRegistry.register`, then add one import line each to `cli/commands.py` and `cli/quick_scan.py`.
 
 ---
 
@@ -176,6 +182,10 @@ MEMBERS' EQUITY
 TOTAL LIABILITIES + EQUITY             $37,901.20  ✓ BALANCED
 ```
 
+> **Note on "BALANCED":** Members' Equity is derived as `Total Assets − Total Liabilities`,
+> so the balance equation holds by construction. This is a structural sanity check, not a
+> full double-entry journal validation. A proper audit trail requires a journal ledger (backlog R-40).
+
 ---
 
 ## Tax Estimator
@@ -284,7 +294,10 @@ FinancialIntelligence/
 │   ├── truist_checking.py     # Truist Simple Business Checking
 │   ├── fidelity_brokerage.py  # Fidelity Investment Report
 │   ├── chase_checking.py      # Chase Business Complete Checking
-│   └── bofa_checking.py       # Bank of America Business Checking
+│   ├── bofa_checking.py       # Bank of America Business Checking
+│   ├── usbank_checking.py     # U.S. Bank Business Essentials Checking
+│   ├── usbank_creditcard.py   # U.S. Bank Business Credit Card
+│   └── ibkr.py               # Interactive Brokers Activity Statement
 │
 ├── intelligence/
 │   ├── classifier.py          # 5-step classification pipeline
@@ -293,9 +306,10 @@ FinancialIntelligence/
 │   └── ai_backend/
 │       ├── __init__.py        # Backend factory (get_backend())
 │       ├── base.py            # AIBackend ABC
-│       ├── local_backend.py   # Rule-based + rapidfuzz (default)
-│       ├── openai_backend.py  # OpenAI GPT-4o-mini
-│       └── gemini_backend.py  # Google Gemini 1.5 Flash
+│       ├── chained_backend.py # Local-first chain: local → remote on low confidence
+│       ├── local_backend.py   # Rule-based + rapidfuzz (default, $0.00)
+│       ├── openai_backend.py  # OpenAI GPT-4o-mini (optional escalation)
+│       └── gemini_backend.py  # Google Gemini 1.5 Flash (optional escalation)
 │
 ├── accounting/
 │   ├── balance_sheet.py       # BalanceSheetBuilder
@@ -306,6 +320,9 @@ FinancialIntelligence/
 │
 ├── adapters/
 │   └── context_builder.py     # AI-consumable JSON context builder
+│
+├── mcp_server/
+│   └── server.py              # MCP stdio server (newline-delimited JSON-RPC 2.0)
 │
 ├── cli/
 │   ├── commands.py            # Command implementations
@@ -350,25 +367,26 @@ pytest tests/test_parsers.py -v
 
 ## Environment Variables Reference
 
-| Variable                     | Default                              | Description                                       |
-|------------------------------|--------------------------------------|---------------------------------------------------|
-| `FI_AI_BACKEND`              | `local`                              | AI backend: `local` / `openai` / `gemini`         |
-| `FI_OPENAI_API_KEY`          | —                                    | OpenAI API key (required if backend=openai)       |
-| `FI_GEMINI_API_KEY`          | —                                    | Gemini API key (required if backend=gemini)       |
-| `FI_OPENAI_MODEL`            | `gpt-4o-mini`                        | OpenAI model name                                 |
-| `FI_GEMINI_MODEL`            | `gemini-1.5-flash`                   | Gemini model name                                 |
-| `FI_AUTO_CLASSIFY_THRESHOLD` | `85`                                 | Fuzzy match score for auto-classification (0–100) |
-| `FI_DB_PATH`                 | `data/db/financials.db`              | SQLite database path                              |
-| `FI_DATA_DIR`                | `data/`                              | Data root directory                               |
-| `FI_MEMORY_FILE`             | `data/db/classification_memory.json` | Classification memory                             |
-| `FI_LOG_LEVEL`               | `INFO`                               | Logging level: `DEBUG`/`INFO`/`WARNING`/`ERROR`   |
-| `FI_LOG_FORMAT`              | `rich`                               | Log format: `rich`/`json`/`plain`                 |
-| `FI_SE_TAX_RATE`             | `0.153`                              | Self-employment tax rate (15.3%)                  |
-| `FI_FED_INCOME_RATE`         | `0.22`                               | Federal income tax estimate rate                  |
-| `FI_STATE_TAX_RATE`          | `0.05`                               | State income tax estimate rate                    |
-| `FI_QBI_DEDUCTION`           | `0.20`                               | Qualified Business Income deduction (20%)         |
-| `FI_DEFAULT_ENTITY_NAME`     | —                                    | Pre-fill entity name in setup wizard              |
-| `FI_DEFAULT_ENTITY_STATE`    | —                                    | Pre-fill entity state in setup wizard             |
+| Variable                        | Default                              | Description                                                |
+|---------------------------------|--------------------------------------|------------------------------------------------------------|
+| `FI_AI_BACKEND`                 | `local`                              | AI backend: `local` / `openai` / `gemini`                  |
+| `FI_OPENAI_API_KEY`             | —                                    | OpenAI API key (required if backend=openai)                |
+| `FI_GEMINI_API_KEY`             | —                                    | Gemini API key (required if backend=gemini)                |
+| `FI_OPENAI_MODEL`               | `gpt-4o-mini`                        | OpenAI model name                                          |
+| `FI_GEMINI_MODEL`               | `gemini-1.5-flash`                   | Gemini model name                                          |
+| `FI_AUTO_CLASSIFY_THRESHOLD`    | `85`                                 | Fuzzy match score for auto-classification (0–100)          |
+| `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65`                               | Below this, local backend escalates to remote AI (0.0–1.0) |
+| `FI_DB_PATH`                    | `data/db/financials.db`              | SQLite database path                                       |
+| `FI_DATA_DIR`                   | `data/`                              | Data root directory                                        |
+| `FI_MEMORY_FILE`                | `data/db/classification_memory.json` | Classification memory                                      |
+| `FI_LOG_LEVEL`                  | `INFO`                               | Logging level: `DEBUG`/`INFO`/`WARNING`/`ERROR`            |
+| `FI_LOG_FORMAT`                 | `rich`                               | Log format: `rich`/`json`/`plain`                          |
+| `FI_SE_TAX_RATE`                | `0.153`                              | Self-employment tax rate (15.3%)                           |
+| `FI_FED_INCOME_RATE`            | `0.22`                               | Federal income tax estimate rate                           |
+| `FI_STATE_TAX_RATE`             | `0.05`                               | State income tax estimate rate                             |
+| `FI_QBI_DEDUCTION`              | `0.20`                               | Qualified Business Income deduction (20%)                  |
+| `FI_DEFAULT_ENTITY_NAME`        | —                                    | Pre-fill entity name in setup wizard                       |
+| `FI_DEFAULT_ENTITY_STATE`       | —                                    | Pre-fill entity state in setup wizard                      |
 
 ---
 
@@ -411,13 +429,16 @@ class WellsFargoParser(BaseStatementParser):
         )
 ```
 
-Then register it in `cli/commands.py` and `cli/quick_scan.py`:
+Then add one import line to each of the two loader lists:
+
+- `cli/commands.py` — inside `cmd_import()` where the other parsers are loaded
+- `cli/quick_scan.py` — inside `_load_all_parsers()`
 
 ```python
 import parsers.wells_fargo  # noqa: F401
 ```
 
-That's it. No other changes needed.
+That's all — no changes to core parsing, classification, or reporting code.
 
 ---
 

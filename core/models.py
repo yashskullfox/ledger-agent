@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
@@ -60,7 +60,7 @@ class Entity:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     ein_masked: Optional[str] = None  # e.g. "**-***1234"
     notes: str = ""
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -74,7 +74,7 @@ class Account:
     currency: str = "USD"
     is_active: bool = True
     notes: str = ""
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __str__(self) -> str:
         return f"{self.institution} – {self.name} (…{self.account_number_masked})"
@@ -96,7 +96,7 @@ class Transaction:
     notes: str = ""
     is_reconciled: bool = False
     is_transfer: bool = False  # True → skip in P&L (inter-account move)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def is_debit(self) -> bool:
@@ -125,7 +125,7 @@ class Position:
     unrealized_gain_loss: Optional[Decimal] = None
     is_margin: bool = False
     as_of_date: Optional[date] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def unrealized_pct(self) -> Optional[Decimal]:
@@ -148,7 +148,7 @@ class AccountSnapshot:
     total_withdrawals: Optional[Decimal] = None
     total_debits: Optional[Decimal] = None
     total_credits: Optional[Decimal] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -196,4 +196,4 @@ class RealisedTrade:
     term: str  # "short" | "long"
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     settlement_date: Optional[date] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

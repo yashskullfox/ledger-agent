@@ -25,7 +25,11 @@ from typing import List
 
 
 def _env_decimal(key: str, default: str) -> Decimal:
-    return Decimal(os.environ.get(key, default))
+    raw = os.environ.get(key, default)
+    try:
+        return Decimal(raw)
+    except Exception:
+        return Decimal(default)
 
 
 SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # 15.3%
@@ -90,6 +94,35 @@ class TaxEstimator:
                                (e.g., Decimal("12") if net_income is for 1 month).
         """
         annual_ni = net_income * annualize_factor
+
+        # SE tax applies only to positive net self-employment income (>$400 IRS rule).
+        # For a loss or break-even period, return a zero-tax estimate rather than
+        # computing nonsensical negative payments.
+        if annual_ni <= Decimal("0"):
+            zero = Decimal("0.00")
+            payments = [
+                QuarterlyPayment(
+                    quarter=q,
+                    due_date=QUARTERLY_DUE_DATES[q],
+                    amount=zero,
+                    description=f"No estimated payment due – net income is not positive ({QUARTERLY_DUE_DATES[q]})",
+                )
+                for q in ("Q1", "Q2", "Q3", "Q4")
+            ]
+            return TaxEstimate(
+                entity_name=self.entity_name,
+                period=str(self.year),
+                net_income=annual_ni,
+                se_tax=zero,
+                federal_income_tax=zero,
+                state_income_tax=zero,
+                total_annual_tax=zero,
+                quarterly_payments=payments,
+                notes=[
+                    "ℹ️  Net income is zero or negative — no estimated tax payments are due.",
+                    "⚠️  These are rough estimates only — consult a CPA for actual tax filings.",
+                ],
+            )
 
         # Self-employment tax (only on net self-employment income)
         # SE tax deduction: 50% of SE tax is deductible

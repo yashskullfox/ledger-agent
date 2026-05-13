@@ -82,22 +82,8 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     pdf_path = Path(pdf_path)
     print_info(f"Reading PDF: {pdf_path.name} …")
 
+    import parsers  # noqa: F401  – triggers auto-discovery in parsers/__init__.py
     from parsers.registry import ParserRegistry
-    # Ensure parsers are loaded (import triggers registration decorators)
-    import importlib
-    for _mod in [
-        "parsers.truist_checking",
-        "parsers.fidelity_brokerage",
-        "parsers.chase_checking",
-        "parsers.bofa_checking",
-        "parsers.usbank_checking",
-        "parsers.usbank_creditcard",
-        "parsers.ibkr",
-    ]:
-        try:
-            importlib.import_module(_mod)
-        except Exception:
-            pass
 
     from parsers.base import BaseStatementParser
     raw_text = BaseStatementParser.extract_text(pdf_path)
@@ -357,6 +343,8 @@ def _infer_account_type(stmt_type: StatementType) -> AccountType:
         return AccountType.SAVINGS
     if stmt_type == StatementType.BROKERAGE:
         return AccountType.BROKERAGE
+    if stmt_type == StatementType.CREDIT_CARD:
+        return AccountType.CREDIT_CARD
     return AccountType.OTHER
 
 

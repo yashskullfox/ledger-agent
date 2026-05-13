@@ -1,13 +1,12 @@
-# FinancialIntelligence – Git Ignore
-# ─────────────────────────────────────────────────────────────
+# FinancialIntelligence — Git Ignore
 
-# ── Secrets & config ──────────────────────────────────────────────────────────
+# Secrets & config
 .env
 *.env
 .env.local
 .env.*.local
 
-# ── Financial data (NEVER commit real statements or databases) ────────────────
+# Financial data — NEVER commit real statements or databases
 data/
 *.db
 *.db-wal
@@ -15,13 +14,13 @@ data/
 *.pdf
 *.PDF
 
-# ── Python virtual environment ────────────────────────────────────────────────
+# Python virtual environment
 .venv/
 venv/
 env/
 ENV/
 
-# ── Python cache ──────────────────────────────────────────────────────────────
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -29,7 +28,7 @@ __pycache__/
 *.pyd
 .Python
 
-# ── Build & distribution ──────────────────────────────────────────────────────
+# Build & distribution
 build/
 dist/
 *.egg-info/
@@ -39,7 +38,7 @@ MANIFEST
 wheels/
 pip-wheel-metadata/
 
-# ── Pytest & coverage ─────────────────────────────────────────────────────────
+# Pytest & coverage
 .pytest_cache/
 .coverage
 .coverage.*
@@ -48,12 +47,13 @@ htmlcov/
 .tox/
 .nox/
 
-# ── Type checking ─────────────────────────────────────────────────────────────
+# Type checking
 .mypy_cache/
 .pytype/
 .pyre/
+.ruff_cache/
 
-# ── Editors & OS ──────────────────────────────────────────────────────────────
+# Editors & OS
 .idea/
 .vscode/
 *.swp
@@ -63,18 +63,47 @@ htmlcov/
 Thumbs.db
 desktop.ini
 
-# ── Jupyter ───────────────────────────────────────────────────────────────────
+# Jupyter
 .ipynb_checkpoints/
+*.ipynb
 
-# ── Logs ──────────────────────────────────────────────────────────────────────
+# Logs
 *.log
 logs/
 
-# ── Exports (generated output – don't commit) ────────────────────────────────
+# Exports (generated output)
 data/exports/
 
-# ── Temporary files ───────────────────────────────────────────────────────────
+# Temporary & scratch files
 *.tmp
 *.temp
 tmp/
 temp/
+scratch/
+sandbox/
+experiments/
+dev/
+
+# Profiling & benchmarks
+*.prof
+*.profile
+profile_output/
+benchmarks/results/
+*.lprof
+
+# Property-based testing
+.hypothesis/
+
+# Development scripts — manual test scripts not meant for CI
+debug_*.py
+scratch_*.py
+test_manual_*.py
+explore_*.py
+
+# Plan files (Wibey AI planning artifacts)
+*.plan.md
+.wibey/
+
+# Generated CSV / Excel exports (live in data/ but extra safety)
+*.xlsx
+*.csv

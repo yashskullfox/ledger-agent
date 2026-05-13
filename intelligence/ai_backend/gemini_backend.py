@@ -25,10 +25,15 @@ _SYSTEM_INSTRUCTION = (
 )
 
 _COA_HINT = (
-    "COA: 4000=Revenue,4010=Gains,4020=Dividends,4030=Interest Income,"
-    "5010=Software,5020=Payroll,5030=Ads,5050=Federal Tax,5055=State Tax,"
-    "5060=Supplies,5070=Legal,5080=Bank Fees,5090=Interest Exp,"
-    "5100=Travel,5999=Uncategorized,9000=Transfer"
+    "COA(canonical): 4010=Realised Trading Gains,4020=Service Revenue,"
+    "4021=Dividend Income,4031=Interest Income,"
+    "5010=Software & Subscriptions,5020=Bank & Transaction Fees,"
+    "5021=Payroll & Wages,5030=Margin Interest Expense,"
+    "5031=Advertising & Marketing,5040=Payroll Tax Expense,"
+    "5050=Federal Income Tax Expense,5055=State & Local Taxes,"
+    "5061=Office & Shipping Supplies,5071=Legal & Professional Fees,"
+    "5080=Other Operating Expenses,5090=Interest Expense,"
+    "5100=Travel & Transportation,5999=Uncategorized Expense,9000=Inter-Account Transfer"
 )
 
 

@@ -89,8 +89,8 @@ def build_context(
             "is_balanced": bs.is_balanced,
             "lines": [
                 {
-                    "code": line.code,
-                    "name": line.name,
+                    "coa_code": line.coa_code,
+                    "label": line.label,
                     "amount": float(line.amount),
                     "type": line.coa_type.value,
                     "is_subtotal": line.is_subtotal,
