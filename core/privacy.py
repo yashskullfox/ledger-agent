@@ -112,6 +112,18 @@ _SYSTEM_WORDS: Set[str] = {
     "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
     "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
+    # Tech/protocol acronyms — frequent in audit/log lines, never partner names
+    "JSON", "RPC", "MCP", "HTTP", "HTTPS", "TCP", "UDP", "TLS", "SSL",
+    "API", "REST", "SOAP", "GRPC", "URL", "URI", "URN", "DNS", "DHCP",
+    "CSV", "TSV", "PDF", "XML", "YAML", "TOML", "INI", "SQL", "ORM",
+    "AWS", "GCP", "AZURE", "S3", "EC2", "EBS", "IAM", "VPC", "K8S",
+    "CPU", "RAM", "GPU", "SSD", "HDD", "IO", "RPS", "QPS", "TPS",
+    "SDK", "CLI", "GUI", "IDE", "OS", "OSX", "VM", "JVM", "JRE", "JDK",
+    "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD",
+    "OK", "ERR", "ERROR", "WARN", "INFO", "DEBUG", "TRACE", "FATAL",
+    "UTC", "GMT", "PST", "EST", "CST", "MST",
+    "PII", "GDPR", "CCPA", "HIPAA", "SOX", "PCI", "DSS",
+    "IRS", "SSN", "EIN", "ITIN", "DOB", "ZIP",
 }
 
 
@@ -252,8 +264,15 @@ _URL_CRED_PAT = re.compile(
 # (all-caps) are excluded — proper names have lowercase letters after the initial.
 
 _PERSON_CTX_PAT = re.compile(
+    # Banking / payments context
     r"(?i:\b(?:PAYEE|BENEFICIARY|BENE|PAY\s+TO(?:\s+THE\s+ORDER\s+OF)?|"
-    r"PAID\s+TO|PAYMENT\s+TO|TRANSFER\s+TO|SENT\s+TO|FROM)\s*:?\s+)"
+    r"PAID\s+TO|PAYMENT\s+TO|TRANSFER\s+TO|SENT\s+TO|FROM|"
+    # Customer / partner / personnel context
+    r"CUSTOMER|CLIENT|MEMBER|PARTNER|OWNER|EMPLOYEE|CONTRACTOR|"
+    r"AUTHORIZED\s+SIGNER|SIGNER|PREPARED\s+BY|FILED\s+BY|"
+    # Honorific / form context
+    r"MR|MRS|MS|MISS|DR|PROF|HON|"
+    r"NAME|FULL\s+NAME|TAXPAYER|PARTNER\s+NAME)\s*[:\.,]?\s+)"
     r"([A-Z][a-z]{1,20}(?:\s+[A-Z]\.?)?"               # first [middle init]
     r"(?:\s+[A-Z][a-z]{1,20}){1,2})",                   # last [optional suffix]
 )
@@ -613,14 +632,17 @@ _SCOPE_DETECTORS: Dict[str, List[str]] = {
         "driver_license", "passport", "dob",
         "url_creds", "entity_name", "person_name",
     ],
-    # Log scope tightened: previously SSN/EIN/API-keys only; now adds the high-
-    # signal structural identifiers and partner/entity names so log lines never
-    # leak the substance of a record even if a caller forgets to redact first.
+    # Log scope tightened: previously SSN/EIN/API-keys only; now mirrors the
+    # full structural-identifier set + network identifiers + counterparty names
+    # so audit/log lines never leak the substance of a record even if a caller
+    # forgets to redact first. Person-name remains context-gated (needs titles
+    # like "Mr/Ms/Customer:") to keep false-positive noise tolerable.
     "log": [
         "api_key", "ssn", "ein", "itin", "credit_card", "routing", "account",
-        "iban", "swift", "email", "phone",
+        "iban", "swift", "email", "phone", "address", "zip4",
         "driver_license", "passport", "dob",
-        "url_creds", "entity_name", "person_name",
+        "ipv4", "ipv6", "mac", "url_creds",
+        "entity_name", "person_name", "counterparty",
     ],
 }
 

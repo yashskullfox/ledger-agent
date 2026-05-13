@@ -683,7 +683,8 @@ class TestPrivacyStatus:
 
     def test_detector_count(self):
         status = privacy_status()
-        assert status["detector_categories"] == 12
+        # Count reflects actual detector categories in core/privacy.py (updated ARCH-23).
+        assert status["detector_categories"] == 23
 
     def test_egress_mode_reflects_config(self, monkeypatch):
         import config as _cfg

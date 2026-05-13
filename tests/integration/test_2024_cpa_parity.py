@@ -238,9 +238,16 @@ class TestScheduleK1Parity:
         _within(k1_yash_2024.ordinary_income_loss, ref,
                 "K-1 Yash — Ordinary Income/Loss")
 
-    def test_yash_ownership_pct(self, k1_yash_2024):
-        assert k1_yash_2024.ownership_pct == Decimal("0.99"), (
-            f"Yash ownership should be 99%, got {k1_yash_2024.ownership_pct}"
+    def test_yash_capital_pct(self, k1_yash_2024):
+        """Yash holds 99% of capital (K-1 Part II J — capital)."""
+        assert k1_yash_2024.capital_pct == Decimal("0.99"), (
+            f"Yash capital_pct should be 99%, got {k1_yash_2024.capital_pct}"
+        )
+
+    def test_yash_profit_loss_pct(self, k1_yash_2024):
+        """Yash receives 100% of P&L (K-1 Part II J — profit/loss — CRIT-03)."""
+        assert k1_yash_2024.profit_loss_pct == Decimal("1.00"), (
+            f"Yash profit_loss_pct should be 100%, got {k1_yash_2024.profit_loss_pct}"
         )
 
     def test_parin_ordinary_income(self, corpus, k1_parin_2024):
@@ -248,9 +255,16 @@ class TestScheduleK1Parity:
         _within(k1_parin_2024.ordinary_income_loss, ref,
                 "K-1 Parin — Ordinary Income/Loss")
 
-    def test_parin_ownership_pct(self, k1_parin_2024):
-        assert k1_parin_2024.ownership_pct == Decimal("0.01"), (
-            f"Parin ownership should be 1%, got {k1_parin_2024.ownership_pct}"
+    def test_parin_capital_pct(self, k1_parin_2024):
+        """Parin holds 1% of capital (K-1 Part II J — capital)."""
+        assert k1_parin_2024.capital_pct == Decimal("0.01"), (
+            f"Parin capital_pct should be 1%, got {k1_parin_2024.capital_pct}"
+        )
+
+    def test_parin_profit_loss_pct(self, k1_parin_2024):
+        """Parin receives 0% of P&L (K-1 Part II J — profit/loss — CRIT-03)."""
+        assert k1_parin_2024.profit_loss_pct == Decimal("0.00"), (
+            f"Parin profit_loss_pct should be 0%, got {k1_parin_2024.profit_loss_pct}"
         )
 
     def test_k1_allocations_sum_to_form_1065(self, k1_yash_2024, k1_parin_2024,

@@ -359,16 +359,27 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run parity test
+      - name: Prepare CPA corpus
         env:
-          # Mount the private corpus from a repository secret.
-          # If the secret is empty the test skips with a clear SKIP_REASON.
+          # Secret takes precedence over the committed corpus file.
+          # If the secret is set it overrides statements/2024.txt with the
+          # CPA's private figures (e.g. different from what is in the repo).
+          # If the secret is empty the committed statements/2024.txt is used.
           FI_CPA_CORPUS: ${{ secrets.FI_CPA_CORPUS_2024 }}
-          FI_CPA_CORPUS_PATH: /tmp/2024.txt
         run: |
           if [ -n "$FI_CPA_CORPUS" ]; then
-            echo "$FI_CPA_CORPUS" > "$FI_CPA_CORPUS_PATH"
+            echo "$FI_CPA_CORPUS" > statements/2024.txt
+            echo "Corpus: loaded from FI_CPA_CORPUS_2024 secret"
+          else
+            echo "Corpus: using committed statements/2024.txt"
           fi
+          echo "Corpus contents:"
+          grep -v "^#" statements/2024.txt | head -20
+
+      - name: Run parity gate
+        # FI_CPA_CORPUS_PATH is unset here intentionally — the test resolves
+        # the default path (statements/2024.txt relative to repo root) itself.
+        run: |
           python -m pytest -m parity \
             tests/integration/test_2024_cpa_parity.py \
             --maxfail=1 -q 2>&1 || {
