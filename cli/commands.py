@@ -6,25 +6,20 @@ All heavy logic lives in parsers / intelligence / accounting / reports.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Optional
 
-from config import STATEMENTS_DIR, EXPORTS_DIR
-from core.database import (
-    AccountRepo, EntityRepo, ImportRegistry, PositionRepo,
-    RealisedTradeRepo, SnapshotRepo, TransactionRepo, init_db,
-)
-from core.exceptions import DuplicateStatementError, ParserNotFoundError
-from core.models import Account, AccountType, Entity, StatementType
 from cli.prompts import (
-    ask_confirm, ask_select, ask_text,
-    print_error, print_info, print_success, print_warning,
+    ask_confirm, ask_select, print_error, print_info, print_success, print_warning,
     prompt_classify, prompt_statement_file, wizard_entity,
 )
-
-
-# ── Setup / first-run ─────────────────────────────────────────────────────────
+from config import STATEMENTS_DIR
+from core.database import (
+    AccountRepo, EntityRepo, ImportRegistry, PositionRepo,
+    SnapshotRepo, TransactionRepo, init_db,
+)
+from core.exceptions import ParserNotFoundError
+from core.models import Account, AccountType, Entity, StatementType
 
 def cmd_setup() -> Entity:
     """First-run wizard: create entity record in DB."""
@@ -47,7 +42,6 @@ def cmd_setup() -> Entity:
     print_success(f"Entity '{entity.name}' saved.")
     return entity
 
-
 def _get_or_setup_entity() -> Optional[Entity]:
     """Return first entity or run setup wizard if none exists."""
     entities = EntityRepo.list_all()
@@ -60,9 +54,6 @@ def _get_or_setup_entity() -> Optional[Entity]:
     choice = ask_select("Select entity:", choices=names)
     return next((e for e in entities if e.name == choice), entities[0])
 
-
-# ── Import statement ──────────────────────────────────────────────────────────
-
 def cmd_import(pdf_path: Optional[str] = None) -> None:
     """
     Parse a PDF statement and persist all extracted data to the database.
@@ -74,7 +65,6 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
         print_error("No entity configured. Aborting.")
         return
 
-    # ── Locate file ───────────────────────────────────────────────────────────
     if not pdf_path:
         pdf_path = prompt_statement_file(STATEMENTS_DIR)
     if not pdf_path or not Path(pdf_path).exists():
@@ -89,11 +79,22 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     pdf_path = Path(pdf_path)
     print_info(f"Reading PDF: {pdf_path.name} …")
 
-    # ── Auto-detect parser ────────────────────────────────────────────────────
     from parsers.registry import ParserRegistry
     # Ensure parsers are loaded (import triggers registration decorators)
-    import parsers.truist_checking       # noqa: F401
-    import parsers.fidelity_brokerage    # noqa: F401
+    import importlib
+    for _mod in [
+        "parsers.truist_checking",
+        "parsers.fidelity_brokerage",
+        "parsers.chase_checking",
+        "parsers.bofa_checking",
+        "parsers.usbank_checking",
+        "parsers.usbank_creditcard",
+        "parsers.ibkr",
+    ]:
+        try:
+            importlib.import_module(_mod)
+        except Exception:
+            pass
 
     from parsers.base import BaseStatementParser
     raw_text = BaseStatementParser.extract_text(pdf_path)
@@ -106,7 +107,6 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
 
     print_info(f"Parser detected: [bold]{parser_cls.INSTITUTION}[/bold]")
 
-    # ── Parse ─────────────────────────────────────────────────────────────────
     parser = parser_cls()
     stmt   = parser.parse(pdf_path)
     print_success(
@@ -115,7 +115,6 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
         f"{len(stmt.positions)} positions"
     )
 
-    # ── Resolve account ───────────────────────────────────────────────────────
     acct = AccountRepo.find(stmt.institution, stmt.account_number_masked)
     if acct is None:
         acct_type = _infer_account_type(stmt.statement_type)
@@ -129,7 +128,6 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
         AccountRepo.upsert(acct)
         print_success(f"New account registered: {acct}")
 
-    # ── Check duplicate ───────────────────────────────────────────────────────
     if ImportRegistry.already_imported(acct.id, stmt.statement_period):
         print_warning(
             f"Statement for {stmt.statement_period} already imported for this account."
@@ -137,26 +135,22 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
         if not ask_confirm("Re-import and overwrite?", default=False):
             return
 
-    # ── Attach account_id and persist transactions ─────────────────────────────
     for t in stmt.transactions:
         t.account_id = acct.id
     inserted = TransactionRepo.bulk_insert(stmt.transactions)
     print_info(f"  → {inserted} new transactions inserted.")
 
-    # ── Persist positions ─────────────────────────────────────────────────────
     if stmt.positions:
         for p in stmt.positions:
             p.account_id = acct.id
         PositionRepo.upsert_period(stmt.positions, )
         print_info(f"  → {len(stmt.positions)} positions updated.")
 
-    # ── Persist snapshot ──────────────────────────────────────────────────────
     if stmt.snapshot:
         stmt.snapshot.account_id = acct.id
         SnapshotRepo.upsert(stmt.snapshot)
         print_info(f"  → Snapshot saved (ending balance: ${stmt.snapshot.ending_balance:,.2f})")
 
-    # ── Classify transactions ─────────────────────────────────────────────────
     from intelligence.classifier import classify_batch
     txns_to_classify = [t for t in stmt.transactions if not t.coa_code]
     if txns_to_classify:
@@ -166,21 +160,16 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     else:
         print_info("  → All transactions pre-classified.")
 
-    # ── Reconcile transfers ───────────────────────────────────────────────────
     all_txns = TransactionRepo.list_for_period(stmt.statement_period)
-    from intelligence.reconciler import reconcile, print_reconciliation_report
+    from intelligence.reconciler import reconcile
     matches, unmatched = reconcile(all_txns)
     if matches:
         print_success(f"Reconciled {len(matches)} inter-account transfer(s).")
     if unmatched:
         print_warning(f"{len(unmatched)} unmatched transfer(s) – see reconciliation report.")
 
-    # ── Register import ───────────────────────────────────────────────────────
     ImportRegistry.record(str(pdf_path), stmt.parser_id, acct.id, stmt.statement_period)
     print_success(f"Import complete for {stmt.statement_period}!")
-
-
-# ── Generate balance sheet ────────────────────────────────────────────────────
 
 def cmd_balance_sheet(period: Optional[str] = None) -> None:
     """Build and display the balance sheet for a given period."""
@@ -229,9 +218,6 @@ def cmd_balance_sheet(period: Optional[str] = None) -> None:
         path = export_balance_sheet_json(bs)
         print_success(f"Saved: {path}")
 
-
-# ── View transactions ─────────────────────────────────────────────────────────
-
 def cmd_transactions(period: Optional[str] = None) -> None:
     """Display and optionally export transactions for a period."""
     init_db()
@@ -257,9 +243,6 @@ def cmd_transactions(period: Optional[str] = None) -> None:
         path = export_transactions_csv(txns, period)
         print_success(f"Saved: {path}")
 
-
-# ── Classify unclassified transactions ────────────────────────────────────────
-
 def cmd_classify() -> None:
     """Interactively classify any unclassified transactions."""
     init_db()
@@ -273,9 +256,6 @@ def cmd_classify() -> None:
     from intelligence.classifier import classify_batch
     classify_batch(unclassified, prompt_fn=prompt_classify)
     print_success("Classification pass complete.")
-
-
-# ── Show classification memory rules ─────────────────────────────────────────
 
 def cmd_memory() -> None:
     """Show and manage the classification memory (learned rules)."""
@@ -316,9 +296,6 @@ def cmd_memory() -> None:
         sel = ask_select("Select rule to delete:", choices=patterns)
         if memory.remove_rule(sel):
             print_success(f"Rule deleted: {sel}")
-
-
-# ── Month-over-month summary ──────────────────────────────────────────────────
 
 def cmd_mom_summary() -> None:
     """Show month-over-month balance sheet comparison."""
@@ -364,9 +341,6 @@ def cmd_mom_summary() -> None:
                   f"Equity: ${bs.total_equity:,.2f}  "
                   f"NI: ${bs.net_income:,.2f}")
 
-
-# ── Internal helpers ──────────────────────────────────────────────────────────
-
 def _infer_account_type(stmt_type: StatementType) -> AccountType:
     if stmt_type == StatementType.BANK_CHECKING:
         return AccountType.CHECKING
@@ -375,7 +349,6 @@ def _infer_account_type(stmt_type: StatementType) -> AccountType:
     if stmt_type == StatementType.BROKERAGE:
         return AccountType.BROKERAGE
     return AccountType.OTHER
-
 
 def _default_account_name(stmt_type: StatementType) -> str:
     mapping = {

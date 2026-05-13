@@ -17,12 +17,10 @@ from typing import Dict, List, NamedTuple, Tuple
 
 from core.models import Transaction, TransactionType
 
-
 class ReconciliationMatch(NamedTuple):
     outgoing: Transaction   # brokerage TRANSFER_OUT
     incoming: Transaction   # bank     TRANSFER_IN
     delta_days: int         # settlement lag (usually 0-2)
-
 
 def reconcile(
     all_transactions: List[Transaction],
@@ -81,7 +79,6 @@ def reconcile(
     ]
 
     return matches, unmatched
-
 
 def print_reconciliation_report(
     matches: List[ReconciliationMatch],

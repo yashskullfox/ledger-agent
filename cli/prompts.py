@@ -35,21 +35,16 @@ except ImportError:
     _RICH = False
     console = None
 
-
-# ── Generic helpers ───────────────────────────────────────────────────────────
-
 def ask_text(prompt: str, default: str = "") -> str:
     if _Q:
         return questionary.text(prompt, default=default, style=_STYLE).ask() or default
     return input(f"{prompt} [{default}]: ").strip() or default
-
 
 def ask_confirm(prompt: str, default: bool = True) -> bool:
     if _Q:
         return questionary.confirm(prompt, default=default, style=_STYLE).ask()
     ans = input(f"{prompt} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
     return (ans in ("y", "yes", "")) if default else (ans in ("y", "yes"))
-
 
 def ask_select(prompt: str, choices: list, default=None):
     if _Q:
@@ -64,16 +59,12 @@ def ask_select(prompt: str, choices: list, default=None):
     except (ValueError, IndexError):
         return default
 
-
 def ask_autocomplete(prompt: str, choices: List[str], default: str = "") -> str:
     if _Q:
         return questionary.autocomplete(
             prompt, choices=choices, default=default, style=_STYLE
         ).ask() or default
     return ask_text(prompt, default)
-
-
-# ── First-run entity wizard ───────────────────────────────────────────────────
 
 def wizard_entity() -> dict:
     """
@@ -115,9 +106,6 @@ def wizard_entity() -> dict:
         "ein_masked":  ein_masked,
         "notes":       notes,
     }
-
-
-# ── Classification prompt (called by classifier for ambiguous transactions) ───
 
 def prompt_classify(
     txn: Transaction,
@@ -165,9 +153,6 @@ def prompt_classify(
 
     return entry.code, entry.name, is_transfer
 
-
-# ── Statement import prompt ───────────────────────────────────────────────────
-
 def prompt_statement_file(statements_dir) -> Optional[str]:
     """Ask user to pick a PDF from the statements dir or enter a path."""
     from pathlib import Path
@@ -182,15 +167,11 @@ def prompt_statement_file(statements_dir) -> Optional[str]:
     path = ask_text("Enter full path to statement PDF:")
     return path.strip() if path.strip() else None
 
-
-# ── Print helpers ─────────────────────────────────────────────────────────────
-
 def print_success(msg: str) -> None:
     if _RICH:
         console.print(f"[bold green]✓[/bold green] {msg}")
     else:
         print(f"✓ {msg}")
-
 
 def print_warning(msg: str) -> None:
     if _RICH:
@@ -198,13 +179,11 @@ def print_warning(msg: str) -> None:
     else:
         print(f"⚠ {msg}")
 
-
 def print_error(msg: str) -> None:
     if _RICH:
         console.print(f"[bold red]✗[/bold red] {msg}")
     else:
         print(f"✗ {msg}")
-
 
 def print_info(msg: str) -> None:
     if _RICH:

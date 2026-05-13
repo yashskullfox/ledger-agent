@@ -53,9 +53,6 @@ from core.models import (
     Position, Transaction,
 )
 
-
-# ── Data classes for the assembled sheet ─────────────────────────────────────
-
 class BalanceSheet:
     """Fully assembled balance sheet for one entity-period."""
 
@@ -87,9 +84,6 @@ class BalanceSheet:
     def expense_lines(self):
         return [l for l in self.lines if l.coa_type == COAType.EXPENSE]
 
-
-# ── Builder ───────────────────────────────────────────────────────────────────
-
 class BalanceSheetBuilder:
     """
     Builds a BalanceSheet from the database for a given entity and period.
@@ -116,7 +110,6 @@ class BalanceSheetBuilder:
 
         bs = BalanceSheet(entity_name, self.period)
 
-        # ── ASSETS ────────────────────────────────────────────────────────────
         total_assets = Decimal("0")
 
         # Cash accounts
@@ -197,7 +190,6 @@ class BalanceSheetBuilder:
         ))
         bs.total_assets = total_assets
 
-        # ── LIABILITIES ───────────────────────────────────────────────────────
         total_liab = Decimal("0")
         bs.lines.append(BalanceSheetLine("2000", "Current Liabilities", Decimal("0"),
                                          COAType.LIABILITY, indent=0))
@@ -226,7 +218,6 @@ class BalanceSheetBuilder:
         ))
         bs.total_liabilities = total_liab
 
-        # ── INCOME STATEMENT (embedded) ───────────────────────────────────────
         rev_total  = Decimal("0")
         exp_total  = Decimal("0")
 
@@ -260,7 +251,6 @@ class BalanceSheetBuilder:
         net_income = rev_total - exp_total
         bs.net_income = net_income
 
-        # ── EQUITY ────────────────────────────────────────────────────────────
         # Members' equity = Total assets – Total liabilities
         # We show it as: Prior equity + Net income
         total_equity = total_assets - total_liab
@@ -290,9 +280,6 @@ class BalanceSheetBuilder:
 
         bs.is_balanced = abs((total_liab + total_equity) - total_assets) < Decimal("0.02")
         return bs
-
-
-# ── Multi-period comparison ───────────────────────────────────────────────────
 
 def build_comparison(entity_id: str,
                      periods: List[str]) -> Dict[str, BalanceSheet]:

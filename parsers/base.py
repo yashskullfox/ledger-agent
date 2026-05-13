@@ -19,14 +19,11 @@ import pdfplumber
 
 from core.models import ParsedStatement
 
-
 class BaseStatementParser(ABC):
     """All statement parsers must implement this interface."""
 
     PARSER_ID: str = ""          # unique slug, e.g. "truist_checking"
     INSTITUTION: str = ""        # human-readable, e.g. "Truist Bank"
-
-    # ── Abstract interface ────────────────────────────────────────────────────
 
     @classmethod
     @abstractmethod
@@ -36,8 +33,6 @@ class BaseStatementParser(ABC):
     @abstractmethod
     def parse(self, pdf_path: Path) -> ParsedStatement:
         """Parse the PDF and return a fully-populated ParsedStatement."""
-
-    # ── Shared helpers ────────────────────────────────────────────────────────
 
     @staticmethod
     def extract_text(pdf_path: Path) -> str:

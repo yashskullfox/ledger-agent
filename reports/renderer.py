@@ -50,14 +50,10 @@ C_SECTION  = "bold white on dark_blue"
 C_BALANCED = "bold green"
 C_UNBAL    = "bold red"
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _fmt(amount: Decimal, width: int = 14) -> str:
     if amount < 0:
         return f"({abs(amount):>{width-2},.2f})"
     return f"{amount:>{width},.2f}"
-
 
 def _fmt_rich(amount: Decimal) -> Text:
     if not _RICH:
@@ -66,15 +62,11 @@ def _fmt_rich(amount: Decimal) -> Text:
     colour = C_NEGATIVE if amount < 0 else C_POSITIVE
     return Text(s, style=colour)
 
-
-# ── Balance Sheet console renderer ───────────────────────────────────────────
-
 def render_balance_sheet(bs: BalanceSheet, show_income: bool = True) -> None:
     if _RICH:
         _render_bs_rich(bs, show_income)
     else:
         _render_bs_plain(bs, show_income)
-
 
 def _render_bs_rich(bs: BalanceSheet, show_income: bool) -> None:
     now = datetime.now().strftime(REPORT_DATE_FMT)
@@ -135,7 +127,6 @@ def _render_bs_rich(bs: BalanceSheet, show_income: bool) -> None:
         console.print(f"  [{C_UNBAL}]⚠ OUT OF BALANCE  Difference: ${diff:,.2f}[/{C_UNBAL}]")
     console.print()
 
-
 def _render_bs_plain(bs: BalanceSheet, show_income: bool) -> None:
     w = 72
     print("=" * w)
@@ -168,9 +159,6 @@ def _render_bs_plain(bs: BalanceSheet, show_income: bool) -> None:
           f"Equity: ${bs.total_equity:,.2f}")
     print("=" * w)
 
-
-# ── Transaction list renderer ─────────────────────────────────────────────────
-
 def render_transactions(
     transactions: List[Transaction],
     title: str = "Transactions",
@@ -198,7 +186,6 @@ def render_transactions(
 
     console.print(tbl)
 
-
 def _render_txn_plain(txns, title, show_coa):
     print(f"\n{title}")
     print("-" * 80)
@@ -206,9 +193,6 @@ def _render_txn_plain(txns, title, show_coa):
         coa = f"[{t.coa_code}]" if show_coa else ""
         print(f"  {t.date}  {_fmt(t.amount)}  {coa:<10}  {t.description[:50]}")
     print("-" * 80)
-
-
-# ── CSV exporter ──────────────────────────────────────────────────────────────
 
 def export_balance_sheet_csv(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -235,7 +219,6 @@ def export_balance_sheet_csv(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> P
         writer.writerow(["Balanced?",         "YES" if bs.is_balanced else "NO"])
     return fname
 
-
 def export_transactions_csv(
     transactions: List[Transaction],
     period: str,
@@ -260,9 +243,6 @@ def export_transactions_csv(
             ])
     return fname
 
-
-# ── Excel exporter ────────────────────────────────────────────────────────────
-
 def export_balance_sheet_excel(bs: BalanceSheet,
                                 out_dir: Path = EXPORTS_DIR) -> Optional[Path]:
     if not _OPENPYXL:
@@ -273,7 +253,6 @@ def export_balance_sheet_excel(bs: BalanceSheet,
     fname = out_dir / f"balance_sheet_{bs.period}.xlsx"
     wb = openpyxl.Workbook()
 
-    # ── Sheet 1: Balance Sheet ────────────────────────────────────────────────
     ws = wb.active
     ws.title = f"Balance Sheet {bs.period}"
     ws.column_dimensions["A"].width = 12
@@ -332,9 +311,6 @@ def export_balance_sheet_excel(bs: BalanceSheet,
 
     wb.save(str(fname))
     return fname
-
-
-# ── JSON snapshot exporter ────────────────────────────────────────────────────
 
 def export_balance_sheet_json(bs: BalanceSheet,
                                out_dir: Path = EXPORTS_DIR) -> Path:

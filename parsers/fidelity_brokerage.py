@@ -24,14 +24,11 @@ from core.models import (
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
-
 @ParserRegistry.register
 class FidelityBrokerageParser(BaseStatementParser):
 
     PARSER_ID   = "fidelity_brokerage"
     INSTITUTION = "Fidelity Investments"
-
-    # ── Detection fingerprint ─────────────────────────────────────────────────
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
@@ -41,8 +38,6 @@ class FidelityBrokerageParser(BaseStatementParser):
             and ("BROKERAGE" in text.upper() or "Z23-" in text.upper()
                  or "Account Number" in text)
         )
-
-    # ── Main parse ────────────────────────────────────────────────────────────
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text   = self.extract_text(pdf_path)
@@ -85,8 +80,6 @@ class FidelityBrokerageParser(BaseStatementParser):
             raw_text=raw_text,
             source_file=str(pdf_path),
         )
-
-    # ── Period / header extraction ────────────────────────────────────────────
 
     def _extract_period(self, text: str) -> Tuple[str, int]:
         """
@@ -132,8 +125,6 @@ class FidelityBrokerageParser(BaseStatementParser):
                 return line
         return "UNKNOWN ENTITY"
 
-    # ── Account summary / snapshot ────────────────────────────────────────────
-
     _MONEY_RE = re.compile(r"\$?([\d,]+\.\d{2})")
 
     def _parse_summary(self, text: str, period: str) -> AccountSnapshot:
@@ -159,7 +150,6 @@ class FidelityBrokerageParser(BaseStatementParser):
             realised_gain_loss=realised,
         )
 
-    # ── Holdings ──────────────────────────────────────────────────────────────
     #
     # Holdings table example line (from the Fidelity statement):
     # M CAREDX INC (CDNA)  $23,551.00  1,100.000  $23.3000  $25,630.00  $16,774.00  $8,856.00
@@ -200,7 +190,6 @@ class FidelityBrokerageParser(BaseStatementParser):
                 ))
         return positions
 
-    # ── Trades (Securities Bought & Sold) ────────────────────────────────────
     #
     # Example sold lines:
     # s 01/07 BIGBEAR AI HLDGS INC COM  08975B109  You Sold  Short-term gain: $82.30  -1,500.000  4.56000  6,757.50  -0.20  6,839.80
@@ -253,7 +242,6 @@ class FidelityBrokerageParser(BaseStatementParser):
                 ))
         return trades
 
-    # ── Withdrawals ───────────────────────────────────────────────────────────
     #
     # 01/21  Money Line Paid  EFT FUNDS PAID ED60133796 /WEB  TRUIST BANK ******0272  -$250.00
     #
@@ -283,7 +271,6 @@ class FidelityBrokerageParser(BaseStatementParser):
                 ))
         return txns
 
-    # ── Margin Interest ───────────────────────────────────────────────────────
     #
     # 12/31-01/20  7,833  12.075%  27,141  -$191.17
     #
