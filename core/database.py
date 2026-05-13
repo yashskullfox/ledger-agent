@@ -23,8 +23,10 @@ from core.models import (
 # Increment whenever the schema changes; auto-migration runs on connect.
 SCHEMA_VERSION = 3
 
+
 def _decimal(v) -> Decimal:
     return Decimal(str(v)) if v is not None else Decimal("0")
+
 
 def _date(v) -> Optional[date]:
     if v is None:
@@ -32,6 +34,7 @@ def _date(v) -> Optional[date]:
     if isinstance(v, date):
         return v
     return date.fromisoformat(str(v))
+
 
 @contextmanager
 def get_conn(db_path: Path = DB_PATH) -> Generator[sqlite3.Connection, None, None]:
@@ -48,123 +51,251 @@ def get_conn(db_path: Path = DB_PATH) -> Generator[sqlite3.Connection, None, Non
     finally:
         conn.close()
 
+
 _DDL = """
-CREATE TABLE IF NOT EXISTS schema_meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
+       CREATE TABLE IF NOT EXISTS schema_meta
+       (
+           key
+           TEXT
+           PRIMARY
+           KEY,
+           value
+           TEXT
+       );
 
-CREATE TABLE IF NOT EXISTS entities (
-    id           TEXT PRIMARY KEY,
-    name         TEXT NOT NULL,
-    entity_type  TEXT NOT NULL,
-    state        TEXT,
-    ein_masked   TEXT,
-    notes        TEXT DEFAULT '',
-    created_at   TEXT NOT NULL
-);
+       CREATE TABLE IF NOT EXISTS entities
+       (
+           id
+           TEXT
+           PRIMARY
+           KEY,
+           name
+           TEXT
+           NOT
+           NULL,
+           entity_type
+           TEXT
+           NOT
+           NULL,
+           state
+           TEXT,
+           ein_masked
+           TEXT,
+           notes
+           TEXT
+           DEFAULT
+           '',
+           created_at
+           TEXT
+           NOT
+           NULL
+       );
 
-CREATE TABLE IF NOT EXISTS accounts (
-    id                      TEXT PRIMARY KEY,
-    entity_id               TEXT NOT NULL REFERENCES entities(id),
-    name                    TEXT NOT NULL,
-    institution             TEXT NOT NULL,
-    account_type            TEXT NOT NULL,
-    account_number_masked   TEXT NOT NULL,
-    currency                TEXT DEFAULT 'USD',
-    is_active               INTEGER DEFAULT 1,
-    notes                   TEXT DEFAULT '',
-    created_at              TEXT NOT NULL
-);
+       CREATE TABLE IF NOT EXISTS accounts
+       (
+           id
+           TEXT
+           PRIMARY
+           KEY,
+           entity_id
+           TEXT
+           NOT
+           NULL
+           REFERENCES
+           entities
+       (
+           id
+       ),
+           name TEXT NOT NULL,
+           institution TEXT NOT NULL,
+           account_type TEXT NOT NULL,
+           account_number_masked TEXT NOT NULL,
+           currency TEXT DEFAULT 'USD',
+           is_active INTEGER DEFAULT 1,
+           notes TEXT DEFAULT '',
+           created_at TEXT NOT NULL
+           );
 
-CREATE TABLE IF NOT EXISTS transactions (
-    id                  TEXT PRIMARY KEY,
-    account_id          TEXT NOT NULL REFERENCES accounts(id),
-    date                TEXT NOT NULL,
-    description         TEXT NOT NULL,
-    raw_description     TEXT DEFAULT '',
-    amount              TEXT NOT NULL,
-    transaction_type    TEXT NOT NULL,
-    statement_period    TEXT NOT NULL,
-    coa_code            TEXT DEFAULT '',
-    coa_name            TEXT DEFAULT '',
-    tags                TEXT DEFAULT '[]',
-    notes               TEXT DEFAULT '',
-    is_reconciled       INTEGER DEFAULT 0,
-    is_transfer         INTEGER DEFAULT 0,
-    created_at          TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_tx_account    ON transactions(account_id);
-CREATE INDEX IF NOT EXISTS idx_tx_period     ON transactions(statement_period);
-CREATE INDEX IF NOT EXISTS idx_tx_coa        ON transactions(coa_code);
+       CREATE TABLE IF NOT EXISTS transactions
+       (
+           id
+           TEXT
+           PRIMARY
+           KEY,
+           account_id
+           TEXT
+           NOT
+           NULL
+           REFERENCES
+           accounts
+       (
+           id
+       ),
+           date TEXT NOT NULL,
+           description TEXT NOT NULL,
+           raw_description TEXT DEFAULT '',
+           amount TEXT NOT NULL,
+           transaction_type TEXT NOT NULL,
+           statement_period TEXT NOT NULL,
+           coa_code TEXT DEFAULT '',
+           coa_name TEXT DEFAULT '',
+           tags TEXT DEFAULT '[]',
+           notes TEXT DEFAULT '',
+           is_reconciled INTEGER DEFAULT 0,
+           is_transfer INTEGER DEFAULT 0,
+           created_at TEXT NOT NULL
+           );
+       CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id);
+       CREATE INDEX IF NOT EXISTS idx_tx_period ON transactions(statement_period);
+       CREATE INDEX IF NOT EXISTS idx_tx_coa ON transactions(coa_code);
 
-CREATE TABLE IF NOT EXISTS positions (
-    id                  TEXT PRIMARY KEY,
-    account_id          TEXT NOT NULL REFERENCES accounts(id),
-    symbol              TEXT NOT NULL,
-    name                TEXT NOT NULL,
-    quantity            TEXT NOT NULL,
-    price_per_unit      TEXT NOT NULL,
-    market_value        TEXT NOT NULL,
-    statement_period    TEXT NOT NULL,
-    cost_basis          TEXT,
-    unrealized_gain_loss TEXT,
-    is_margin           INTEGER DEFAULT 0,
-    as_of_date          TEXT,
-    created_at          TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_pos_account ON positions(account_id);
-CREATE INDEX IF NOT EXISTS idx_pos_period  ON positions(statement_period);
+       CREATE TABLE IF NOT EXISTS positions
+       (
+           id
+           TEXT
+           PRIMARY
+           KEY,
+           account_id
+           TEXT
+           NOT
+           NULL
+           REFERENCES
+           accounts
+       (
+           id
+       ),
+           symbol TEXT NOT NULL,
+           name TEXT NOT NULL,
+           quantity TEXT NOT NULL,
+           price_per_unit TEXT NOT NULL,
+           market_value TEXT NOT NULL,
+           statement_period TEXT NOT NULL,
+           cost_basis TEXT,
+           unrealized_gain_loss TEXT,
+           is_margin INTEGER DEFAULT 0,
+           as_of_date TEXT,
+           created_at TEXT NOT NULL
+           );
+       CREATE INDEX IF NOT EXISTS idx_pos_account ON positions(account_id);
+       CREATE INDEX IF NOT EXISTS idx_pos_period ON positions(statement_period);
 
-CREATE TABLE IF NOT EXISTS account_snapshots (
-    id                  TEXT PRIMARY KEY,
-    account_id          TEXT NOT NULL REFERENCES accounts(id),
-    statement_period    TEXT NOT NULL,
-    ending_balance      TEXT NOT NULL,
-    gross_asset_value   TEXT,
-    margin_balance      TEXT,
-    realised_gain_loss  TEXT,
-    beginning_balance   TEXT,
-    total_deposits      TEXT,
-    total_withdrawals   TEXT,
-    total_debits        TEXT,
-    total_credits       TEXT,
-    created_at          TEXT NOT NULL,
-    UNIQUE(account_id, statement_period)
-);
+       CREATE TABLE IF NOT EXISTS account_snapshots
+       (
+           id
+           TEXT
+           PRIMARY
+           KEY,
+           account_id
+           TEXT
+           NOT
+           NULL
+           REFERENCES
+           accounts
+       (
+           id
+       ),
+           statement_period TEXT NOT NULL,
+           ending_balance TEXT NOT NULL,
+           gross_asset_value TEXT,
+           margin_balance TEXT,
+           realised_gain_loss TEXT,
+           beginning_balance TEXT,
+           total_deposits TEXT,
+           total_withdrawals TEXT,
+           total_debits TEXT,
+           total_credits TEXT,
+           created_at TEXT NOT NULL,
+           UNIQUE
+       (
+           account_id,
+           statement_period
+       )
+           );
 
-CREATE TABLE IF NOT EXISTS realised_trades (
-    id                  TEXT PRIMARY KEY,
-    account_id          TEXT NOT NULL REFERENCES accounts(id),
-    statement_period    TEXT NOT NULL,
-    symbol              TEXT NOT NULL,
-    description         TEXT NOT NULL,
-    gain_loss           TEXT NOT NULL,
-    term                TEXT NOT NULL,
-    settlement_date     TEXT,
-    created_at          TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_rt_period ON realised_trades(statement_period);
+       CREATE TABLE IF NOT EXISTS realised_trades
+       (
+           id
+           TEXT
+           PRIMARY
+           KEY,
+           account_id
+           TEXT
+           NOT
+           NULL
+           REFERENCES
+           accounts
+       (
+           id
+       ),
+           statement_period TEXT NOT NULL,
+           symbol TEXT NOT NULL,
+           description TEXT NOT NULL,
+           gain_loss TEXT NOT NULL,
+           term TEXT NOT NULL,
+           settlement_date TEXT,
+           created_at TEXT NOT NULL
+           );
+       CREATE INDEX IF NOT EXISTS idx_rt_period ON realised_trades(statement_period);
 
-CREATE TABLE IF NOT EXISTS coa (
-    code         TEXT PRIMARY KEY,
-    name         TEXT NOT NULL,
-    coa_type     TEXT NOT NULL,
-    parent_code  TEXT,
-    description  TEXT DEFAULT '',
-    keywords     TEXT DEFAULT '[]'
-);
+       CREATE TABLE IF NOT EXISTS coa
+       (
+           code
+           TEXT
+           PRIMARY
+           KEY,
+           name
+           TEXT
+           NOT
+           NULL,
+           coa_type
+           TEXT
+           NOT
+           NULL,
+           parent_code
+           TEXT,
+           description
+           TEXT
+           DEFAULT
+           '',
+           keywords
+           TEXT
+           DEFAULT
+           '[]'
+       );
 
-CREATE TABLE IF NOT EXISTS imported_statements (
-    id               TEXT PRIMARY KEY,
-    source_file      TEXT NOT NULL,
-    parser_id        TEXT NOT NULL,
-    account_id       TEXT NOT NULL REFERENCES accounts(id),
-    statement_period TEXT NOT NULL,
-    imported_at      TEXT NOT NULL,
-    UNIQUE(account_id, statement_period)
-);
-"""
+       CREATE TABLE IF NOT EXISTS imported_statements
+       (
+           id
+           TEXT
+           PRIMARY
+           KEY,
+           source_file
+           TEXT
+           NOT
+           NULL,
+           parser_id
+           TEXT
+           NOT
+           NULL,
+           account_id
+           TEXT
+           NOT
+           NULL
+           REFERENCES
+           accounts
+       (
+           id
+       ),
+           statement_period TEXT NOT NULL,
+           imported_at TEXT NOT NULL,
+           UNIQUE
+       (
+           account_id,
+           statement_period
+       )
+           ); \
+       """
+
 
 def init_db(db_path: Path = DB_PATH) -> None:
     """Create tables and seed the COA if the DB is brand-new."""
@@ -183,37 +314,41 @@ def init_db(db_path: Path = DB_PATH) -> None:
     # Seed COA once
     _seed_coa(db_path)
 
+
 _DEFAULT_COA: list[tuple] = [
     # (code, name, type, parent, description, keywords_json)
-    ("1000", "Cash & Cash Equivalents",        "asset",     None,   "", '["cash","checking","deposit","balance"]'),
-    ("1010", "Business Checking Account",       "asset",    "1000", "", '["truist","checking","moneyline"]'),
-    ("1100", "Investment & Brokerage Assets",   "asset",     None,  "", '["fidelity","brokerage","investment"]'),
-    ("1110", "Equity Securities (Long)",        "asset",    "1100", "", '["snap","cdna","caredx","bought","purchased"]'),
-    ("1120", "Other Marketable Securities",     "asset",    "1100", "", '["kopin","ssr","kinross","solid power","bigbear","oscar","vale"]'),
-    ("1200", "Accounts Receivable",             "asset",     None,  "", '[]'),
-    ("1300", "Prepaid Expenses",                "asset",     None,  "", '[]'),
-    ("2000", "Current Liabilities",             "liability", None,  "", '[]'),
-    ("2010", "Margin Loan Payable",             "liability","2000", "", '["margin","debit balance"]'),
-    ("2020", "Taxes Payable",                   "liability","2000", "", '["irs","tax","usataxpymt"]'),
-    ("2030", "Accounts Payable",                "liability","2000", "", '[]'),
-    ("3000", "Members Equity",                  "equity",    None,  "", '[]'),
-    ("3010", "Members Capital Contributions",   "equity",   "3000", "", '["moneyline","transfer"]'),
-    ("3020", "Retained Earnings",               "equity",   "3000", "", '[]'),
-    ("3030", "Current Period Net Income",       "equity",   "3000", "", '[]'),
-    ("4000", "Revenue",                         "revenue",   None,  "", '[]'),
-    ("4010", "Realised Trading Gains",          "revenue",  "4000", "", '["gain","sold","proceeds"]'),
-    ("4020", "Service Revenue",                 "revenue",  "4000", "", '["intuit","deposit","invoice"]'),
-    ("4030", "Other Income",                    "revenue",  "4000", "", '[]'),
-    ("5000", "Operating Expenses",              "expense",   None,  "", '[]'),
-    ("5010", "Software & Subscriptions",        "expense",  "5000", "", '["quickbooks","incfile","google","subscription","recurring"]'),
-    ("5020", "Bank & Transaction Fees",         "expense",  "5000", "", '["tran fee","service charge","fee","intuit tran"]'),
-    ("5030", "Margin Interest Expense",         "expense",  "5000", "", '["margin interest","interest paid"]'),
-    ("5040", "Payroll Tax Expense",             "expense",  "5000", "", '["payroll","tax payroll"]'),
-    ("5050", "Federal Income Tax Expense",      "expense",  "5000", "", '["irs","usataxpymt","federal tax"]'),
-    ("5060", "Investment Transaction Costs",    "expense",  "5000", "", '["transaction cost","commission"]'),
-    ("5070", "Realised Trading Losses",         "expense",  "5000", "", '["loss","short-term loss"]'),
-    ("5080", "Other Operating Expenses",        "expense",  "5000", "", '[]'),
+    ("1000", "Cash & Cash Equivalents", "asset", None, "", '["cash","checking","deposit","balance"]'),
+    ("1010", "Business Checking Account", "asset", "1000", "", '["truist","checking","moneyline"]'),
+    ("1100", "Investment & Brokerage Assets", "asset", None, "", '["fidelity","brokerage","investment"]'),
+    ("1110", "Equity Securities (Long)", "asset", "1100", "", '["snap","cdna","caredx","bought","purchased"]'),
+    ("1120", "Other Marketable Securities", "asset", "1100", "",
+     '["kopin","ssr","kinross","solid power","bigbear","oscar","vale"]'),
+    ("1200", "Accounts Receivable", "asset", None, "", '[]'),
+    ("1300", "Prepaid Expenses", "asset", None, "", '[]'),
+    ("2000", "Current Liabilities", "liability", None, "", '[]'),
+    ("2010", "Margin Loan Payable", "liability", "2000", "", '["margin","debit balance"]'),
+    ("2020", "Taxes Payable", "liability", "2000", "", '["irs","tax","usataxpymt"]'),
+    ("2030", "Accounts Payable", "liability", "2000", "", '[]'),
+    ("3000", "Members Equity", "equity", None, "", '[]'),
+    ("3010", "Members Capital Contributions", "equity", "3000", "", '["moneyline","transfer"]'),
+    ("3020", "Retained Earnings", "equity", "3000", "", '[]'),
+    ("3030", "Current Period Net Income", "equity", "3000", "", '[]'),
+    ("4000", "Revenue", "revenue", None, "", '[]'),
+    ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds"]'),
+    ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","deposit","invoice"]'),
+    ("4030", "Other Income", "revenue", "4000", "", '[]'),
+    ("5000", "Operating Expenses", "expense", None, "", '[]'),
+    ("5010", "Software & Subscriptions", "expense", "5000", "",
+     '["quickbooks","incfile","google","subscription","recurring"]'),
+    ("5020", "Bank & Transaction Fees", "expense", "5000", "", '["tran fee","service charge","fee","intuit tran"]'),
+    ("5030", "Margin Interest Expense", "expense", "5000", "", '["margin interest","interest paid"]'),
+    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["payroll","tax payroll"]'),
+    ("5050", "Federal Income Tax Expense", "expense", "5000", "", '["irs","usataxpymt","federal tax"]'),
+    ("5060", "Investment Transaction Costs", "expense", "5000", "", '["transaction cost","commission"]'),
+    ("5070", "Realised Trading Losses", "expense", "5000", "", '["loss","short-term loss"]'),
+    ("5080", "Other Operating Expenses", "expense", "5000", "", '[]'),
 ]
+
 
 def _seed_coa(db_path: Path = DB_PATH) -> None:
     with get_conn(db_path) as conn:
@@ -224,6 +359,7 @@ def _seed_coa(db_path: Path = DB_PATH) -> None:
                 " VALUES(?,?,?,?,?,?)",
                 _DEFAULT_COA,
             )
+
 
 class EntityRepo:
     @staticmethod
@@ -259,6 +395,7 @@ class EntityRepo:
                        state=r["state"] or "", ein_masked=r["ein_masked"],
                        notes=r["notes"] or "",
                        created_at=datetime.fromisoformat(r["created_at"])) for r in rows]
+
 
 class AccountRepo:
     @staticmethod
@@ -314,6 +451,7 @@ class AccountRepo:
             notes=row["notes"] or "",
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
 
 class TransactionRepo:
     @staticmethod
@@ -398,12 +536,13 @@ class TransactionRepo:
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
+
 class PositionRepo:
     @staticmethod
     def upsert_period(positions: List[Position], db_path: Path = DB_PATH) -> None:
         if not positions:
             return
-        period  = positions[0].statement_period
+        period = positions[0].statement_period
         acct_id = positions[0].account_id
         with get_conn(db_path) as conn:
             conn.execute(
@@ -446,11 +585,12 @@ class PositionRepo:
             statement_period=row["statement_period"],
             cost_basis=_decimal(row["cost_basis"]) if row["cost_basis"] else None,
             unrealized_gain_loss=_decimal(row["unrealized_gain_loss"])
-                if row["unrealized_gain_loss"] else None,
+            if row["unrealized_gain_loss"] else None,
             is_margin=bool(row["is_margin"]),
             as_of_date=_date(row["as_of_date"]),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
 
 class SnapshotRepo:
     @staticmethod
@@ -502,6 +642,7 @@ class SnapshotRepo:
     def _row_to_model(row: sqlite3.Row) -> AccountSnapshot:
         def _d(k):
             return _decimal(row[k]) if row[k] is not None else None
+
         return AccountSnapshot(
             id=row["id"], account_id=row["account_id"],
             statement_period=row["statement_period"],
@@ -517,12 +658,13 @@ class SnapshotRepo:
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
+
 class RealisedTradeRepo:
     @staticmethod
     def upsert_period(trades: List[RealisedTrade], db_path: Path = DB_PATH) -> None:
         if not trades:
             return
-        period  = trades[0].statement_period
+        period = trades[0].statement_period
         acct_id = trades[0].account_id
         with get_conn(db_path) as conn:
             conn.execute(
@@ -557,6 +699,7 @@ class RealisedTradeRepo:
             created_at=datetime.fromisoformat(r["created_at"]),
         ) for r in rows]
 
+
 class COARepo:
     @staticmethod
     def list_all(db_path: Path = DB_PATH) -> List[COAEntry]:
@@ -579,6 +722,7 @@ class COARepo:
             description=row["description"] or "",
             keywords=json.loads(row["keywords"] or "[]"),
         )
+
 
 class ImportRegistry:
     @staticmethod

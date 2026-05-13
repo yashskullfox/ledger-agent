@@ -23,8 +23,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import List
 
+
 def _env_decimal(key: str, default: str) -> Decimal:
     return Decimal(os.environ.get(key, default))
+
 
 SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # 15.3%
 FEDERAL_INCOME_RATE = _env_decimal("FI_FED_INCOME_RATE", "0.22")  # ~22% effective
@@ -39,12 +41,14 @@ QUARTERLY_DUE_DATES = {
     "Q4": "January 15 (next year)",
 }
 
+
 @dataclass
 class QuarterlyPayment:
     quarter: str  # "Q1", "Q2", etc.
     due_date: str
     amount: Decimal
     description: str
+
 
 @dataclass
 class TaxEstimate:
@@ -63,6 +67,7 @@ class TaxEstimate:
         if self.net_income == 0:
             return Decimal("0")
         return (self.total_annual_tax / self.net_income * 100).quantize(Decimal("0.01"))
+
 
 class TaxEstimator:
     """
@@ -158,6 +163,7 @@ class TaxEstimator:
             balance_sheet.net_income,
             annualize_factor=annualize,
         )
+
 
 def render_tax_estimate(est: TaxEstimate) -> None:
     """Print a formatted tax estimate to stdout."""

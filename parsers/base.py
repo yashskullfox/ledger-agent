@@ -19,11 +19,12 @@ import pdfplumber
 
 from core.models import ParsedStatement
 
+
 class BaseStatementParser(ABC):
     """All statement parsers must implement this interface."""
 
-    PARSER_ID: str = ""          # unique slug, e.g. "truist_checking"
-    INSTITUTION: str = ""        # human-readable, e.g. "Truist Bank"
+    PARSER_ID: str = ""  # unique slug, e.g. "truist_checking"
+    INSTITUTION: str = ""  # human-readable, e.g. "Truist Bank"
 
     @classmethod
     @abstractmethod

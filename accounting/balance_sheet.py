@@ -43,30 +43,30 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 from core.database import (
     AccountRepo, COARepo, PositionRepo, SnapshotRepo, TransactionRepo,
 )
 from core.models import (
-    Account, AccountSnapshot, BalanceSheetLine, COAEntry, COAType,
-    Position, Transaction,
+    BalanceSheetLine, COAType,
 )
+
 
 class BalanceSheet:
     """Fully assembled balance sheet for one entity-period."""
 
     def __init__(self, entity_name: str, period: str):
-        self.entity_name   = entity_name
-        self.period        = period
+        self.entity_name = entity_name
+        self.period = period
         self.lines: List[BalanceSheetLine] = []
 
         # Summary totals (set by build())
-        self.total_assets      = Decimal("0")
+        self.total_assets = Decimal("0")
         self.total_liabilities = Decimal("0")
-        self.total_equity      = Decimal("0")
-        self.net_income        = Decimal("0")
-        self.is_balanced       = False
+        self.total_equity = Decimal("0")
+        self.net_income = Decimal("0")
+        self.is_balanced = False
 
     # Convenience accessors
     def asset_lines(self):
@@ -84,6 +84,7 @@ class BalanceSheet:
     def expense_lines(self):
         return [l for l in self.lines if l.coa_type == COAType.EXPENSE]
 
+
 class BalanceSheetBuilder:
     """
     Builds a BalanceSheet from the database for a given entity and period.
@@ -91,7 +92,7 @@ class BalanceSheetBuilder:
 
     def __init__(self, entity_id: str, period: str):
         self.entity_id = entity_id
-        self.period    = period
+        self.period = period
 
     def build(self) -> BalanceSheet:
         from core.database import EntityRepo
@@ -100,13 +101,13 @@ class BalanceSheetBuilder:
             (e.name for e in entity if e.id == self.entity_id), "UNKNOWN"
         )
 
-        accounts   = AccountRepo.list_for_entity(self.entity_id)
-        snapshots  = {
+        accounts = AccountRepo.list_for_entity(self.entity_id)
+        snapshots = {
             s.account_id: s
             for s in SnapshotRepo.list_for_entity(self.entity_id)
             if s.statement_period == self.period
         }
-        coa        = {c.code: c for c in COARepo.list_all()}
+        coa = {c.code: c for c in COARepo.list_all()}
 
         bs = BalanceSheet(entity_name, self.period)
 
@@ -136,8 +137,8 @@ class BalanceSheetBuilder:
         total_assets += cash_total
 
         # Investment / brokerage accounts
-        invest_gross  = Decimal("0")
-        margin_total  = Decimal("0")
+        invest_gross = Decimal("0")
+        margin_total = Decimal("0")
 
         bs.lines.append(BalanceSheetLine("1100", "Investment Assets", Decimal("0"),
                                          COAType.ASSET, indent=0))
@@ -149,8 +150,8 @@ class BalanceSheetBuilder:
             if acct.account_type in (AccountType.BROKERAGE, AccountType.MARGIN):
                 gross = snap.gross_asset_value or snap.ending_balance
                 margin = snap.margin_balance or Decimal("0")  # already negative
-                invest_gross  += gross
-                margin_total  += margin
+                invest_gross += gross
+                margin_total += margin
 
                 # Per-position breakdown
                 positions = PositionRepo.list_for_period(acct.id, self.period)
@@ -177,7 +178,7 @@ class BalanceSheetBuilder:
                         margin, COAType.ASSET, indent=2,
                     ))
 
-        net_invest = invest_gross + margin_total   # margin_total is negative
+        net_invest = invest_gross + margin_total  # margin_total is negative
         bs.lines.append(BalanceSheetLine(
             "1100_sub", "Net Investment Assets",
             net_invest, COAType.ASSET, is_subtotal=True, indent=1,
@@ -218,8 +219,8 @@ class BalanceSheetBuilder:
         ))
         bs.total_liabilities = total_liab
 
-        rev_total  = Decimal("0")
-        exp_total  = Decimal("0")
+        rev_total = Decimal("0")
+        exp_total = Decimal("0")
 
         # Revenue from transactions
         rev_by_code: Dict[str, Decimal] = defaultdict(Decimal)
@@ -238,13 +239,13 @@ class BalanceSheetBuilder:
 
         for code, amt in sorted(rev_by_code.items()):
             entry = coa.get(code)
-            name  = entry.name if entry else code
+            name = entry.name if entry else code
             rev_total += amt
             bs.lines.append(BalanceSheetLine(code, name, amt, COAType.REVENUE, indent=2))
 
         for code, amt in sorted(exp_by_code.items()):
             entry = coa.get(code)
-            name  = entry.name if entry else code
+            name = entry.name if entry else code
             exp_total += amt
             bs.lines.append(BalanceSheetLine(code, name, -amt, COAType.EXPENSE, indent=2))
 
@@ -280,6 +281,7 @@ class BalanceSheetBuilder:
 
         bs.is_balanced = abs((total_liab + total_equity) - total_assets) < Decimal("0.02")
         return bs
+
 
 def build_comparison(entity_id: str,
                      periods: List[str]) -> Dict[str, BalanceSheet]:

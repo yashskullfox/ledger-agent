@@ -18,38 +18,38 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.models import (
-    AccountSnapshot, AccountType, ParsedStatement, Position,
+    AccountSnapshot, ParsedStatement, Position,
     RealisedTrade, StatementType, Transaction, TransactionType,
 )
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
+
 @ParserRegistry.register
 class FidelityBrokerageParser(BaseStatementParser):
-
-    PARSER_ID   = "fidelity_brokerage"
+    PARSER_ID = "fidelity_brokerage"
     INSTITUTION = "Fidelity Investments"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
         return (
-            "FIDELITY" in text.upper()
-            and "INVESTMENT REPORT" in text.upper()
-            and ("BROKERAGE" in text.upper() or "Z23-" in text.upper()
-                 or "Account Number" in text)
+                "FIDELITY" in text.upper()
+                and "INVESTMENT REPORT" in text.upper()
+                and ("BROKERAGE" in text.upper() or "Z23-" in text.upper()
+                     or "Account Number" in text)
         )
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
-        raw_text   = self.extract_text(pdf_path)
+        raw_text = self.extract_text(pdf_path)
         period, year = self._extract_period(raw_text)
         account_no = self._extract_account_number(raw_text)
         entity_name = self._extract_entity_name(raw_text)
 
-        snapshot   = self._parse_summary(raw_text, period)
-        positions  = self._parse_holdings(raw_text, period, year)
-        txns       = self._parse_withdrawals(raw_text, period, year)
-        txns      += self._parse_margin_interest(raw_text, period, year)
-        trades     = self._parse_trades(raw_text, period, year)
+        snapshot = self._parse_summary(raw_text, period)
+        positions = self._parse_holdings(raw_text, period, year)
+        txns = self._parse_withdrawals(raw_text, period, year)
+        txns += self._parse_margin_interest(raw_text, period, year)
+        trades = self._parse_trades(raw_text, period, year)
 
         # Attach realised trades as special transaction records
         for t in trades:
@@ -57,7 +57,7 @@ class FidelityBrokerageParser(BaseStatementParser):
             txns.append(Transaction(
                 account_id="",
                 date=t.settlement_date or date(int(period[:4]), int(period[5:7]), 1),
-                description=f"{'GAIN' if t.gain_loss>=0 else 'LOSS'} – {t.symbol}: {t.description}",
+                description=f"{'GAIN' if t.gain_loss >= 0 else 'LOSS'} – {t.symbol}: {t.description}",
                 raw_description=t.description,
                 amount=t.gain_loss,
                 transaction_type=TransactionType.SELL,
@@ -132,15 +132,15 @@ class FidelityBrokerageParser(BaseStatementParser):
             m = re.search(pattern, text, re.IGNORECASE)
             return self.parse_amount(m.group(1)) if m else None
 
-        ending_nav   = _find(r"Ending Net Account Value[^$\d]*\$?([\d,]+\.\d{2})")
+        ending_nav = _find(r"Ending Net Account Value[^$\d]*\$?([\d,]+\.\d{2})")
         beginning_nav = _find(r"Beginning Net Account Value[^$\d]*\$?([\d,]+\.\d{2})")
-        withdrawals  = _find(r"Withdrawals\s+[-–]?([\d,]+\.\d{2})")
-        margin_bal   = _find(r"Margin balance\s+[-–]?\$?([\d,]+\.\d{2})")
+        withdrawals = _find(r"Withdrawals\s+[-–]?([\d,]+\.\d{2})")
+        margin_bal = _find(r"Margin balance\s+[-–]?\$?([\d,]+\.\d{2})")
         gross_market = _find(r"Market Value of Holdings\s+\$?([\d,]+\.\d{2})")
-        realised     = _find(r"Net\s+(?:Short-term\s+)?Gain[/\\]Loss\s+\$?([\d,]+\.\d{2})")
+        realised = _find(r"Net\s+(?:Short-term\s+)?Gain[/\\]Loss\s+\$?([\d,]+\.\d{2})")
 
         return AccountSnapshot(
-            account_id="",          # filled in by importer
+            account_id="",  # filled in by importer
             statement_period=period,
             ending_balance=ending_nav or Decimal("0"),
             beginning_balance=beginning_nav,
@@ -155,13 +155,13 @@ class FidelityBrokerageParser(BaseStatementParser):
     # M CAREDX INC (CDNA)  $23,551.00  1,100.000  $23.3000  $25,630.00  $16,774.00  $8,856.00
     #
     _HOLDING_RE = re.compile(
-        r"M?\s*([A-Z][A-Z0-9 &.,]+?)\s*\(([A-Z]+)\)\s+"   # name (symbol)
-        r"(?:unavailable|[\d,]+\.\d{2})\s+"               # begin market value
-        r"([\d,]+\.\d{3})\s+"                             # quantity
-        r"([\d,]+\.\d{4})\s+"                             # price
-        r"([\d,]+\.\d{2})\s+"                             # ending market value
-        r"([\d,]+\.\d{2})\s+"                             # cost basis
-        r"([-\d,]+\.\d{2})",                              # unrealised G/L
+        r"M?\s*([A-Z][A-Z0-9 &.,]+?)\s*\(([A-Z]+)\)\s+"  # name (symbol)
+        r"(?:unavailable|[\d,]+\.\d{2})\s+"  # begin market value
+        r"([\d,]+\.\d{3})\s+"  # quantity
+        r"([\d,]+\.\d{4})\s+"  # price
+        r"([\d,]+\.\d{2})\s+"  # ending market value
+        r"([\d,]+\.\d{2})\s+"  # cost basis
+        r"([-\d,]+\.\d{2})",  # unrealised G/L
         re.MULTILINE,
     )
 
@@ -169,11 +169,11 @@ class FidelityBrokerageParser(BaseStatementParser):
         positions = []
         for m in self._HOLDING_RE.finditer(text):
             name, symbol = m.group(1).strip(), m.group(2)
-            qty   = self.parse_amount(m.group(3))
+            qty = self.parse_amount(m.group(3))
             price = self.parse_amount(m.group(4))
-            mv    = self.parse_amount(m.group(5))
-            cb    = self.parse_amount(m.group(6))
-            ugl   = self.parse_amount(m.group(7))
+            mv = self.parse_amount(m.group(5))
+            cb = self.parse_amount(m.group(6))
+            ugl = self.parse_amount(m.group(7))
             if qty and price and mv:
                 positions.append(Position(
                     account_id="",
@@ -215,19 +215,19 @@ class FidelityBrokerageParser(BaseStatementParser):
         symbol_re = re.compile(r"\(([A-Z]{2,6})\)")
 
         for m in block_re.finditer(text):
-            raw_date  = m.group(1)
-            desc_raw  = m.group(2).strip()
-            gl_block  = m.group(3)
+            raw_date = m.group(1)
+            desc_raw = m.group(2).strip()
+            gl_block = m.group(3)
 
             d = self.parse_date(raw_date, year)
             # Extract symbol from description parenthetical if present
-            sym_m  = symbol_re.search(desc_raw)
+            sym_m = symbol_re.search(desc_raw)
             symbol = sym_m.group(1) if sym_m else desc_raw.split()[0][:6]
 
             net_gl = Decimal("0")
             for gl_m in self._SOLD_SIMPLE_RE.finditer(gl_block):
                 gl_type = gl_m.group(1).lower()
-                gl_val  = self.parse_amount(gl_m.group(2)) or Decimal("0")
+                gl_val = self.parse_amount(gl_m.group(2)) or Decimal("0")
                 net_gl += gl_val if gl_type == "gain" else -gl_val
 
             if net_gl != 0:
@@ -254,7 +254,7 @@ class FidelityBrokerageParser(BaseStatementParser):
     def _parse_withdrawals(self, text: str, period: str, year: int) -> List[Transaction]:
         txns = []
         for m in self._WITHDRAWAL_RE.finditer(text):
-            d   = self.parse_date(m.group(1), year)
+            d = self.parse_date(m.group(1), year)
             amt = self.parse_amount(m.group(2))
             if d and amt:
                 txns.append(Transaction(

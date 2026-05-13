@@ -40,7 +40,7 @@ class IBKRParser(BaseStatementParser):
     def can_parse(cls, text: str) -> bool:
         upper = text.upper()
         return "INTERACTIVE BROKERS" in upper and (
-            "ACTIVITY STATEMENT" in upper or "ACCOUNT STATEMENT" in upper
+                "ACTIVITY STATEMENT" in upper or "ACCOUNT STATEMENT" in upper
         )
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
@@ -233,7 +233,8 @@ class IBKRParser(BaseStatementParser):
     )
 
     def _parse_cash_transactions(self, text: str, period: str, year: int) -> List[Transaction]:
-        section = _extract_text_section(text, r"Deposits & Withdrawals|Cash Transactions", r"^(?:Trades|Open Positions)")
+        section = _extract_text_section(text, r"Deposits & Withdrawals|Cash Transactions",
+                                        r"^(?:Trades|Open Positions)")
         txns: List[Transaction] = []
         for m in self._CASH_TX_RE.finditer(section):
             txn_date = self.parse_date(m.group(1))

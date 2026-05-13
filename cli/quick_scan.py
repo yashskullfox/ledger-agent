@@ -27,6 +27,7 @@ from core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
+
 def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
     """
     Auto-import all PDFs from a folder, then generate balance sheet + tax report.
@@ -150,8 +151,10 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
 
     _offer_exports(entity, report_periods[-1], periods)
 
+
 class _AlreadyImportedSkip(Exception):
     pass
+
 
 def _load_all_parsers() -> None:
     """Import all parser modules to trigger @register decorators."""
@@ -170,6 +173,7 @@ def _load_all_parsers() -> None:
             importlib.import_module(mod)
         except Exception:
             pass  # optional parsers may not be present
+
 
 def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> None:
     """Import one PDF. Raises _AlreadyImportedSkip or ParserNotFoundError."""
@@ -235,6 +239,7 @@ def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> N
         f"  ✓ {stmt.institution} | {stmt.statement_period} | {len(stmt.transactions)} txns"
     )
 
+
 def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
     """Print tax estimate for a balance sheet."""
     try:
@@ -243,6 +248,7 @@ def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
         render_tax_estimate(est)
     except Exception as exc:
         log.warning("Tax estimate failed", extra={"error": str(exc)})
+
 
 def _offer_exports(entity, latest_period: str, all_periods: List[str]) -> None:
     """Offer export options after the scan."""

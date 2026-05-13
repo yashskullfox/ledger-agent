@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -52,10 +53,10 @@ def _assert_no_hardcoded_secrets() -> None:
     Raises RuntimeError if any are found (catches accidental commits).
     """
     _BAD_PATTERNS = [
-        r"sk-[A-Za-z0-9]{20,}",        # OpenAI key
-        r"AIza[A-Za-z0-9_\-]{35}",     # Google/Gemini key
-        r"xoxb-[A-Za-z0-9\-]{50,}",    # Slack bot token
-        r"ghp_[A-Za-z0-9]{36,}",       # GitHub PAT
+        r"sk-[A-Za-z0-9]{20,}",  # OpenAI key
+        r"AIza[A-Za-z0-9_\-]{35}",  # Google/Gemini key
+        r"xoxb-[A-Za-z0-9\-]{50,}",  # Slack bot token
+        r"ghp_[A-Za-z0-9]{36,}",  # GitHub PAT
         r"(?i)password\s*=\s*['\"][^'\"]{6,}",  # hardcoded password
     ]
     src = Path(__file__).read_text()
@@ -70,11 +71,11 @@ def _assert_no_hardcoded_secrets() -> None:
 _assert_no_hardcoded_secrets()
 
 # ── Root paths ────────────────────────────────────────────────────────────────
-ROOT_DIR       = Path(__file__).parent.resolve()
-DATA_DIR       = _env_path("FI_DATA_DIR", ROOT_DIR / "data")
+ROOT_DIR = Path(__file__).parent.resolve()
+DATA_DIR = _env_path("FI_DATA_DIR", ROOT_DIR / "data")
 STATEMENTS_DIR = DATA_DIR / "statements"
-DB_DIR         = DATA_DIR / "db"
-EXPORTS_DIR    = DATA_DIR / "exports"
+DB_DIR = DATA_DIR / "db"
+EXPORTS_DIR = DATA_DIR / "exports"
 
 for _d in (STATEMENTS_DIR, DB_DIR, EXPORTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
@@ -83,12 +84,12 @@ for _d in (STATEMENTS_DIR, DB_DIR, EXPORTS_DIR):
 DB_PATH = _env_path("FI_DB_PATH", DB_DIR / "financials.db")
 
 # ── Entity defaults (editable via first-run wizard) ──────────────────────────
-DEFAULT_ENTITY_NAME  = _env_str("FI_DEFAULT_ENTITY_NAME", "")
-DEFAULT_ENTITY_TYPE  = _env_str("FI_DEFAULT_ENTITY_TYPE", "LLC")
+DEFAULT_ENTITY_NAME = _env_str("FI_DEFAULT_ENTITY_NAME", "")
+DEFAULT_ENTITY_TYPE = _env_str("FI_DEFAULT_ENTITY_TYPE", "LLC")
 DEFAULT_ENTITY_STATE = _env_str("FI_DEFAULT_ENTITY_STATE", "")
 
 # ── Accounting settings ───────────────────────────────────────────────────────
-DEFAULT_CURRENCY     = "USD"
+DEFAULT_CURRENCY = "USD"
 FISCAL_YEAR_START_MM = _env_int("FI_FISCAL_YEAR_START_MM", 1)
 
 # ── Parser confidence thresholds ─────────────────────────────────────────────
@@ -98,7 +99,7 @@ AUTO_CLASSIFY_THRESHOLD = _env_int("FI_AUTO_CLASSIFY_THRESHOLD", 85)
 MEMORY_FILE = _env_path("FI_MEMORY_FILE", DB_DIR / "classification_memory.json")
 
 # ── AI Backend ────────────────────────────────────────────────────────────────
-AI_BACKEND = _env_str("FI_AI_BACKEND", "local").lower()   # local | openai | gemini
+AI_BACKEND = _env_str("FI_AI_BACKEND", "local").lower()  # local | openai | gemini
 OPENAI_MODEL = _env_str("FI_OPENAI_MODEL", "gpt-4o-mini")
 GEMINI_MODEL = _env_str("FI_GEMINI_MODEL", "gemini-1.5-flash")
 
@@ -123,26 +124,26 @@ def validate_ai_config() -> None:
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-LOG_LEVEL  = _env_str("FI_LOG_LEVEL",  "INFO").upper()
-LOG_FORMAT = _env_str("FI_LOG_FORMAT", "rich").lower()   # rich | json | plain
+LOG_LEVEL = _env_str("FI_LOG_LEVEL", "INFO").upper()
+LOG_FORMAT = _env_str("FI_LOG_FORMAT", "rich").lower()  # rich | json | plain
 
 # ── Report settings ───────────────────────────────────────────────────────────
-REPORT_DATE_FMT   = "%B %d, %Y"
+REPORT_DATE_FMT = "%B %d, %Y"
 REPORT_PERIOD_FMT = "%Y-%m"
 
 # ── Supported statement parsers (human-readable labels) ─────────────────────
 KNOWN_PARSERS = {
-    "truist_checking":   "Truist Simple Business Checking",
+    "truist_checking": "Truist Simple Business Checking",
     "fidelity_brokerage": "Fidelity Brokerage / Investment Account",
-    "chase_checking":    "Chase Business Complete Checking",
-    "bofa_checking":     "Bank of America Business Checking",
+    "chase_checking": "Chase Business Complete Checking",
+    "bofa_checking": "Bank of America Business Checking",
 }
 
 # ── Chart-of-Accounts account-type labels ────────────────────────────────────
 ACCOUNT_TYPE_LABELS = {
-    "asset":     "Assets",
+    "asset": "Assets",
     "liability": "Liabilities",
-    "equity":    "Members' Equity",
-    "revenue":   "Revenue",
-    "expense":   "Expenses",
+    "equity": "Members' Equity",
+    "revenue": "Revenue",
+    "expense": "Expenses",
 }

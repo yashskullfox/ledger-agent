@@ -391,9 +391,10 @@ from parsers.registry import ParserRegistry
 from core.models import ParsedStatement, StatementType
 from pathlib import Path
 
+
 @ParserRegistry.register
 class WellsFargoParser(BaseStatementParser):
-    PARSER_ID   = "wells_fargo"
+    PARSER_ID = "wells_fargo"
     INSTITUTION = "Wells Fargo"
 
     @classmethod

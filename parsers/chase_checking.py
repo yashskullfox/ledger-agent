@@ -31,6 +31,7 @@ from core.models import (
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
+
 @ParserRegistry.register
 class ChaseCheckingParser(BaseStatementParser):
     PARSER_ID = "chase_checking"

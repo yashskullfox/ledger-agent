@@ -47,9 +47,9 @@ class USBankCreditCardParser(BaseStatementParser):
     def can_parse(cls, text: str) -> bool:
         upper = text.upper()
         return (
-            ("U.S. BANK" in upper or "USBANK" in upper)
-            and ("TRIPLE CASH" in upper or "CREDIT CARD" in upper
-                 or "CENTRAL BILL" in upper or "CARDMEMBER" in upper)
+                ("U.S. BANK" in upper or "USBANK" in upper)
+                and ("TRIPLE CASH" in upper or "CREDIT CARD" in upper
+                     or "CENTRAL BILL" in upper or "CARDMEMBER" in upper)
         )
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
@@ -132,7 +132,7 @@ class USBankCreditCardParser(BaseStatementParser):
     )
 
     def _parse_transactions(
-        self, lines: List[str], year: int, period: str,
+            self, lines: List[str], year: int, period: str,
     ) -> Tuple[List[Transaction], List[Transaction], List[Transaction]]:
         """
         Return (charges, credits, payments).

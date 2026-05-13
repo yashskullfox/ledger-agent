@@ -27,6 +27,7 @@ from core.models import (
 from parsers.base import BaseStatementParser
 from parsers.registry import ParserRegistry
 
+
 @ParserRegistry.register
 class BofACheckingParser(BaseStatementParser):
     PARSER_ID = "bofa_checking"

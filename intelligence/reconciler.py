@@ -11,20 +11,20 @@ Algorithm:
 """
 from __future__ import annotations
 
-from datetime import timedelta
-from decimal import Decimal
-from typing import Dict, List, NamedTuple, Tuple
+from typing import List, NamedTuple, Tuple
 
 from core.models import Transaction, TransactionType
 
+
 class ReconciliationMatch(NamedTuple):
-    outgoing: Transaction   # brokerage TRANSFER_OUT
-    incoming: Transaction   # bank     TRANSFER_IN
-    delta_days: int         # settlement lag (usually 0-2)
+    outgoing: Transaction  # brokerage TRANSFER_OUT
+    incoming: Transaction  # bank     TRANSFER_IN
+    delta_days: int  # settlement lag (usually 0-2)
+
 
 def reconcile(
-    all_transactions: List[Transaction],
-    tolerance_days: int = 3,
+        all_transactions: List[Transaction],
+        tolerance_days: int = 3,
 ) -> Tuple[List[ReconciliationMatch], List[Transaction]]:
     """
     Match TRANSFER_OUT ↔ TRANSFER_IN pairs across accounts.
@@ -35,12 +35,12 @@ def reconcile(
     outgoing = [
         t for t in all_transactions
         if t.transaction_type in (TransactionType.TRANSFER_OUT,)
-        and not t.is_reconciled
+           and not t.is_reconciled
     ]
     incoming = [
         t for t in all_transactions
         if t.transaction_type in (TransactionType.TRANSFER_IN,)
-        and not t.is_reconciled
+           and not t.is_reconciled
     ]
 
     matches: List[ReconciliationMatch] = []
@@ -66,32 +66,33 @@ def reconcile(
             matched_ids.add(matched_inc.id)
             matched_ids.add(out.id)
             # Mark both sides reconciled
-            out.is_reconciled  = True
-            out.is_transfer    = True
+            out.is_reconciled = True
+            out.is_transfer = True
             matched_inc.is_reconciled = True
-            matched_inc.is_transfer   = True
+            matched_inc.is_transfer = True
             matches.append(ReconciliationMatch(out, matched_inc, delta_days))
 
     unmatched = [
         t for t in outgoing + incoming
         if t.id not in matched_ids
-        and t.transaction_type in (TransactionType.TRANSFER_OUT, TransactionType.TRANSFER_IN)
+                   and t.transaction_type in (TransactionType.TRANSFER_OUT, TransactionType.TRANSFER_IN)
     ]
 
     return matches, unmatched
 
+
 def print_reconciliation_report(
-    matches: List[ReconciliationMatch],
-    unmatched: List[Transaction],
+        matches: List[ReconciliationMatch],
+        unmatched: List[Transaction],
 ) -> str:
     """Return a text summary of reconciliation results."""
     lines = [
-        f"{'='*60}",
+        f"{'=' * 60}",
         f"  RECONCILIATION REPORT",
-        f"{'='*60}",
+        f"{'=' * 60}",
         f"  Matched pairs  : {len(matches)}",
         f"  Unmatched items: {len(unmatched)}",
-        f"{'='*60}",
+        f"{'=' * 60}",
     ]
     for m in matches:
         lines.append(

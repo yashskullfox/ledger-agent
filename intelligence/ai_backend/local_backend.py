@@ -86,6 +86,7 @@ _COMPILED_RULES = [
 _usage_counts: Dict[str, int] = {}
 _COMMIT_THRESHOLDS = {3, 10, 25}
 
+
 class LocalBackend(AIBackend):
     """Rule-based backend with rapidfuzz fuzzy matching and usage tracking."""
 

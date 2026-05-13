@@ -11,13 +11,15 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from config import MEMORY_FILE, AUTO_CLASSIFY_THRESHOLD
+from config import MEMORY_FILE
 
 try:
     from rapidfuzz import fuzz, process as rf_process
+
     _FUZZY_AVAILABLE = True
 except ImportError:
     _FUZZY_AVAILABLE = False
+
 
 class ClassificationMemory:
     """
@@ -63,7 +65,7 @@ class ClassificationMemory:
         # 2. Fuzzy match
         if _FUZZY_AVAILABLE:
             choices = {r["pattern"]: r for r in self._rules}
-            result  = rf_process.extractOne(
+            result = rf_process.extractOne(
                 desc_norm,
                 list(choices.keys()),
                 scorer=fuzz.WRatio,
@@ -82,17 +84,17 @@ class ClassificationMemory:
         desc_norm = self._normalise(description)
         for r in self._rules:
             if self._normalise(r["pattern"]) == desc_norm:
-                r["coa_code"]      = coa_code
-                r["coa_name"]      = coa_name
-                r["is_transfer"]   = is_transfer
+                r["coa_code"] = coa_code
+                r["coa_name"] = coa_name
+                r["is_transfer"] = is_transfer
                 r["confirmed_count"] = r.get("confirmed_count", 1) + 1
                 self._save()
                 return
         self._rules.append({
-            "pattern":         description,
-            "coa_code":        coa_code,
-            "coa_name":        coa_name,
-            "is_transfer":     is_transfer,
+            "pattern": description,
+            "coa_code": coa_code,
+            "coa_name": coa_name,
+            "is_transfer": is_transfer,
             "confirmed_count": 1,
         })
         self._save()
@@ -123,24 +125,24 @@ class ClassificationMemory:
 
     def _seed_defaults(self) -> None:
         defaults = [
-            ("INCFILE LLC",          "5010", "Software & Subscriptions",     False),
-            ("PAYPAL *QUICKBOOKS",   "5010", "Software & Subscriptions",     False),
-            ("GOOGLE",               "5010", "Software & Subscriptions",     False),
-            ("USATAXPYMT IRS",       "5050", "Federal Income Tax Expense",   False),
-            ("TAX PAYROLL",          "5040", "Payroll Tax Expense",          False),
-            ("TRAN FEE INTUIT",      "5020", "Bank & Transaction Fees",      False),
-            ("MONEYLINE FID BKG",    "3010", "Members Capital Contributions", True),
-            ("DEPOSIT INTUIT",       "4020", "Service Revenue",              False),
-            ("EFT FUNDS PAID",       "3010", "Members Capital Contributions", True),
-            ("MARGIN INTEREST",      "5030", "Margin Interest Expense",      False),
+            ("INCFILE LLC", "5010", "Software & Subscriptions", False),
+            ("PAYPAL *QUICKBOOKS", "5010", "Software & Subscriptions", False),
+            ("GOOGLE", "5010", "Software & Subscriptions", False),
+            ("USATAXPYMT IRS", "5050", "Federal Income Tax Expense", False),
+            ("TAX PAYROLL", "5040", "Payroll Tax Expense", False),
+            ("TRAN FEE INTUIT", "5020", "Bank & Transaction Fees", False),
+            ("MONEYLINE FID BKG", "3010", "Members Capital Contributions", True),
+            ("DEPOSIT INTUIT", "4020", "Service Revenue", False),
+            ("EFT FUNDS PAID", "3010", "Members Capital Contributions", True),
+            ("MARGIN INTEREST", "5030", "Margin Interest Expense", False),
         ]
         for pattern, code, name, is_xfer in defaults:
             self._rules.append({
-                "pattern":         pattern,
-                "coa_code":        code,
-                "coa_name":        name,
-                "is_transfer":     is_xfer,
-                "confirmed_count": 0,   # 0 = seeded, not user-confirmed
+                "pattern": pattern,
+                "coa_code": code,
+                "coa_name": name,
+                "is_transfer": is_xfer,
+                "confirmed_count": 0,  # 0 = seeded, not user-confirmed
             })
         self._save()
 
@@ -156,13 +158,15 @@ class ClassificationMemory:
         import re
         # Upper-case, collapse spaces, strip date tokens like "01-08"
         text = text.upper().strip()
-        text = re.sub(r"\b\d{2}-\d{2}\b", "", text)   # remove MM-DD
-        text = re.sub(r"\b\d{6,}\b", "", text)          # remove long numbers
+        text = re.sub(r"\b\d{2}-\d{2}\b", "", text)  # remove MM-DD
+        text = re.sub(r"\b\d{6,}\b", "", text)  # remove long numbers
         text = re.sub(r"\s+", " ", text).strip()
         return text
 
+
 # Module-level singleton
 _memory: Optional[ClassificationMemory] = None
+
 
 def get_memory() -> ClassificationMemory:
     global _memory
