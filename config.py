@@ -25,6 +25,10 @@ Environment variables (prefix: FI_):
   FI_QBI_DEDUCTION          QBI deduction rate (default 0.20)
   FI_STATEMENTS_DIR         Override default statements folder (data/statements/)
   FI_STATEMENT_GLOB         Glob pattern for statement files (default *.pdf)
+  FI_AI_EGRESS_MODE         PII firewall: redact|strict|mock|passthrough (default redact)
+  FI_AI_EGRESS_MODE_ACK     Required for passthrough: I_understand_the_risk
+  FI_PRIVACY_ENTITY_NAME    Legal entity name to redact as <ENTITY_NAME> in AI payloads
+  FI_PRIVACY_NER            Enable spaCy NER: spacy (optional, default off)
 """
 from __future__ import annotations
 
@@ -172,3 +176,19 @@ ACCOUNT_TYPE_LABELS = {
     "revenue": "Revenue",
     "expense": "Expenses",
 }
+
+# ── Privacy / Egress Control (R-46) ──────────────────────────────────────────
+# redact     – apply PII tokenisation (default, recommended)
+# strict     – redact + post-sweep that fails if any digit-run ≥ 7 remains
+# mock       – short-circuit: never call remote; return stub classification
+# passthrough – no redaction; requires FI_AI_EGRESS_MODE_ACK=I_understand_the_risk
+AI_EGRESS_MODE = _env_str("FI_AI_EGRESS_MODE", "redact").lower()
+AI_EGRESS_MODE_ACK = _env_str("FI_AI_EGRESS_MODE_ACK", "")
+
+# Legal entity name to token-replace as <ENTITY_NAME> in all outbound AI payloads.
+# Set to your LLC / business name so it never leaves the machine in the clear.
+PRIVACY_ENTITY_NAME = _env_str("FI_PRIVACY_ENTITY_NAME", "")
+
+# Optional: set to 'spacy' to activate spaCy NER for higher-quality person detection.
+# Requires: pip install spacy && python -m spacy download en_core_web_sm
+PRIVACY_NER = _env_str("FI_PRIVACY_NER", "").lower()

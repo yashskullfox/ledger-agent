@@ -5,6 +5,12 @@ Requires:  pip install openai tenacity  (or: pip install financial-intelligence[
 Env vars:
   FI_OPENAI_API_KEY   Your OpenAI API key
   FI_OPENAI_MODEL     Model name (default: gpt-4o-mini)
+
+Privacy (R-46):
+  All outbound payloads are run through core.privacy.redact() before sending.
+  core.privacy.audit_egress() is called immediately before every HTTP request
+  as a hard pre-flight check.  Set FI_AI_EGRESS_MODE=mock to disable network
+  calls entirely (CI / offline environments).
 """
 from __future__ import annotations
 
@@ -39,6 +45,15 @@ Common COA codes (canonical — use these exact codes and names):
 5999=Uncategorized Expense, 9000=Inter-Account Transfer
 """
 
+_MOCK_CLASSIFICATION: Dict[str, Any] = {
+    "coa_code": "5999",
+    "coa_name": "Uncategorized Expense",
+    "is_transfer": False,
+    "confidence": 0.50,
+    "source": "mock",
+    "reason": "Mock mode — no remote call made.",
+}
+
 
 class OpenAIBackend(AIBackend):
     """OpenAI Chat Completions with retry logic and 30-second timeout."""
@@ -64,6 +79,10 @@ class OpenAIBackend(AIBackend):
         try:
             from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
             import openai as _openai
+            from core.privacy import audit_egress
+
+            # Hard pre-flight PII audit before any HTTP call
+            audit_egress(messages)
 
             @retry(
                 stop=stop_after_attempt(retries),
@@ -90,11 +109,25 @@ class OpenAIBackend(AIBackend):
             amount: float,
             context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact, unredact_result
+
+        # Mock mode — no network call
+        if AI_EGRESS_MODE == "mock":
+            log.info("OpenAI mock mode: skipping remote call")
+            return dict(_MOCK_CLASSIFICATION)
+
+        # Redact PII before sending
+        entity_name = (context or {}).get("entity_name", "LLC")
+        safe_desc, m1 = redact(description, scope="openai")
+        safe_entity, m2 = redact(entity_name, scope="openai")
+        combined_map = {**m1, **m2}
+
         direction = "credit (income)" if amount >= 0 else "debit (expense)"
         user_msg = (
-            f"Transaction: '{description}'\n"
+            f"Transaction: '{safe_desc}'\n"
             f"Amount: ${abs(amount):,.2f} ({direction})\n"
-            f"Entity: {(context or {}).get('entity_name', 'LLC')}\n"
+            f"Entity: {safe_entity}\n"
             "Classify this transaction."
         )
         try:
@@ -104,7 +137,8 @@ class OpenAIBackend(AIBackend):
             ])
             result = json.loads(raw)
             result.setdefault("confidence", 0.85)
-            return result
+            # Un-redact the reason field for local display
+            return unredact_result(result, combined_map)
         except Exception as exc:
             log.warning("OpenAI classify failed, falling back to local", extra={"error": str(exc)})
             from intelligence.ai_backend.local_backend import LocalBackend
@@ -116,8 +150,15 @@ class OpenAIBackend(AIBackend):
             coa_code: str,
             confirmed_count: int,
     ) -> Dict[str, Any]:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact
+
+        if AI_EGRESS_MODE == "mock":
+            return {"enhanced_pattern": pattern, "suggested_aliases": [], "confidence": 0.50, "source": "mock"}
+
+        safe_pattern, _ = redact(pattern, scope="openai")
         user_msg = (
-            f"Pattern: '{pattern}'\nCOA code: {coa_code}\n"
+            f"Pattern: '{safe_pattern}'\nCOA code: {coa_code}\n"
             f"Confirmed {confirmed_count} times.\n"
             "Suggest an enhanced pattern and up to 3 aliases. "
             "Respond as JSON: {enhanced_pattern, suggested_aliases, confidence}"
@@ -138,14 +179,22 @@ class OpenAIBackend(AIBackend):
             coa_code: str,
             coa_name: str,
     ) -> str:
+        from config import AI_EGRESS_MODE
+        from core.privacy import redact, unredact
+
+        if AI_EGRESS_MODE == "mock":
+            return f"Transaction classified as [{coa_code}] {coa_name} (mock mode)."
+
+        safe_desc, mapping = redact(description, scope="openai")
         user_msg = (
-            f"Why is transaction '{description}' classified as "
+            f"Why is transaction '{safe_desc}' classified as "
             f"[{coa_code}] {coa_name}? Give a 1-2 sentence explanation."
         )
         try:
-            return self._chat([
+            raw = self._chat([
                 {"role": "system", "content": "You are a bookkeeper. Be concise."},
                 {"role": "user", "content": user_msg},
             ])
+            return unredact(raw, mapping)
         except Exception:
             return f"Transaction classified as [{coa_code}] {coa_name} via OpenAI analysis."

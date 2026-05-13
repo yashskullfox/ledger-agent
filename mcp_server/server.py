@@ -133,6 +133,18 @@ TOOLS: List[Dict[str, Any]] = [
             "properties": {},
         },
     },
+    {
+        "name": "privacy_status",
+        "description": (
+            "Returns current privacy / egress firewall status: active mode, "
+            "detector category count, session tokens issued, allowlist size, "
+            "and last 10 redaction audit events (token types only — no original values)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -199,12 +211,25 @@ def _handle_list_transactions(args: Dict[str, Any]) -> Dict[str, Any]:
                 ).fetchall()
                 txns = rows
 
+    # Redact transaction descriptions before returning to MCP client (R-46)
+    # An MCP client may be Claude Desktop tunneled to a cloud model.
+    try:
+        from core.privacy import redact as _redact
+    except Exception:
+        _redact = None  # type: ignore[assignment]
+
     records = []
     for t in txns[:limit]:
         if hasattr(t, "date"):
+            desc = t.description
+            if _redact is not None:
+                try:
+                    desc, _ = _redact(desc, scope="mcp_response")
+                except Exception:
+                    pass
             records.append({
                 "date": str(t.date),
-                "description": t.description,
+                "description": desc,
                 "amount": float(t.amount),
                 "type": t.transaction_type.value if hasattr(t.transaction_type, "value") else str(t.transaction_type),
                 "coa_code": t.coa_code,
@@ -321,6 +346,14 @@ def _handle_get_entity_summary(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _handle_privacy_status(_args: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from core.privacy import privacy_status
+        return privacy_status()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 _HANDLERS = {
     "get_balance_sheet": _handle_get_balance_sheet,
     "list_transactions": _handle_list_transactions,
@@ -328,6 +361,7 @@ _HANDLERS = {
     "classify_transaction": _handle_classify_transaction,
     "list_periods": _handle_list_periods,
     "get_entity_summary": _handle_get_entity_summary,
+    "privacy_status": _handle_privacy_status,
 }
 
 

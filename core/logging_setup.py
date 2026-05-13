@@ -97,6 +97,13 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
         handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(logging.Formatter(_PLAIN_FMT, datefmt=_PLAIN_DATE))
 
+    # Install PrivacyFilter on the handler so PII is stripped before emit (R-46)
+    try:
+        from core.privacy import PrivacyFilter
+        handler.addFilter(PrivacyFilter())
+    except Exception:
+        pass  # Privacy filter is best-effort; never prevent logging from working
+
     root.addHandler(handler)
 
     # Silence noisy third-party loggers
