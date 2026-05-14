@@ -23,7 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from core.logging_setup import get_logger
+from ledger_agent.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -36,7 +36,7 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
         folder: Path to folder containing PDF statements. Prompts if None.
         force:  Re-import even if statement was already imported.
     """
-    from core.database import init_db, SnapshotRepo
+    from ledger_agent.core.database import init_db, SnapshotRepo
     from cli.prompts import (
         ask_select, ask_text,
         print_error, print_info, print_warning,
@@ -82,7 +82,7 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
 
     _load_all_parsers()
 
-    from core.exceptions import ParserNotFoundError
+    from ledger_agent.core.exceptions import ParserNotFoundError
 
     imported_count = 0
     skipped_count = 0
@@ -135,8 +135,8 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
     )
     report_periods = periods if all_label in period_choice else [period_choice]
 
-    from accounting.balance_sheet import BalanceSheetBuilder
-    from reports.renderer import render_balance_sheet
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.reports.renderer import render_balance_sheet
 
     for p in report_periods:
         bs = BalanceSheetBuilder(entity.id, p).build()
@@ -158,19 +158,19 @@ class _AlreadyImportedSkip(Exception):
 
 def _load_all_parsers() -> None:
     """Import parsers package — auto-discovery in parsers/__init__.py handles everything."""
-    import parsers  # noqa: F401
+    import ledger_agent.core.parsers  # noqa: F401
 
 
 def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> None:
     """Import one PDF. Raises _AlreadyImportedSkip or ParserNotFoundError."""
-    from parsers.registry import ParserRegistry
-    from parsers.base import BaseStatementParser
-    from core.database import (
+    from ledger_agent.core.parsers.registry import ParserRegistry
+    from ledger_agent.core.parsers.base import BaseStatementParser
+    from ledger_agent.core.database import (
         AccountRepo, ImportRegistry, PositionRepo, SnapshotRepo, TransactionRepo,
     )
-    from core.models import Account
+    from ledger_agent.core.models import Account
     from cli.commands import _infer_account_type, _default_account_name
-    from intelligence.classifier import classify_batch
+    from ledger_agent.core.intelligence.classifier import classify_batch
 
     raw_text = BaseStatementParser.extract_text(pdf_path)
     parser_cls = ParserRegistry.detect_or_raise(raw_text)
@@ -229,7 +229,7 @@ def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> N
 def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
     """Print tax estimate for a balance sheet."""
     try:
-        from accounting.tax_estimator import TaxEstimator, render_tax_estimate
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
         est = TaxEstimator(entity_name, year).estimate_from_balance_sheet(bs)
         render_tax_estimate(est)
     except Exception as exc:
@@ -239,7 +239,7 @@ def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
 def _offer_exports(entity, latest_period: str, all_periods: List[str]) -> None:
     """Offer export options after the scan."""
     from cli.prompts import ask_select, print_success, print_info
-    from accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
 
     export = ask_select(
         "Export options:",
@@ -259,18 +259,18 @@ def _offer_exports(entity, latest_period: str, all_periods: List[str]) -> None:
     bs = BalanceSheetBuilder(entity.id, latest_period).build()
 
     if export == "CSV":
-        from reports.renderer import export_balance_sheet_csv
+        from ledger_agent.core.reports.renderer import export_balance_sheet_csv
         path = export_balance_sheet_csv(bs)
         print_success(f"Saved: {path}")
 
     elif export == "Excel (.xlsx)":
-        from reports.renderer import export_balance_sheet_excel
+        from ledger_agent.core.reports.renderer import export_balance_sheet_excel
         path = export_balance_sheet_excel(bs)
         if path:
             print_success(f"Saved: {path}")
 
     elif export == "JSON":
-        from reports.renderer import export_balance_sheet_json
+        from ledger_agent.core.reports.renderer import export_balance_sheet_json
         path = export_balance_sheet_json(bs)
         print_success(f"Saved: {path}")
 

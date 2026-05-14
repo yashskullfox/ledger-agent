@@ -12,11 +12,11 @@ import pytest
 @pytest.fixture
 def seeded_db(db):
     """Create entity, accounts, snapshot and transactions for a balance sheet test."""
-    from core.database import (
+    from ledger_agent.core.database import (
         init_db, EntityRepo, AccountRepo, SnapshotRepo, TransactionRepo,
         get_conn,
     )
-    from core.models import (
+    from ledger_agent.core.models import (
         Entity, Account, AccountType, AccountSnapshot,
         Transaction, TransactionType,
     )
@@ -82,7 +82,7 @@ def seeded_db(db):
 class TestBalanceSheetBuilder:
     def test_builds_balance_sheet(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
         assert bs is not None
         assert bs.entity_name == "TEST LLC"
@@ -90,26 +90,26 @@ class TestBalanceSheetBuilder:
 
     def test_total_assets_positive(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
         assert bs.total_assets > 0
 
     def test_balance_sheet_lines_not_empty(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
         assert len(bs.lines) > 0
 
     def test_net_income_calculated(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
         # Revenue 4000 - Expense 30 = Net income 3970
         assert bs.net_income == Decimal("3970.00")
 
     def test_is_balanced(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
         # Assets = Liabilities + Equity (within $0.02)
         diff = abs((bs.total_liabilities + bs.total_equity) - bs.total_assets)
@@ -117,13 +117,13 @@ class TestBalanceSheetBuilder:
 
     def test_has_asset_lines(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
         assert len(bs.asset_lines()) > 0
 
     def test_has_equity_lines(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
         assert len(bs.equity_lines()) > 0
 
@@ -131,13 +131,13 @@ class TestBalanceSheetBuilder:
 class TestBuildComparison:
     def test_returns_dict(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import build_comparison
+        from ledger_agent.core.accounting.balance_sheet import build_comparison
         result = build_comparison(entity.id, ["2025-01"])
         assert isinstance(result, dict)
         assert "2025-01" in result
 
     def test_empty_periods_returns_empty(self, seeded_db):
         entity, _, _ = seeded_db
-        from accounting.balance_sheet import build_comparison
+        from ledger_agent.core.accounting.balance_sheet import build_comparison
         result = build_comparison(entity.id, [])
         assert result == {}

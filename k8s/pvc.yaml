@@ -1,0 +1,22 @@
+## k8s/pvc.yaml — persistent storage for the SQLite database and statements
+## Apply: kubectl apply -f k8s/pvc.yaml
+##
+## ledger-agent uses a single SQLite file. A ReadWriteOnce PVC is sufficient.
+## For multi-replica setups, switch to a managed database (PostgreSQL/RDS) and
+## update FI_DB_PATH accordingly — SQLite is single-writer only.
+##
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ledger-agent-data
+  labels:
+    app: ledger-agent
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  ## Uncomment and set to your cluster's storage class:
+  # storageClassName: standard

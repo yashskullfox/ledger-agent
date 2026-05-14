@@ -1,0 +1,64 @@
+{
+  "schema_version": "v1",
+  "name": "ledger-agent",
+  "display_name": "Ledger Agent — Financial Intelligence Platform",
+  "version": "2.1.0",
+  "description": "Spec-compliant MCP server exposing six financial tools: import_statements, generate_balance_sheet, generate_form_1065, generate_k1, pte_estimate, reconcile_year.  Privacy firewall (R-46) applied to every egress.  Backed by ledger-agent-core.",
+  "author": "ledger-agent contributors",
+  "license": "MIT",
+  "transports": [
+    {
+      "type": "stdio",
+      "command": "ledger-agent-mcp",
+      "args": ["--transport", "stdio"]
+    },
+    {
+      "type": "http",
+      "url": "http://127.0.0.1:7337/mcp",
+      "command": "ledger-agent-mcp",
+      "args": ["--transport", "http", "--port", "7337"]
+    }
+  ],
+  "tools": [
+    {
+      "name": "import_statements",
+      "description": "Scan a folder for PDF statements and persist transactions."
+    },
+    {
+      "name": "generate_balance_sheet",
+      "description": "Build a GAAP-style balance sheet for a fiscal year."
+    },
+    {
+      "name": "generate_form_1065",
+      "description": "Produce Form 1065 partnership return data."
+    },
+    {
+      "name": "generate_k1",
+      "description": "Generate Schedule K-1 for a single partner."
+    },
+    {
+      "name": "pte_estimate",
+      "description": "Compute quarterly estimated tax payments."
+    },
+    {
+      "name": "reconcile_year",
+      "description": "Run inter-account transfer reconciliation."
+    }
+  ],
+  "privacy": {
+    "firewall": "R-46",
+    "default_mode": "redact",
+    "allow_pii_opt_in": true,
+    "pii_categories": [
+      "ssn", "ein", "account_number", "routing_number",
+      "api_key", "credit_card", "person_name", "address",
+      "phone", "email", "ip_address", "date_of_birth"
+    ]
+  },
+  "environment": {
+    "FI_AI_BACKEND": "local | openai | gemini  (default: local)",
+    "FI_DB_PATH": "Override SQLite database path",
+    "FI_STATEMENTS_DIR": "Override default statements folder",
+    "FI_AI_EGRESS_MODE": "redact | strict | mock | passthrough"
+  }
+}

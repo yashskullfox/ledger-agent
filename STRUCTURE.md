@@ -1,101 +1,186 @@
-# FinancialIntelligence — Architecture & Structure
+# ledger-agent — Architecture & Structure
 
-> A field guide for contributors, AI agents, and developers extending the system.
+> Field guide for contributors, AI agents, and developers extending the system.
+> Covers the four-form architecture (R-50), release pipeline (R-51), and all
+> twelve ARCH tickets landed in v2.1.0.
 
 ---
 
 ## Philosophy
 
-**Local compute first, API as validator, MCP as optional interface.**
+**One engine, four surfaces.  Local-first.  Privacy by default.**
 
-1. All parsing, classification, and reporting runs entirely on the local machine with zero network dependency.
-2. Remote AI (OpenAI, Gemini) is an optional second-pass validator for low-confidence classifications only — not the primary engine.
-3. The MCP server exposes finished data to any MCP-compatible AI client; it does not replace the intelligence layer.
-4. Every institution is a self-contained plugin. Adding a new bank requires exactly one file.
+1. All parsing, classification, and accounting runs entirely on the local machine — zero required cloud dependency.
+2. `ledger_agent.core.api` is the **single source of truth** for all six operations. Forms B, C, and D are thin wrappers — they never reimplement logic.
+3. The MCP server and Java bridge reuse the same transport framing (newline-delimited JSON-RPC 2.0) so transport tests apply to both.
+4. Remote AI (OpenAI, Gemini) is an optional second-pass escalation for low-confidence classifications only.
+5. Every institution is a self-contained plugin. Adding a new bank requires exactly one file.
 
 ---
 
 ## Repository Layout
 
 ```
-FinancialIntelligence/
+ledger-agent/
 │
-├── main.py                  CLI entry point and command dispatcher
-├── run.sh                   Shell launcher: manages .venv, passes args
-├── config.py                All configuration via environment variables
-├── pyproject.toml           PEP 621 package metadata and fi CLI entry point
-├── requirements.txt         Runtime dependencies (no dev/test deps)
-├── requirements-dev.txt     pytest, coverage
-├── .env.example             Config template — copy to .env and fill in
-├── .gitignore               Excludes financial data, keys, caches, dev artifacts
+├── run.sh                    Bootstrap launcher (Unix) — creates .venv, installs, dispatches
+├── run.bat                   Bootstrap launcher (Windows) — same behaviour
+├── main.py                   Legacy interactive menu (pass-through for mcp/context/classify/…)
+├── config.py                 All configuration via environment variables
+├── pyproject.toml            Root package metadata (ledger-agent 2.1.0)
+├── requirements.txt          Loose runtime deps
+├── requirements.lock         Pinned deps for reproducible builds (ARCH-11)
+├── requirements-dev.txt      pytest, ruff, mypy
 │
-├── core/                    Pure domain layer — no I/O, no CLI, no DB calls
-│   ├── models.py            Dataclass models: Entity, Account, Transaction, Position …
-│   ├── database.py          SQLite repositories (EntityRepo, TransactionRepo, …)
-│   ├── exceptions.py        Custom exception hierarchy
-│   └── logging_setup.py     Structured logging: rich | json | plain
+├── ledger_agent/             ── Python package root ──────────────────────────────────
+│   ├── __init__.py           __version__ = "2.1.0"
+│   │
+│   ├── core/                 Form A — Pure core library (ARCH-01/02/03)
+│   │   ├── __init__.py
+│   │   └── api.py            Six public functions + return-type dataclasses
+│   │                         import_statements · generate_balance_sheet · generate_form_1065
+│   │                         generate_k1 · pte_estimate · reconcile_year
+│   │
+│   ├── cli/                  Form B — Thin CLI layer (ARCH-04)
+│   │   ├── __init__.py
+│   │   └── main.py           app() entrypoint; delegates 100% to core.api
+│   │
+│   ├── mcp/                  Form C — Spec-compliant MCP server (ARCH-06/07)
+│   │   ├── __init__.py
+│   │   ├── __main__.py       python -m ledger_agent.mcp
+│   │   ├── server.py         _dispatch(), serve_stdio(), serve_http(), main()
+│   │   ├── tools.py          TOOL_SCHEMAS + call_tool() → core.api
+│   │   ├── transport_stdio.py Newline-delimited JSON-RPC I/O helpers
+│   │   ├── transport_http.py  ASGI app for streamable-HTTP transport
+│   │   └── manifest.json     MCP registry manifest (R-50 Form C)
+│   │
+│   └── bridge/               Java↔Python JSON-RPC bridge (ARCH-08)
+│       ├── __init__.py
+│       └── jsonrpc_stdio.py  Stdio JSON-RPC server; reuses mcp.tools.call_tool
 │
-├── parsers/                 Statement PDF parser plugins
-│   ├── __init__.py          Auto-discovery via pkgutil.iter_modules — no manual registration
-│   ├── base.py              BaseStatementParser ABC + shared helpers
-│   ├── registry.py          @ParserRegistry.register decorator and auto-detect
-│   ├── truist_checking.py   Truist Simple Business Checking
-│   ├── fidelity_brokerage.py  Fidelity Investment Report
-│   ├── chase_checking.py    Chase Business Complete Checking
-│   ├── bofa_checking.py     Bank of America Business Checking
-│   ├── usbank_checking.py   U.S. Bank Business Essentials Checking
-│   ├── usbank_creditcard.py U.S. Bank Business Credit Card
-│   └── ibkr.py              Interactive Brokers Activity Statement
+├── core/                     SQLite repos, models, privacy, logging (shared by all forms)
+│   ├── models.py             Entity, Account, Transaction, Position, AccountSnapshot
+│   ├── database.py           EntityRepo, TransactionRepo, AccountRepo, SnapshotRepo, …
+│   ├── privacy.py            R-46 PII firewall — redact / unredact / audit_egress
+│   ├── exceptions.py         Custom exception hierarchy
+│   └── logging_setup.py      Structured logging: rich | json | plain
 │
-├── intelligence/            Classification and learning layer
-│   ├── classifier.py        5-step pipeline: memory → local → AI → keywords → prompt
-│   ├── memory.py            JSON-backed persistent classification rules
-│   ├── reconciler.py        Inter-account transfer matching
+├── parsers/                  Statement PDF parser plugins (auto-discovered)
+│   ├── __init__.py           pkgutil.iter_modules auto-discovery
+│   ├── base.py               BaseStatementParser ABC
+│   ├── registry.py           @ParserRegistry.register + auto-detect
+│   ├── truist_checking.py
+│   ├── fidelity_brokerage.py
+│   ├── chase_checking.py
+│   ├── bofa_checking.py
+│   ├── usbank_checking.py
+│   ├── usbank_creditcard.py
+│   └── ibkr.py
+│
+├── intelligence/             Classification and learning layer
+│   ├── classifier.py         5-step pipeline: memory → local → AI → keywords → prompt
+│   ├── memory.py             JSON-backed persistent classification rules
+│   ├── reconciler.py         Inter-account transfer matching
 │   └── ai_backend/
-│       ├── __init__.py      Factory: local | openai | gemini → ChainedBackend
-│       ├── base.py          AIBackend abstract interface
-│       ├── chained_backend.py  Local-first wrapper: runs local, escalates to remote
-│       ├── local_backend.py Rule table + rapidfuzz fuzzy match (zero API cost)
-│       ├── openai_backend.py   GPT-4o-mini via OpenAI Chat Completions
-│       └── gemini_backend.py   Google Gemini 1.5 Flash
+│       ├── __init__.py       Factory: local | openai | gemini → ChainedBackend
+│       ├── base.py           AIBackend abstract interface
+│       ├── chained_backend.py Local-first wrapper; escalates to remote on low confidence
+│       ├── local_backend.py  Rule regex + rapidfuzz fuzzy match (zero API cost)
+│       ├── openai_backend.py GPT-4o-mini via OpenAI Chat Completions
+│       └── gemini_backend.py Google Gemini 1.5 Flash
 │
-├── accounting/              Financial statement builders
-│   ├── balance_sheet.py     BalanceSheetBuilder → GAAP-style balance sheet
-│   └── tax_estimator.py     Quarterly 1040-ES estimator (SE + federal + state + QBI)
+├── accounting/               Financial statement builders
+│   ├── balance_sheet.py      BalanceSheetBuilder → GAAP-style balance sheet
+│   └── tax_estimator.py      Quarterly 1040-ES estimator (SE + federal + state + QBI)
 │
 ├── reports/
-│   └── renderer.py          Rich console output + CSV / Excel / JSON export
+│   └── renderer.py           Rich console output + CSV / Excel / JSON export
 │
 ├── adapters/
-│   └── context_builder.py   Serialises financial data for Claude / GPT / Perplexity
+│   └── context_builder.py    Serialises financial data for Claude / GPT / Perplexity
 │
-├── mcp_server/              Optional MCP stdio server
-│   ├── __init__.py
-│   └── server.py            JSON-RPC 2.0 over stdio — no external dependencies
+├── mcp_server/               Legacy MCP server (kept for backward compat; superseded by ledger_agent/mcp/)
+│   └── server.py             Old LSP-framed server — do not use for new integrations
 │
-├── cli/
-│   ├── commands.py          Command functions called by main.py
-│   ├── quick_scan.py        ⚡ Folder → auto-import all PDFs → reports; delegates
-│   │                        coverage check to onboarding wizard before importing
-│   ├── onboarding.py        📅 R-45 coverage wizard: 12-month rolling gap analysis,
-│   │                        interactive gap-fill loop, CI-safe --no-prompt mode
-│   └── prompts.py           Interactive prompts (questionary + rich)
+├── cli/                      Legacy CLI helpers (used by main.py pass-through)
+│   ├── commands.py
+│   ├── onboarding.py         R-45 Coverage Wizard (12-month gap analysis)
+│   ├── quick_scan.py
+│   └── prompts.py
+│
+├── packaging/                Per-form pyproject.toml manifests (ARCH-03)
+│   ├── core/
+│   │   ├── pyproject.toml    ledger-agent-core wheel
+│   │   └── README.md
+│   ├── cli/
+│   │   └── pyproject.toml    ledger-agent-cli wheel
+│   └── mcp/
+│       └── pyproject.toml    ledger-agent-mcp wheel
+│
+├── webapp/                   Form D — Spring Boot 3 mini-webapp (ARCH-08/09/10)
+│   ├── pom.xml               Maven 3.9.8, Spring Boot 3.3, JDK 21
+│   ├── .mvn/wrapper/         Pinned maven-wrapper.properties
+│   └── src/main/
+│       ├── java/com/ledgeragent/
+│       │   ├── LedgerAgentApplication.java   Spring Boot entry point
+│       │   ├── bridge/
+│       │   │   ├── PythonBridge.java          Subprocess lifecycle + typed API
+│       │   │   ├── JsonRpcClient.java         JSON-RPC 2.0 stdio client
+│       │   │   └── BridgeException.java
+│       │   ├── web/
+│       │   │   └── RunController.java         GET / POST /run GET /healthz
+│       │   └── runtime/
+│       │       └── PythonRuntimeExtractor.java  Unpack CPython from jar on first run
+│       └── resources/
+│           ├── application.yml
+│           └── templates/
+│               ├── index.html     Folder picker + fiscal year + report selector
+│               └── results.html   JSON results + inline error + next-step panel
 │
 ├── tests/
-│   ├── conftest.py          Shared fixtures (in-memory SQLite)
-│   ├── test_models.py
-│   ├── test_parsers.py
-│   ├── test_classifier.py
+│   ├── conftest.py           Shared fixtures; pytest_configure sets FI_DB_PATH before collection
+│   ├── architecture/
+│   │   └── test_core_purity.py  ARCH-02: zero CLI/UI imports in core (32 tests)
+│   ├── integration/
+│   │   ├── test_mcp_privacy.py  ARCH-07: privacy firewall (13 tests)
+│   │   └── test_2024_cpa_parity.py  ARCH-12: CPA parity gate (15 tests; skip w/o corpus)
 │   ├── test_balance_sheet.py
-│   ├── test_tax_estimator.py
-│   └── test_onboarding.py   R-45 coverage wizard unit tests
+│   ├── test_classifier.py
+│   ├── test_models.py
+│   ├── test_onboarding.py
+│   ├── test_parsers.py
+│   ├── test_privacy.py
+│   └── test_tax_estimator.py
 │
-└── data/                    ← NOT committed (gitignored)
-    ├── statements/          PDF statements
+├── .github/
+│   ├── workflows/
+│   │   └── release.yml       ARCH-11/12: four-artifact release pipeline
+│   └── scripts/
+│       ├── compute_semver.py  Conventional-commit semver calculator
+│       └── sha256sums.sh      SHA256SUMS generator for release artifacts
+│
+└── data/                     ← NOT committed (gitignored)
+    ├── statements/            PDF statements
     ├── db/
-    │   ├── financials.db    SQLite database
+    │   ├── financials.db      SQLite database
     │   └── classification_memory.json
-    └── exports/             CSV / Excel / JSON exports
+    └── exports/               CSV / Excel / JSON exports
+```
+
+---
+
+## Dependency Graph (ARCH tickets)
+
+```
+ARCH-01 ── ARCH-02 ── ARCH-03 ─┬─ ARCH-04 ── ARCH-05 ────────────────────────┐
+                                │                                               │
+                                └─ ARCH-06 ─┬─ ARCH-07 ──────────────────────┐│
+                                            │                                 ││
+                                            └─ ARCH-08 ── ARCH-09 ── ARCH-10 ┘│
+                                                                               │
+                                                              ARCH-11 ◄────────┘
+                                                                 │
+                                                              ARCH-12
 ```
 
 ---
@@ -106,53 +191,159 @@ FinancialIntelligence/
 Coverage Discovery (R-45: ./run.sh scan)
   │  Resolve folder → discover PDFs → probe each (parser + period + account)
   │  Build 12-month coverage matrix → render ✅/⚠/❌ table
-  │  Gap-fill interactive loop → wait for missing months
+  │  Gap-fill interactive loop
   ▼
-PDF file (each discovered statement)
-   │
-   ▼ parsers/registry.py → detect parser by can_parse() fingerprint
-   │
-   ▼ BaseStatementParser.parse() → ParsedStatement
-   │   ├── transactions: List[Transaction]
-   │   ├── positions:    List[Position]
-   │   └── snapshot:     AccountSnapshot
-   │
-   ▼ cli/commands.py → persist to SQLite via core/database.py
-   │
-   ▼ intelligence/classifier.py → classify each transaction
-   │   Step 1: parser pre-classification (e.g. IRS, Fees)
-   │   Step 2: memory.lookup()      → rapidfuzz match against learned rules
-   │   Step 3: AI backend           → local rules → (optionally) remote AI
-   │   Step 4: COA keyword scan     → Chart of Accounts keyword table
-   │   Step 5: interactive prompt   → user selects, result saved to memory
-   │
-   ▼ accounting/balance_sheet.py → BalanceSheet object
-   │   Assets = bank snapshots + investment positions − margin
-   │   Equity = Revenue − Expenses (from classified transactions)
-   │
-   ▼ reports/renderer.py → console / CSV / Excel / JSON
-   │
-   ▼ adapters/context_builder.py → ai_context_YYYY-MM.json
-       paste into Claude, GPT, or connect via MCP
+PDF file  →  parsers/registry.py (auto-detect)  →  BaseStatementParser.parse()
+                                                         │
+                                              ParsedStatement
+                                              ├── transactions: List[Transaction]
+                                              ├── positions:    List[Position]
+                                              └── snapshot:     AccountSnapshot
+                                                         │
+                                              core/database.py (persist to SQLite)
+                                                         │
+                                              intelligence/classifier.py (5-step)
+                                              1. Parser pre-classification
+                                              2. memory.lookup() (rapidfuzz WRatio ≥ 85)
+                                              3. AI backend (local → remote on low conf.)
+                                              4. COA keyword scan
+                                              5. Interactive prompt → saved to memory
+                                                         │
+                              ┌────────────────────────────────────────────────┐
+                              │         ledger_agent.core.api                  │
+                              │  ┌──────────┐  ┌──────────┐  ┌─────────────┐  │
+                              │  │ Form B   │  │ Form C   │  │  Form D     │  │
+                              │  │ (CLI)    │  │ (MCP)    │  │  (Spring)   │  │
+                              │  └──────────┘  └──────────┘  └─────────────┘  │
+                              └────────────────────────────────────────────────┘
+                                         │
+                              accounting/balance_sheet.py  → BalanceSheet
+                              accounting/tax_estimator.py  → TaxEstimate
+                              reports/renderer.py          → console / CSV / JSON
 ```
 
 ---
 
-## Classification Pipeline Detail
+## Core API (Form A) — `ledger_agent.core.api`
+
+The **only** stable public surface. All other forms call these six functions:
+
+```python
+import ledger_agent.core.api as api
+from pathlib import Path
+
+# Import PDFs (idempotent)
+report = api.import_statements(Path("~/statements"), allow_partial=False)
+
+# Year-end reporting
+bs   = api.generate_balance_sheet(2024)   # → BalanceSheet
+f    = api.generate_form_1065(2024)       # → Form1065
+k1y  = api.generate_k1(2024, "yash")     # → ScheduleK1
+k1p  = api.generate_k1(2024, "parin")    # → ScheduleK1
+est  = api.pte_estimate(2024)             # → PTEEstimate
+rec  = api.reconcile_year(2024)          # → ReconcileReport
+```
+
+**Accept test (ARCH-01):**
+```bash
+python -c "
+import ledger_agent.core.api as a
+[getattr(a,f) for f in ['import_statements','generate_balance_sheet',
+ 'generate_form_1065','generate_k1','pte_estimate','reconcile_year']]
+"
+```
+
+---
+
+## Core Purity Rule (ARCH-02)
+
+Directories `core/`, `accounting/`, `intelligence/`, `parsers/`, `reports/`, `ledger_agent/core/`
+must **never** import:
 
 ```
-classify_transaction(txn):
-  1. Already classified? → return (parser pre-tagged it)
-  2. memory.lookup(description)
-       rapidfuzz WRatio ≥ AUTO_CLASSIFY_THRESHOLD (default 85) → auto-apply
-  3. get_backend().classify_transaction(description, amount)
-       LocalBackend:    rule regex → fuzzy → heuristic (confidence 0.20–0.90)
-       ChainedBackend:  local first → remote AI only if local < 0.65
-       MCP:             not in the classification chain (separate interface)
-  4. COA keyword scan (single unambiguous keyword match → auto-apply)
-  5. prompt_fn(txn, coa_entries) → user picks from list → saved to memory
-  6. Fallback: code "9999" (Unclassified – Review Required)
+cli  rich  click  typer  requests  httpx  fastapi  flask  questionary  colorama
 ```
+
+Verified by:
+```bash
+pytest tests/architecture/test_core_purity.py -q   # 32 tests
+```
+
+Exceptions: `reports/renderer.py` (legitimately uses `rich`) and `logging_setup.py`.
+
+---
+
+## MCP Server (Form C) — `ledger_agent.mcp`
+
+**Protocol:** MCP 2024-11-05 (JSON-RPC 2.0 over stdio or streamable-HTTP).
+
+**Tools:** Six tools mapping 1:1 to `core.api`. Schemas in `ledger_agent/mcp/tools.py`.
+
+**Privacy:** Every tool response passes through `_redact_response()` in `server.py`.
+The caller can opt out with `_meta: { allow_pii: true }` in the tool call.
+
+**Accept test (ARCH-06):**
+```bash
+python -c "
+from ledger_agent.mcp.tools import TOOL_SCHEMAS
+assert len(TOOL_SCHEMAS) == 6
+"
+```
+
+**Privacy test (ARCH-07):**
+```bash
+pytest tests/integration/test_mcp_privacy.py -q   # 13 tests
+```
+
+---
+
+## Java Webapp (Form D) — `webapp/`
+
+Architecture: Spring Boot 3.3 → `PythonBridge` bean → subprocess → `ledger_agent.bridge.jsonrpc_stdio`.
+
+**Startup sequence:**
+1. `PythonRuntimeExtractor.extractToTempDir()` unpacks embedded CPython (if running from fat jar).
+2. `PythonBridge.afterPropertiesSet()` starts `python -m ledger_agent.bridge.jsonrpc_stdio`.
+3. `PythonBridge.ping()` verifies the subprocess is responsive.
+4. Spring Boot serves `http://localhost:8080`.
+
+**Build:**
+```bash
+cd webapp && ./mvnw package -DskipITs
+java -jar target/ledger-agent-webapp-*.jar
+```
+
+**Accept test (ARCH-09):**
+```bash
+cd webapp && ./mvnw spring-boot:run & sleep 6 && \
+  curl -fsS http://127.0.0.1:8080/ | grep -q "fiscal year"; kill %1
+```
+
+---
+
+## Release Pipeline (ARCH-11/12)
+
+File: `.github/workflows/release.yml`
+
+**Jobs in dependency order:**
+```
+compute-version
+  ├── build-core           (Form A zip)
+  ├── build-cli            (Form B tarball + run.sh + run.bat)
+  ├── build-mcp            (Form C zip + manifest.json)
+  └── build-webapp-{linux,macos,windows}  (Form D fat jars)
+        │
+     smoke (architecture + MCP privacy tests)
+     parity-gate (CPA 2024 parity — blocks release if numbers diverge > $1)
+        │
+     release (GitHub Release + SHA256SUMS)
+```
+
+**Semver:** computed from conventional commits by `.github/scripts/compute_semver.py`.
+`feat:` → minor bump, `fix:` → patch, `feat!:` / `BREAKING CHANGE:` → major.
+
+**Reproducible builds:** `SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)`, Python 3.11.9,
+JDK 21 temurin, `pip install --require-hashes -r requirements.lock`.
 
 ---
 
@@ -171,9 +362,6 @@ class WellsFargoParser(BaseStatementParser):
     PARSER_ID   = "wells_fargo"
     INSTITUTION = "Wells Fargo"
 
-    # Optional: improves gap-fill prompts in the onboarding coverage wizard
-    EXPECTED_FILENAME_HINT = "wells_fargo_*_{period}*.pdf"
-
     @classmethod
     def can_parse(cls, text: str) -> bool:
         return "WELLS FARGO" in text.upper() and "BUSINESS" in text.upper()
@@ -184,125 +372,29 @@ class WellsFargoParser(BaseStatementParser):
         return ParsedStatement(parser_id=self.PARSER_ID, ...)
 ```
 
-That's it. `parsers/__init__.py` uses `pkgutil.iter_modules` to auto-discover every
-module in the `parsers/` package at startup — the decorator registers the class and
-`can_parse()` fingerprinting selects it automatically. **No edits to any other file
-are needed.**
-
-Steps in full:
-
-1. Create `parsers/wells_fargo.py`
-2. Subclass `BaseStatementParser`, implement `can_parse()` and `parse()`
-3. Decorate with `@ParserRegistry.register`
-4. Done — the file is auto-discovered on next run
-
-Optionally add `EXPECTED_FILENAME_HINT = "wells_fargo_*_{period}*.pdf"` as a class
-attribute to produce more helpful gap-fill prompts in the R-45 onboarding wizard.
-
----
-
-## AI Backend Architecture
-
-```
-FI_AI_BACKEND=local   →  LocalBackend
-                            regex rules → rapidfuzz → heuristic
-                            Cost: $0.00  Speed: <1ms
-
-FI_AI_BACKEND=openai  →  ChainedBackend(local → OpenAIBackend)
-                            LocalBackend runs first
-                            OpenAI only called when local confidence < 0.65
-                            Cost: ~$0.00002 / uncertain transaction
-
-FI_AI_BACKEND=gemini  →  ChainedBackend(local → GeminiBackend)
-                            Same chain, Gemini replaces OpenAI
-                            Cost: ~$0.000001 / uncertain transaction
-
-MCP server            →  Separate interface; exposes finished data
-                            Has no role in the classification chain
-                            Any MCP client (Claude Desktop, Cursor, etc.)
-                            connects via stdio JSON-RPC 2.0
-```
-
-**Threshold tuning:** Set `FI_LOCAL_CONFIDENCE_THRESHOLD` (default `0.65`) to control
-how aggressively the system escalates to the remote AI.  Higher = fewer API calls.
-
----
-
-## MCP Server Integration
-
-The MCP server (`mcp_server/server.py`) is a pure-stdlib JSON-RPC 2.0 server
-over stdio. It uses **MCP-spec newline-delimited JSON framing** (one JSON object
-per line, no `Content-Length` headers), compatible with Claude Desktop, Cursor,
-Cline, Continue, and the reference `mcp` Python SDK. It requires no external
-dependencies and exposes six read-only tools to any MCP-compatible client. All
-six tools are covered by smoke tests (subprocess-level: `test_initialize`,
-`test_tools_list`, `test_list_periods_empty_db`).
-
-**Claude Desktop config** (`~/.claude/claude_desktop_config.json`):
-```json
-{
-  "mcpServers": {
-    "financial-intelligence": {
-      "command": "/path/to/.venv/bin/python",
-      "args": ["-m", "mcp_server.server"],
-      "cwd": "/path/to/FinancialIntelligence"
-    }
-  }
-}
-```
-
-**Available MCP tools:**
-| Tool | Description |
-|---|---|
-| `get_balance_sheet` | Full balance sheet for a YYYY-MM period |
-| `list_transactions` | Transactions with COA codes, filterable by period |
-| `get_tax_estimate` | Quarterly 1040-ES estimate from balance sheet |
-| `classify_transaction` | COA suggestion for a description string |
-| `list_periods` | All available statement periods |
-| `get_entity_summary` | Entity name, accounts, period coverage |
+**That is all.** `parsers/__init__.py` uses `pkgutil.iter_modules` to auto-discover the file.
+No edits to any other file are needed.
 
 ---
 
 ## Configuration Reference
 
-All configuration via environment variables. Copy `.env.example` to `.env`.
-
-| Variable                        | Default                              | Purpose                                                |
-|---------------------------------|--------------------------------------|--------------------------------------------------------|
-| `FI_AI_BACKEND`                 | `local`                              | `local` / `openai` / `gemini`                          |
-| `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65`                               | Below this, local escalates to remote AI               |
-| `FI_AUTO_CLASSIFY_THRESHOLD`    | `85`                                 | Memory fuzzy-match score to auto-apply (0–100)         |
-| `FI_OPENAI_API_KEY`             | —                                    | Required if backend=openai                             |
-| `FI_GEMINI_API_KEY`             | —                                    | Required if backend=gemini                             |
-| `FI_OPENAI_MODEL`               | `gpt-4o-mini`                        | OpenAI model                                           |
-| `FI_GEMINI_MODEL`               | `gemini-1.5-flash`                   | Gemini model                                           |
-| `FI_DB_PATH`                    | `data/db/financials.db`              | SQLite database path                                   |
-| `FI_DATA_DIR`                   | `data/`                              | Data root                                              |
-| `FI_MEMORY_FILE`                | `data/db/classification_memory.json` | Learned rules                                          |
-| `FI_STATEMENTS_DIR`             | `data/statements/`                   | Override default statements folder for coverage wizard |
-| `FI_STATEMENT_GLOB`             | `*.pdf`                              | Glob pattern for statement discovery                   |
-| `FI_LOG_LEVEL`                  | `INFO`                               | `DEBUG` / `INFO` / `WARNING` / `ERROR`                 |
-| `FI_LOG_FORMAT`                 | `rich`                               | `rich` / `json` / `plain`                              |
-| `FI_SE_TAX_RATE`                | `0.153`                              | Self-employment tax rate                               |
-| `FI_FED_INCOME_RATE`            | `0.22`                               | Federal income tax rate                                |
-| `FI_STATE_TAX_RATE`             | `0.05`                               | State income tax rate                                  |
-| `FI_QBI_DEDUCTION`              | `0.20`                               | Qualified Business Income deduction                    |
-
----
-
-## Key Design Decisions
-
-| Decision                         | Rationale                                                                     |
-|----------------------------------|-------------------------------------------------------------------------------|
-| SQLite over Postgres             | Zero-infra, single-file, works on any laptop                                  |
-| Decimal over float               | Exact monetary arithmetic, no IEEE 754 rounding                               |
-| Plugin parser registry           | New banks require no changes to core code                                     |
-| JSON classification memory       | Human-readable, diff-friendly, committable to git                             |
-| Local-first AI                   | Small business runs free; cloud AI is opt-in validation                       |
-| No hardcoded credentials         | Secret guard in config.py prevents accidental commits                         |
-| MCP as interface only            | Financial data stays local; MCP exposes summaries only                        |
-| Auto-discovering parser registry | Drop one file in parsers/ — pkgutil.iter_modules picks it up automatically    |
-| Coverage wizard (R-45)           | 12-month rolling window shows gaps before importing; CI-safe --no-prompt mode |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FI_AI_BACKEND` | `local` | `local` / `openai` / `gemini` |
+| `FI_DB_PATH` | `data/db/financials.db` | SQLite database path |
+| `FI_STATEMENTS_DIR` | `data/statements/` | Default statements folder |
+| `FI_AI_EGRESS_MODE` | `redact` | `redact` / `strict` / `mock` / `passthrough` |
+| `FI_OPENAI_API_KEY` | — | Required if backend=openai |
+| `FI_GEMINI_API_KEY` | — | Required if backend=gemini |
+| `FI_AUTO_CLASSIFY_THRESHOLD` | `85` | Memory fuzzy-match threshold |
+| `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65` | Escalation threshold to remote AI |
+| `FI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `FI_SE_TAX_RATE` | `0.153` | Self-employment tax rate |
+| `FI_FED_INCOME_RATE` | `0.22` | Federal income tax rate |
+| `FI_STATE_TAX_RATE` | `0.05` | Missouri PTE rate |
+| `FI_QBI_DEDUCTION` | `0.20` | QBI deduction |
+| `LEDGER_PYTHON_HOME` | — | Extracted Python home for Form D fat jar |
 
 ---
 
@@ -310,27 +402,38 @@ All configuration via environment variables. Copy `.env.example` to `.env`.
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest                                    # 127 tests
-pytest --cov=. --cov-report=term-missing  # with coverage
-pytest tests/test_parsers.py -v           # single file
+
+pytest                                                          # full suite (207 tests)
+pytest tests/architecture/test_core_purity.py -q               # ARCH-02 (32)
+pytest tests/integration/test_mcp_privacy.py -q                # ARCH-07 (13)
+pytest -m parity tests/integration/test_2024_cpa_parity.py -q  # ARCH-12 (skip w/o corpus)
+pytest --cov=. --cov-report=term-missing                        # coverage
 ```
 
 ---
 
 ## Security Model
 
-- `data/` is gitignored — statements, database, and exports never leave your machine
-- `.env` is gitignored — API keys never committed
-- `config.py` scans itself at import for accidentally committed keys (secret guard)
-- Account numbers stored as last-4 masked strings only
-- MCP server is local stdio only — no network exposure unless you proxy it
-- When using remote AI backends (OpenAI/Gemini), transaction descriptions flow to the
-  remote API. Account numbers are masked. Counterparty names and amounts are not
-  currently redacted. R-46 will introduce a tokenizing redactor (in backlog).
-- **R-46 (planned): Privacy firewall** — tokenizes PII in descriptions before outbound
-  API calls, replacing counterparty names and sensitive terms with reversible tokens
-  so raw descriptions never leave the machine.
+- `data/` is gitignored — statements, database, and exports never commit.
+- `.env` is gitignored — API keys never committed.
+- `config.py` scans itself at import for accidentally committed keys.
+- Account numbers stored as last-4 masked strings only.
+- **R-46 PII firewall** — `core/privacy.py` tokenises PII before any remote call; fully active on MCP egress.
+- **R-45 completeness gate** — year-end outputs block when a month × institution is missing.
 
 ---
 
-*Last updated: May 2026*
+## Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| `core.api` as sole public surface | Prevents Forms B/C/D from diverging; single parity test covers all |
+| Subprocess JSON-RPC for Java bridge | Avoids Py4J gateway sockets and GraalVM CPython-extension incompatibility |
+| Three classifier fat jars (linux/darwin/windows) | OS-specific CPython distros inflate jar; boot-time detection picks correct one |
+| `requirements.lock` with `--require-hashes` | Reproducible CI builds; byte-identical artifacts across runs |
+| Conventional commits for semver | Human-readable, no manual tag management; `feat!:` auto-bumps major |
+| Privacy firewall default-on | MCP clients may tunnel to cloud models; safer to redact by default |
+
+---
+
+*Last updated: May 2026 — v2.1.0 (ARCH-01 through ARCH-12 complete)*

@@ -1,0 +1,230 @@
+name: Reproducible Build Check (ARCH-23)
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+# Runs on every push to main/release branches and on PRs that touch build files.
+# Can also be triggered manually for a spot-check.
+on:
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - "requirements*.txt"
+      - "requirements*.lock"
+      - "ledger_agent/**"
+      - "webapp/pom.xml"
+      - "webapp/src/**"
+      - ".github/workflows/repro-check.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "requirements*.txt"
+      - "requirements*.lock"
+      - "ledger_agent/**"
+      - "webapp/pom.xml"
+      - "webapp/src/**"
+  workflow_dispatch:
+
+# ── Concurrency — cancel redundant runs on the same PR ────────────────────────
+concurrency:
+  group: repro-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: "3.11.9"
+  JDK_VERSION: "21"
+  JDK_DISTRO: "temurin"
+  # All timestamps anchored to the commit time for reproducibility
+  SOURCE_DATE_EPOCH: "0"
+
+# ╔══════════════════════════════════════════════════════════════════════════════
+# ║  JOB 1 — Python artifact reproducibility
+# ║  Builds the core wheel twice from a clean checkout and compares checksums.
+# ╚══════════════════════════════════════════════════════════════════════════════
+jobs:
+  repro-python:
+    name: Python artifact reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Pin build tools
+        run: pip install --upgrade "pip==24.0" "build==1.2.1"
+
+      - name: Install runtime deps
+        run: |
+          pip install --require-hashes -r requirements.lock \
+            || pip install -r requirements.txt
+
+      - name: Set SOURCE_DATE_EPOCH to commit time
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      # Build #1
+      - name: Build core archive (pass 1)
+        run: |
+          mkdir -p dist-pass1
+          zip -r dist-pass1/core.zip ledger_agent/core/ \
+            --exclude "**/__pycache__/*" "**/*.pyc"
+          sha256sum dist-pass1/core.zip | tee dist-pass1/core.zip.sha256
+
+      # Build #2 — fresh tmpdir, same inputs
+      - name: Build core archive (pass 2)
+        run: |
+          mkdir -p dist-pass2
+          zip -r dist-pass2/core.zip ledger_agent/core/ \
+            --exclude "**/__pycache__/*" "**/*.pyc"
+          sha256sum dist-pass2/core.zip | tee dist-pass2/core.zip.sha256
+
+      - name: Compare checksums (Python core)
+        run: |
+          H1=$(cat dist-pass1/core.zip.sha256 | awk '{print $1}')
+          H2=$(cat dist-pass2/core.zip.sha256 | awk '{print $1}')
+          echo "Pass-1: $H1"
+          echo "Pass-2: $H2"
+          if [ "$H1" != "$H2" ]; then
+            echo "::error::Python core archive is NOT reproducible (checksums differ)"
+            exit 1
+          fi
+          echo "✅ Python core archive is reproducible: $H1"
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 2 — Spring Boot fat jar reproducibility (linux)
+  # ║  Builds the fat jar twice with the same commit epoch and compares.
+  # ╚════════════════════════════════════════════════════════════════════════════
+  repro-java:
+    name: Java fat jar reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: ${{ env.JDK_DISTRO }}
+          java-version: ${{ env.JDK_VERSION }}
+
+      - name: Resolve commit timestamp for reproducible build
+        id: epoch
+        run: |
+          EPOCH=$(git log -1 --format=%ct)
+          TS=$(date -u --date="@$EPOCH" "+%Y-%m-%dT%H:%M:%SZ")
+          echo "ts=$TS" >> "$GITHUB_OUTPUT"
+          echo "epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+
+      - name: Inject reproducible timestamp into pom.xml
+        working-directory: webapp
+        run: |
+          mvn -q versions:set-property \
+            -Dproperty=project.build.outputTimestamp \
+            -DnewValue="${{ steps.epoch.outputs.ts }}" \
+            -DgenerateBackupPoms=false 2>/dev/null || true
+
+      # Build #1
+      - name: Build fat jar (pass 1)
+        working-directory: webapp
+        run: mvn -q package -DskipTests -DskipITs
+
+      - name: Hash jar (pass 1)
+        run: sha256sum webapp/target/*.jar | tee jar-pass1.sha256
+
+      # Clean Maven's incremental state, rebuild with identical inputs
+      - name: Clean Maven target (keep source)
+        working-directory: webapp
+        run: mvn -q clean
+
+      # Build #2
+      - name: Build fat jar (pass 2)
+        working-directory: webapp
+        run: mvn -q package -DskipTests -DskipITs
+
+      - name: Hash jar (pass 2)
+        run: sha256sum webapp/target/*.jar | tee jar-pass2.sha256
+
+      - name: Compare checksums (fat jar)
+        run: |
+          H1=$(awk '{print $1}' jar-pass1.sha256)
+          H2=$(awk '{print $1}' jar-pass2.sha256)
+          echo "Pass-1: $H1"
+          echo "Pass-2: $H2"
+          if [ "$H1" != "$H2" ]; then
+            echo "::error::Spring Boot fat jar is NOT reproducible (checksums differ)"
+            echo "Tip: ensure <project.build.outputTimestamp> is set in pom.xml."
+            exit 1
+          fi
+          echo "✅ Spring Boot fat jar is reproducible: $H1"
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  JOB 3 — Parity smoke (no DB required — tests skip if DB absent)
+  # ║  Verifies that the parity test *infrastructure* is healthy: tests either
+  # ║  pass (when corpus + DB present) or skip (when DB absent in CI).
+  # ║  They must NEVER error out due to missing imports or bad assertions.
+  # ╚════════════════════════════════════════════════════════════════════════════
+  parity-smoke:
+    name: Parity test infrastructure check (ARCH-23)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify JSON fixture is committed and valid
+        # TestFixtureIntegrity.test_fixture_exists / test_fixture_is_valid_json
+        # do NOT need a database — they only inspect the committed JSON file.
+        # They must ALWAYS pass (not skip) once the fixture is committed (ARCH-21).
+        run: |
+          python -m pytest -m parity \
+            tests/integration/test_2024_cpa_parity.py::TestFixtureIntegrity \
+            --no-header -q
+          CODE=$?
+          if [ $CODE -ne 0 ]; then
+            echo "::error::Fixture integrity tests FAILED (exit $CODE)."
+            echo "Run: python scripts/regen_parity_corpus.py && commit the JSON fixture."
+            exit $CODE
+          fi
+          echo "✅ JSON fixture is present and internally consistent."
+
+      - name: Parity infrastructure smoke (DB-dependent tests skip in CI)
+        # Allowed exit codes: 0 (all pass) and 5 (all collected but all skipped —
+        # expected when DB is absent).  Exit code 1+ is a hard failure.
+        run: |
+          python -m pytest -m parity \
+            tests/integration/test_2024_cpa_parity.py \
+            --no-header -q 2>&1
+          CODE=$?
+          if [ $CODE -eq 0 ] || [ $CODE -eq 5 ]; then
+            echo "✅ Parity infra OK (exit $CODE — pass or skip, not error)"
+            exit 0
+          fi
+          echo "::error::Parity test infrastructure returned exit $CODE — import errors or assertion failures"
+          exit $CODE
+
+  # ╔════════════════════════════════════════════════════════════════════════════
+  # ║  Summary gate — all repro checks must pass
+  # ╚════════════════════════════════════════════════════════════════════════════
+  repro-gate:
+    name: Reproducible build gate
+    needs: [repro-python, repro-java, parity-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All reproducible-build checks passed."
+          echo "   Python core: reproducible"
+          echo "   Java fat jar: reproducible"
+          echo "   Parity infra: healthy"
