@@ -1,6 +1,6 @@
 # ledger-agent
 
-> Four-form financial intelligence platform for SYNCED LLC.
+> Four-form financial intelligence platform for ENTITY_A.
 > One source tree → Core library · CLI · MCP server · Spring Boot webapp.
 
 ---
@@ -29,7 +29,7 @@ cd ledger-agent
 ./run.sh scan ~/Downloads/statements/     # coverage wizard + batch import
 ./run.sh balance 2024                     # year-end balance sheet
 ./run.sh form1065 2024                    # Form 1065 partnership return
-./run.sh k1 2024 --partner yash           # Schedule K-1
+./run.sh k1 2024 --partner partner_1      # Schedule K-1
 ./run.sh tax 2024                         # quarterly tax estimate
 ./run.sh reconcile 2024                   # inter-account reconciliation
 
@@ -91,7 +91,7 @@ Commands
   scan   [FOLDER]           Coverage wizard + batch PDF import
   balance [YEAR]            Year-end balance sheet (default: 2024)
   form1065 [YEAR]           Form 1065 partnership return summary
-  k1 [YEAR]                 Schedule K-1 (--partner yash|parin)
+  k1 [YEAR]                 Schedule K-1 (--partner partner_1|partner_2)
   tax    [YEAR]             Quarterly PTE tax estimate
   reconcile [YEAR]          Inter-account transfer reconciliation
 
@@ -100,7 +100,7 @@ Aliases: s b f1 k t r
 Flags
   --no-prompt               CI mode (no interactive prompts, JSON to stdout)
   --allow-partial           Skip R-45 12-month completeness gate
-  --partner yash|parin      Partner for k1 command
+  --partner <partner_id>    Partner for k1 command (configured via FI_PARTNER_* env vars)
 
 Legacy pass-through (main.py)
   mcp  context  classify  memory  summary  setup  import  transactions
@@ -117,7 +117,7 @@ Six tools, one per core operation. Privacy firewall (R-46) applied to every resp
 | `import_statements`      | Scan folder for PDFs, parse and persist. Idempotent. |
 | `generate_balance_sheet` | GAAP-style year-end balance sheet.                   |
 | `generate_form_1065`     | Form 1065 partnership return data.                   |
-| `generate_k1`            | Schedule K-1 for `yash` (99%) or `parin` (1%).       |
+| `generate_k1`            | Schedule K-1 for majority or minority partner.       |
 | `pte_estimate`           | Quarterly estimated tax payments + due dates.        |
 | `reconcile_year`         | Inter-account transfer reconciliation.               |
 

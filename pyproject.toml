@@ -5,7 +5,7 @@ build-backend = "setuptools.backends.legacy:build"
 [project]
 name = "ledger-agent"
 version = "2.1.0"
-description = "Four-form financial intelligence platform for SYNCED LLC — core library, CLI, MCP server, and Spring Boot webapp sharing one engine."
+description = "Four-form financial intelligence platform for partnership accounting — core library, CLI, MCP server, and Spring Boot webapp sharing one engine."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -92,6 +92,7 @@ addopts = "--tb=short -v"
 markers = [
     "parity: CPA parity tests — compare computed numbers to CPA reference (ARCH-12)",
     "integration: integration tests requiring live services or a populated database",
+    "slow: performance or long-running tests (skipped in fast CI runs)",
 ]
 
 [tool.ruff]

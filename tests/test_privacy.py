@@ -20,10 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,7 +34,6 @@ if str(_ROOT) not in sys.path:
 from core.privacy import (
     PrivacyFilter,
     PrivacyLeakError,
-    RedactionMap,
     _aba_valid,
     _luhn_valid,
     _reset_session,
@@ -65,7 +62,7 @@ def default_egress_mode(monkeypatch):
     monkeypatch.delenv("FI_AI_EGRESS_MODE_ACK", raising=False)
     monkeypatch.delenv("FI_PRIVACY_ENTITY_NAME", raising=False)
     # Force config to re-read env (config uses module-level reads)
-    import importlib, config as _cfg
+    import config as _cfg
     _cfg.AI_EGRESS_MODE = "redact"
     _cfg.AI_EGRESS_MODE_ACK = ""
     _cfg.PRIVACY_ENTITY_NAME = ""
@@ -162,6 +159,31 @@ class TestDetectorEIN:
         out = _safe(text)
         assert "<EIN_***>" in out
         assert "<SSN_***>" in out
+
+    def test_ein_without_context_not_redacted(self):
+        """BUG-P3: NN-NNNNNNN without an EIN/TIN keyword must NOT be redacted.
+
+        Invoice IDs, batch refs, and fiscal-year prefixes all match NN-NNNNNNN.
+        Without a context keyword the detector must stay silent.
+        """
+        bare = _safe("Invoice 83-1234567 for Q4 services")
+        assert "<EIN_***>" not in bare, (
+            "False positive: 83-1234567 with no EIN context should not be redacted"
+        )
+        fiscal = _safe("Fiscal period 20-2456789 summary")
+        assert "<EIN_***>" not in fiscal, (
+            "False positive: 20-2456789 with no EIN context should not be redacted"
+        )
+
+    def test_tin_context_triggers_redaction(self):
+        """TIN keyword (synonym for EIN) must trigger redaction (BUG-P3 gate)."""
+        out = _safe("Taxpayer TIN: 83-1234567")
+        assert "<EIN_***>" in out
+
+    def test_tax_id_context_triggers_redaction(self):
+        """TAX ID keyword must trigger redaction."""
+        out = _safe("Company TAX ID 83-1234567 on file")
+        assert "<EIN_***>" in out
 
 
 # ── Detector category 3: ABA routing ─────────────────────────────────────────
@@ -683,8 +705,8 @@ class TestPrivacyStatus:
 
     def test_detector_count(self):
         status = privacy_status()
-        # Count reflects actual detector categories in core/privacy.py (updated ARCH-23).
-        assert status["detector_categories"] == 23
+        # 23 original categories + 1 corpus_names (BUG-P2) = 24
+        assert status["detector_categories"] == 24
 
     def test_egress_mode_reflects_config(self, monkeypatch):
         import config as _cfg
@@ -692,6 +714,86 @@ class TestPrivacyStatus:
         status = privacy_status()
         assert status["egress_mode"] == "mock"
         _cfg.AI_EGRESS_MODE = "redact"
+
+
+# ── BUG-P2: corpus-resident single-token detector ────────────────────────────
+
+class TestDetectorCorpusNames:
+    """BUG-P2: single all-caps corpus tokens must be redacted."""
+
+    def test_single_token_broker_name_redacted(self):
+        """'FIDELITY' is a single-word corpus entry — must be redacted."""
+        out = _safe("FIDELITY account balance available")
+        assert "FIDELITY" not in out, (
+            "BUG-P2: single-token corpus name 'FIDELITY' leaked through redaction"
+        )
+        assert _has_token(out, "COUNTERPARTY"), (
+            "Expected a <COUNTERPARTY_nnn> token in place of 'FIDELITY'"
+        )
+
+    def test_single_token_entity_name_redacted(self):
+        """'SYNCED' is in corpus entities as a bare single-word form."""
+        out = _safe("SYNCED payment received today")
+        assert "SYNCED" not in out, (
+            "BUG-P2: single-token corpus entity 'SYNCED' leaked through redaction"
+        )
+
+    def test_multi_token_name_still_caught(self):
+        """Multi-word names are caught by _ALLCAPS_SEQ_PAT (existing behaviour)."""
+        out = _safe("INTERACTIVE BROK transaction posted")
+        assert "INTERACTIVE" not in out or "BROK" not in out or _has_token(out, "COUNTERPARTY")
+
+    def test_corpus_name_in_mixed_case_redacted(self):
+        """Corpus match is case-insensitive — 'Fidelity' (mixed case) caught."""
+        out = _safe("Fidelity brokerage statement")
+        assert "Fidelity" not in out, (
+            "BUG-P2: mixed-case corpus name 'Fidelity' leaked through redaction"
+        )
+
+    def test_system_word_not_false_positive(self):
+        """'LLC' is in _SYSTEM_WORDS — must not produce a corpus COUNTERPARTY token."""
+        out = _safe("LLC registered entity filing")
+        # LLC alone should not be redacted (it's a generic suffix in _SYSTEM_WORDS)
+        assert "LLC" in out
+
+
+# ── SMELL-P6: API-key pattern bounded lookahead ───────────────────────────────
+
+class TestSmellP6BoundedLookahead:
+    """SMELL-P6: hex API-key pattern must not exhibit quadratic worst-case."""
+
+    def test_hex_with_nearby_hint_redacted(self):
+        """Hex token + 'secret' within 200 chars must still be detected."""
+        text = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 secret token value"
+        # 32-char hex with 'secret' nearby — should raise PrivacyLeakError
+        with pytest.raises(PrivacyLeakError):
+            redact(text)
+
+    def test_hex_with_distant_hint_not_detected(self):
+        """Hex token + 'secret' more than 200 chars away must NOT trigger (bounded)."""
+        # 32-char hex, then >200 chars of padding, then 'secret'
+        padding = "x" * 250
+        text = f"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 {padding} secret"
+        # Should not raise — lookahead is bounded to 200 chars
+        safe, _ = redact(text)
+        # hex token NOT redacted (secret is >200 chars away)
+        assert "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" in safe
+
+    def test_large_payload_completes_quickly(self):
+        """ARCH-39 acceptance: 100 KB payload redacts in < 500 ms."""
+        import time
+        # Build 100 KB of transaction-like text with no real secrets
+        line = "STRIPE PAYMENT 2024-01-15 $99.99 debit expense classification pending\n"
+        payload = line * (100_000 // len(line) + 1)
+        payload = payload[:100_000]
+
+        start = time.perf_counter()
+        redact(payload, scope="openai")
+        elapsed = time.perf_counter() - start
+        assert elapsed < 0.5, (
+            f"SMELL-P6: 100 KB redaction took {elapsed:.3f}s — exceeds 500 ms budget. "
+            "Check for quadratic regex patterns."
+        )
 
 
 # ── Performance ───────────────────────────────────────────────────────────────

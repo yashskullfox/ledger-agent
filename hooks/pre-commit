@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# hooks/pre-commit  –  Doc-redaction gate (ARCH-35)
+# ====================================================
+# Blocks git commit when staged files contain PII identifiers
+# that should be replaced with pseudonyms per the redaction policy
+# in config/redaction_corpus.yaml.
+#
+# Install:
+#   make install-hooks
+#   OR
+#   cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# Bypass (emergency only — creates audit trail in CI):
+#   git commit --no-verify
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCANNER="$REPO_ROOT/scripts/check_doc_redaction.py"
+
+# Require Python 3.9+ (same as the project)
+if ! command -v python &>/dev/null && ! command -v python3 &>/dev/null; then
+    echo "[pre-commit] WARNING: python not found; skipping doc-redaction check."
+    exit 0
+fi
+
+PYTHON="${PYTHON:-python}"
+if ! "$PYTHON" -c "import sys; sys.exit(0 if sys.version_info >= (3,9) else 1)" 2>/dev/null; then
+    PYTHON=python3
+fi
+
+if [ ! -f "$SCANNER" ]; then
+    echo "[pre-commit] WARNING: scanner not found at $SCANNER; skipping."
+    exit 0
+fi
+
+echo "[pre-commit] Running doc-redaction scanner on staged files..."
+if "$PYTHON" "$SCANNER" --staged; then
+    exit 0
+else
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────────────┐"
+    echo "│  COMMIT BLOCKED — Doc-redaction hits found in staged files.        │"
+    echo "│                                                                     │"
+    echo "│  Replace real identifiers with pseudonyms from:                    │"
+    echo "│    config/redaction_corpus.yaml                                     │"
+    echo "│    docs/redaction-policy.md                                         │"
+    echo "│                                                                     │"
+    echo "│  To suppress a specific line:  append '  # redaction: allow'       │"
+    echo "│  To suppress a file:           add path to redaction.allowlist      │"
+    echo "│                                                                     │"
+    echo "│  Emergency bypass (use sparingly):  git commit --no-verify         │"
+    echo "└─────────────────────────────────────────────────────────────────────┘"
+    exit 1
+fi

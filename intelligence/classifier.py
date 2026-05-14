@@ -63,9 +63,9 @@ def classify_transaction(
     Classify a single transaction in-place (mutates coa_code / coa_name).
     Returns the (possibly updated) transaction.
     """
-    # 1. Already classified by parser
+    # 1. Already classified by parser — still apply PTE guard (ARCH-29)
     if txn.coa_code and txn.coa_code != UNCLASSIFIED_CODE:
-        return txn
+        return _apply_pte_guard(txn)
 
     memory = get_memory()
 
@@ -77,7 +77,7 @@ def classify_transaction(
             txn.coa_code = code
             txn.coa_name = name
             txn.is_transfer = is_xfer
-            return txn
+            return _apply_pte_guard(txn)
         # Medium confidence: note it but still check keyword scan
 
     # 3. AI backend suggestion
@@ -105,7 +105,7 @@ def classify_transaction(
                         "confidence": ai_result.get("confidence"),
                     },
                 )
-                return txn
+                return _apply_pte_guard(txn)
     except Exception as exc:
         log.debug("AI backend skipped", extra={"error": str(exc)})
 
@@ -115,7 +115,7 @@ def classify_transaction(
         txn.coa_code = kw_match.code
         txn.coa_name = kw_match.name
         memory.remember(txn.description, kw_match.code, kw_match.name)
-        return txn
+        return _apply_pte_guard(txn)
 
     # 5. Interactive prompt
     if prompt_fn:
@@ -132,11 +132,40 @@ def classify_transaction(
                 get_backend().on_user_confirmed(txn.description, code, name, is_xfer)
             except Exception:
                 pass
-            return txn
+            return _apply_pte_guard(txn)
 
     # 6. Fallback: unclassified
     txn.coa_code = UNCLASSIFIED_CODE
     txn.coa_name = UNCLASSIFIED_NAME
+    return txn
+
+
+# ARCH-29: keywords that identify pass-through entity tax distributions.
+_PTE_TAX_KEYWORDS = frozenset({"usataxpymt", "estimated tax", "owner draw", "distribution", "member draw"})
+# COA codes that must never appear on a pass-through entity (no corporate P&L tax expense).
+_FORBIDDEN_PTE_CODES = frozenset({"5050", "5055"})
+_PTE_REDIRECT_CODE = "3040"
+_PTE_REDIRECT_NAME = "Members Distributions / Owner Draws"
+
+
+def _apply_pte_guard(txn: Transaction) -> Transaction:
+    """ARCH-29: Redirect pass-through entity tax payments away from expense codes.
+
+    Federal estimated tax payments (USATAXPYMT) are owner distributions on
+    pass-through entities (LLC/S-Corp), not P&L expenses. Reclassify any
+    transaction whose description matches a PTE-tax keyword AND whose COA
+    code landed in the forbidden 505x range.
+    """
+    if txn.coa_code not in _FORBIDDEN_PTE_CODES:
+        return txn
+    desc_lower = txn.description.lower()
+    if any(kw in desc_lower for kw in _PTE_TAX_KEYWORDS):
+        log.debug(
+            "ARCH-29 PTE guard: redirecting %s → %s for '%s'",
+            txn.coa_code, _PTE_REDIRECT_CODE, txn.description[:60],
+        )
+        txn.coa_code = _PTE_REDIRECT_CODE
+        txn.coa_name = _PTE_REDIRECT_NAME
     return txn
 
 

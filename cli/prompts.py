@@ -85,7 +85,7 @@ def wizard_entity() -> dict:
             title="First-Run Setup", border_style="cyan",
         ))
 
-    name = ask_text("Entity name (e.g. SYNCED LLC)", default="SYNCED LLC")
+    name = ask_text("Entity name (e.g. MY COMPANY LLC)", default="")
 
     entity_type = ask_select(
         "Entity type",

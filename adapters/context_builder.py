@@ -74,7 +74,9 @@ def build_context(
     ctx: Dict[str, Any] = {
         "schema_version": "2.0",
         "generated_at": _now_iso(),
+        "entity_id": entity_id,  # ARCH-30: every artefact scoped to exactly one entity
         "entity": {
+            "id": entity_id,
             "name": entity.name,
             "type": entity.entity_type,
             "state": entity.state,

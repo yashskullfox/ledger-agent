@@ -1,0 +1,271 @@
+# core/privacy_allowlist.txt
+# ─────────────────────────────────────────────────────────────────────────────
+# Vendor / payee allowlist for R-46 privacy firewall.
+# Entries listed here are NOT redacted when they appear in transaction
+# descriptions sent to remote AI backends — they are commercial counterparties
+# whose presence in a prompt is what makes classification work.
+#
+# Format: one entry per line, case-insensitive matching.
+# Add your own entries below the "User extensions" section.
+# This file is open-source-reviewable and gitignored personal data-free.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Payment processors ────────────────────────────────────────────────────────
+Stripe
+PayPal
+Square
+Venmo
+Cash App
+CashApp
+Zelle
+Braintree
+Adyen
+Checkout
+Klarna
+Afterpay
+Affirm
+Authorize.Net
+WePay
+Dwolla
+
+# ── Major US banks ────────────────────────────────────────────────────────────
+Chase
+JPMorgan
+Bank of America
+BofA
+Wells Fargo
+Citibank
+Citi
+US Bank
+USBank
+PNC Bank
+PNC
+Truist
+SunTrust
+BB&T
+Capital One
+Ally Bank
+Ally
+TD Bank
+Regions Bank
+KeyBank
+Fifth Third
+M&T Bank
+Huntington
+Citizens Bank
+Comerica
+Synovus
+Wintrust
+SVB
+Silicon Valley Bank
+First Republic
+
+# ── Investment & brokerage ────────────────────────────────────────────────────
+Fidelity
+Vanguard
+Charles Schwab
+Schwab
+IBKR
+Interactive Brokers
+Merrill Lynch
+Merrill
+E*Trade
+ETrade
+Robinhood
+Webull
+TD Ameritrade
+Ameritrade
+
+# ── Cloud & infrastructure ────────────────────────────────────────────────────
+AWS
+Amazon Web Services
+Amazon
+Azure
+Microsoft Azure
+Microsoft
+Google Cloud
+Google
+Cloudflare
+DigitalOcean
+Linode
+Akamai
+Fastly
+Heroku
+Vercel
+Netlify
+GitHub
+GitLab
+Bitbucket
+
+# ── SaaS / Productivity ───────────────────────────────────────────────────────
+Slack
+Zoom
+Dropbox
+Box
+Adobe
+Canva
+Notion
+Linear
+Jira
+Atlassian
+Confluence
+HubSpot
+Salesforce
+Zendesk
+Intercom
+Mailchimp
+SendGrid
+Twilio
+PagerDuty
+Datadog
+Sentry
+New Relic
+Segment
+Mixpanel
+Amplitude
+
+# ── Accounting & payroll ──────────────────────────────────────────────────────
+QuickBooks
+Intuit
+FreshBooks
+Xero
+Wave
+Bench
+ADP
+Gusto
+Paychex
+Rippling
+Justworks
+Bamboo HR
+BambooHR
+Expensify
+Bill.com
+Concur
+
+# ── Telecom & internet ────────────────────────────────────────────────────────
+AT&T
+Verizon
+T-Mobile
+Comcast
+Xfinity
+Spectrum
+Cox
+CenturyLink
+Lumen
+Windstream
+
+# ── Office & shipping ─────────────────────────────────────────────────────────
+FedEx
+UPS
+USPS
+DHL
+Amazon Logistics
+Staples
+Office Depot
+OfficeMax
+Costco
+Walmart
+Target
+Home Depot
+
+# ── Insurance ─────────────────────────────────────────────────────────────────
+Hiscox
+Nationwide
+Travelers
+Hartford
+Chubb
+Liberty Mutual
+Progressive
+Geico
+State Farm
+Allstate
+Lemonade
+Next Insurance
+NEXT
+
+# ── Government & regulatory ───────────────────────────────────────────────────
+IRS
+SSA
+SBA
+USDA
+Treasury
+Dept of Treasury
+State of California
+State of New York
+State of Texas
+State of Florida
+
+# ── E-commerce & marketplace ──────────────────────────────────────────────────
+Shopify
+Etsy
+eBay
+Stripe Atlas
+Amazon Seller
+Alibaba
+
+# ── Domain & SSL ─────────────────────────────────────────────────────────────
+GoDaddy
+Namecheap
+Cloudflare Registrar
+Route 53
+Let's Encrypt
+DigiCert
+Sectigo
+
+# ── Advertising ───────────────────────────────────────────────────────────────
+Google Ads
+Facebook Ads
+Meta
+LinkedIn Ads
+Twitter Ads
+X Ads
+TikTok Ads
+Pinterest Ads
+Bing Ads
+Microsoft Ads
+
+# ── Travel ───────────────────────────────────────────────────────────────────
+Delta
+United Airlines
+American Airlines
+Southwest
+JetBlue
+Alaska Airlines
+Hilton
+Marriott
+Hyatt
+IHG
+Airbnb
+Expedia
+Booking.com
+Lyft
+Uber
+
+# ── Utilities (common) ────────────────────────────────────────────────────────
+Con Edison
+ConEd
+PG&E
+Pacific Gas
+Southern California Edison
+SCE
+Dominion Energy
+Duke Energy
+Entergy
+Xcel Energy
+National Grid
+
+# ── Other common vendors ──────────────────────────────────────────────────────
+Apple
+Netflix
+Spotify
+Hulu
+Disney
+DocuSign
+Legalzoom
+Registered Agent
+CT Corporation
+Northwest Registered
+Incfile
+ZenBusiness
+
+# ── User extensions (add your allowed vendors below this line) ────────────────

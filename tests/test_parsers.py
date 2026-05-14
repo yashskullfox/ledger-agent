@@ -97,11 +97,11 @@ class TestTruistCheckingParser:
 
     def test_extract_account_number(self, parser):
         acct = parser._extract_account_number(TRUIST_SAMPLE_TEXT)
-        assert "1470018610272" in acct
+        assert "0000000000001" in acct
 
     def test_extract_entity_name(self, parser):
         name = parser._extract_entity_name(TRUIST_SAMPLE_TEXT)
-        assert "SYNCED LLC" in name
+        assert "SAMPLE ENTITY LLC" in name
 
     def test_extract_balances(self, parser):
         prev, new = parser._extract_balances(TRUIST_SAMPLE_TEXT)
@@ -166,9 +166,9 @@ class TestBaseParserHelpers:
         assert p == "2025-01"
 
     def test_mask_account(self, parser):
-        masked = parser.mask_account("1470018610272")
+        masked = parser.mask_account("0000000000001")
         # Returns last 4 digits only
-        assert masked == "0272"
+        assert masked == "0001"
 
 
 class TestChaseCheckingCanParse:

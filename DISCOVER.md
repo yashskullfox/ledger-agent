@@ -3,7 +3,7 @@
 > **Keywords:** small business accounting, LLC bookkeeping, financial statement parser,
 > balance sheet generator, bank statement PDF reader, MCP server, Spring Boot webapp,
 > AI bookkeeping, quarterly tax estimator, Form 1065, Schedule K-1, Python CLI,
-> Model Context Protocol, open source accounting, SYNCED LLC
+> Model Context Protocol, open source accounting
 
 ---
 
@@ -29,9 +29,9 @@ From your PDF bank and brokerage statements, ledger-agent produces:
 
 - **GAAP-style balance sheet** — Assets, Liabilities, Members' Equity, Net Income
 - **Form 1065 summary** — Ordinary Business Income, Schedule K items, partnership totals
-- **Schedule K-1** — each partner's distributive share (SYNCED LLC: Yash 99%, Parin 1%)
+- **Schedule K-1** — each partner's distributive share (majority/minority split configured via env vars)
 - **Quarterly tax estimate (PTE)** — SE tax + federal + state + QBI, with due dates
-- **Inter-account reconciliation** — matches MONEYLINE FID / Zelle / wire transfers
+- **Inter-account reconciliation** — matches inter-bank / Zelle / wire transfers
 - **Classified transactions** — mapped to Chart of Accounts automatically via 5-step pipeline
 - **AI-ready JSON context** — paste into Claude, GPT-4, or Perplexity
 
@@ -79,7 +79,7 @@ Every form exposes these six operations (all producing identical output):
 import_statements       — scan a folder for PDFs, parse and persist (idempotent)
 generate_balance_sheet  — GAAP-style year-end balance sheet
 generate_form_1065      — Form 1065 partnership return data
-generate_k1             — Schedule K-1 per partner (yash | parin)
+generate_k1             — Schedule K-1 per partner (partner_id configured via env vars)
 pte_estimate            — quarterly estimated tax payments + due dates
 reconcile_year          — inter-account transfer reconciliation
 ```
@@ -103,7 +103,7 @@ to your financial data via the spec-compliant MCP server:
 ```
 
 Then ask Claude: *"What is my biggest expense category for 2024?"*
-or *"Generate my Schedule K-1 for Yash."*
+or *"Generate my Schedule K-1 for the majority partner."*
 
 **Privacy:** every MCP response passes through the R-46 PII firewall — account numbers,
 EINs, SSNs, and partner names are replaced with opaque tokens before any data leaves the
@@ -111,14 +111,14 @@ host. Pass `_meta: { allow_pii: true }` to opt in to raw data.
 
 ### Available MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `import_statements` | Scan a folder for PDFs, parse and persist. Idempotent. |
-| `generate_balance_sheet` | GAAP-style year-end balance sheet. |
-| `generate_form_1065` | Form 1065 partnership return summary. |
-| `generate_k1` | Schedule K-1 for `yash` (99%) or `parin` (1%). |
-| `pte_estimate` | Quarterly estimated tax payments with due dates. |
-| `reconcile_year` | Inter-account transfer reconciliation. |
+| Tool                     | Description                                                   |
+|--------------------------|---------------------------------------------------------------|
+| `import_statements`      | Scan a folder for PDFs, parse and persist. Idempotent.        |
+| `generate_balance_sheet` | GAAP-style year-end balance sheet.                            |
+| `generate_form_1065`     | Form 1065 partnership return summary.                         |
+| `generate_k1`            | Schedule K-1 for a configured partner (majority or minority). |
+| `pte_estimate`           | Quarterly estimated tax payments with due dates.              |
+| `reconcile_year`         | Inter-account transfer reconciliation.                        |
 
 ---
 
