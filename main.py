@@ -43,8 +43,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from core.database import init_db
-from core.logging_setup import configure_logging
+from ledger_agent.core.database import init_db
+from ledger_agent.core.logging_setup import configure_logging
 from cli.prompts import ask_select, print_error, print_info
 
 
@@ -138,7 +138,7 @@ def _cmd_tax(period: str | None = None) -> None:
     """Show tax obligation estimate for a period."""
     init_db()
     from cli.commands import _get_or_setup_entity
-    from core.database import SnapshotRepo
+    from ledger_agent.core.database import SnapshotRepo
     entity = _get_or_setup_entity()
     if not entity:
         return
@@ -149,8 +149,8 @@ def _cmd_tax(period: str | None = None) -> None:
         return
     if not period:
         period = ask_select("Select period for tax estimate:", choices=periods, default=periods[0])
-    from accounting.balance_sheet import BalanceSheetBuilder
-    from accounting.tax_estimator import TaxEstimator, render_tax_estimate
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
     bs = BalanceSheetBuilder(entity.id, period).build()
     est = TaxEstimator(entity.name, int(period[:4])).estimate_from_balance_sheet(bs)
     render_tax_estimate(est)
@@ -160,7 +160,7 @@ def _cmd_context(period: str | None = None) -> None:
     """Export AI-consumable context JSON for a period."""
     init_db()
     from cli.commands import _get_or_setup_entity
-    from core.database import SnapshotRepo
+    from ledger_agent.core.database import SnapshotRepo
     from cli.prompts import print_success
     entity = _get_or_setup_entity()
     if not entity:

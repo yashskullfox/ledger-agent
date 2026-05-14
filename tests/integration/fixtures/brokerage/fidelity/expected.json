@@ -1,0 +1,60 @@
+{
+  "_note": "PII-scrubbed fixture for Fidelity Brokerage parser acceptance tests (ARCH-24/25).",
+  "_source": "Derived from 2024-12 and 2025-01 statements; all account numbers and entity names anonymised.",
+  "periods": {
+    "2024-12": {
+      "institution": "Fidelity Investments",
+      "account_number_masked_prefix": "Z2",
+      "snapshot": {
+        "ending_balance": "29566.45",
+        "beginning_balance": "33911.76",
+        "gross_asset_value": "52563.24",
+        "margin_balance": "-22996.79",
+        "total_withdrawals": "250.00"
+      },
+      "positions_count": 2,
+      "positions": [
+        {
+          "symbol": "CDNA",
+          "quantity": "1100.000",
+          "market_value": "29566.00",
+          "position_type": "equity"
+        },
+        {
+          "symbol": "SNAP",
+          "quantity": "3000.000",
+          "market_value": "23000.00",
+          "position_type": "equity"
+        }
+      ]
+    },
+    "2025-01": {
+      "institution": "Fidelity Investments",
+      "account_number_masked_prefix": "Z2",
+      "snapshot": {
+        "ending_balance": "35438.80",
+        "beginning_balance": "29566.45",
+        "gross_asset_value": "59500.00",
+        "margin_balance": "-24061.20",
+        "total_withdrawals": "250.00"
+      },
+      "positions_count": 2,
+      "positions": [
+        {
+          "symbol": "CDNA",
+          "quantity": "1100.000",
+          "market_value": "25630.00",
+          "position_type": "equity"
+        },
+        {
+          "symbol": "SNAP",
+          "quantity": "3000.000",
+          "market_value": "33870.00",
+          "position_type": "equity"
+        }
+      ]
+    }
+  },
+  "required_snapshot_fields": ["ending_balance", "gross_asset_value", "margin_balance"],
+  "parser_id": "fidelity_brokerage"
+}

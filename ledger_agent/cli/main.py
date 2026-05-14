@@ -102,7 +102,7 @@ def cmd_balance(args: list[str]) -> int:
     year = int(year_arg) if year_arg else 2024
 
     api = _import_api()
-    from reports.renderer import render_balance_sheet
+    from ledger_agent.core.reports.renderer import render_balance_sheet
     try:
         bs = api.generate_balance_sheet(year)
         render_balance_sheet(bs)
@@ -118,10 +118,10 @@ def cmd_tax(args: list[str]) -> int:
     year = int(year_arg) if year_arg else 2024
 
     api = _import_api()
-    from reports.renderer import render_tax_estimate
+    from ledger_agent.core.reports.renderer import render_tax_estimate
     try:
-        from accounting.tax_estimator import TaxEstimator
-        from core.database import EntityRepo, init_db
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.database import EntityRepo, init_db
         init_db()
         entities = EntityRepo.list_all()
         if not entities:

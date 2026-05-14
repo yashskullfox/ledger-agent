@@ -169,7 +169,7 @@ jobs:
   # ║  They must NEVER error out due to missing imports or bad assertions.
   # ╚════════════════════════════════════════════════════════════════════════════
   parity-smoke:
-    name: Parity test infrastructure check
+    name: Parity test infrastructure check (ARCH-23)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -183,9 +183,25 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Parity infrastructure smoke
-        # Allowed exit codes: 0 (pass) and 5 (all tests collected but all skipped).
-        # Exit code 1+ due to ImportError or AssertionError is a hard failure.
+      - name: Verify JSON fixture is committed and valid
+        # TestFixtureIntegrity.test_fixture_exists / test_fixture_is_valid_json
+        # do NOT need a database — they only inspect the committed JSON file.
+        # They must ALWAYS pass (not skip) once the fixture is committed (ARCH-21).
+        run: |
+          python -m pytest -m parity \
+            tests/integration/test_2024_cpa_parity.py::TestFixtureIntegrity \
+            --no-header -q
+          CODE=$?
+          if [ $CODE -ne 0 ]; then
+            echo "::error::Fixture integrity tests FAILED (exit $CODE)."
+            echo "Run: python scripts/regen_parity_corpus.py && commit the JSON fixture."
+            exit $CODE
+          fi
+          echo "✅ JSON fixture is present and internally consistent."
+
+      - name: Parity infrastructure smoke (DB-dependent tests skip in CI)
+        # Allowed exit codes: 0 (all pass) and 5 (all collected but all skipped —
+        # expected when DB is absent).  Exit code 1+ is a hard failure.
         run: |
           python -m pytest -m parity \
             tests/integration/test_2024_cpa_parity.py \

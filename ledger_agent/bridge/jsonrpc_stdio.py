@@ -6,9 +6,8 @@ import sys
 import traceback
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+# ARCH-20: sys.path shim removed — all packages now live under ledger_agent.core.*
+# and are importable via the installed editable package without path manipulation.
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +39,57 @@ def _error(msg_id, code: int, message: str):
     sys.stdout.flush()
 
 
+def _redact_bridge_response(payload: dict, *, allow_pii: bool = False) -> dict:
+    """
+    Apply the same PII redaction used by the MCP server before sending any
+    tool result back to the Java client (BUG-B2 fix).
+
+    Mirrors ledger_agent.mcp.server._redact_response — fail-closed: if
+    redaction itself fails and allow_pii is False, the response is withheld.
+    When allow_pii is True the full payload is returned BUT the API-key sweep
+    still runs unconditionally (BUG-M1 companion fix).
+    """
+    try:
+        from ledger_agent.core.audit import audit as _audit
+    except Exception:
+        _audit = None  # type: ignore
+
+    # API-key sweep is UNCONDITIONAL — regardless of allow_pii (BUG-M1 fix).
+    try:
+        from ledger_agent.core.privacy import PrivacyLeakError, redact as _check
+        _check(json.dumps(payload), scope="api_key_only")
+    except ImportError:
+        pass  # privacy module unavailable — degrade gracefully
+    except Exception:
+        # API-key pattern hit → fail-closed even for allow_pii callers.
+        if _audit:
+            _audit("bridge.redaction.api_key_hit", method="<bridge>")
+        log.error("Bridge: API key detected in tool response — response withheld")
+        raise
+
+    if allow_pii:
+        if _audit:
+            _audit("bridge.redaction.skipped", reason="allow_pii=true")
+        return payload
+
+    try:
+        from ledger_agent.core.privacy import redact as _redact
+        raw = json.dumps(payload)
+        redacted_text, _mapping = _redact(raw, scope="mcp_response")
+        if _audit:
+            _audit("bridge.redaction.applied",
+                   payload_size=len(raw),
+                   tokens_issued=len(_mapping))
+        return json.loads(redacted_text)
+    except Exception as exc:
+        if _audit:
+            _audit("bridge.redaction.failed",
+                   error_type=type(exc).__name__,
+                   error_message=str(exc)[:200])
+        log.error("Bridge: PII redaction FAILED (fail-closed): %s", exc)
+        raise RuntimeError(f"bridge_redaction_failed: {exc}") from exc
+
+
 def _dispatch(msg: dict) -> None:
     msg_id = msg.get("id")
     method = msg.get("method", "")
@@ -60,28 +110,36 @@ def _dispatch(msg: dict) -> None:
     if method in _TOOL_METHODS:
         try:
             from ledger_agent.mcp.tools import call_tool
-            # Read allow_pii from _meta — default deny (CRIT-01 fix)
+            # Read allow_pii from _meta — default deny (CRIT-01 fix).
+            # Strip ALL _-prefixed reserved keys before forwarding (SMELL-B3 fix).
             allow_pii = bool((params.get("_meta") or {}).get("allow_pii", False))
-            # Strip _meta so it is not forwarded as a tool argument
-            clean_params = {k: v for k, v in params.items() if k != "_meta"}
+            clean_params = {k: v for k, v in params.items()
+                            if not k.startswith("_")}
             try:
-                from core.audit import audit
-                from core.cleanup import run_cycle
+                from ledger_agent.core.audit import audit
+                from ledger_agent.core.cleanup import run_cycle
                 audit("bridge.tool_call", method=method, allow_pii=allow_pii)
                 with run_cycle(f"bridge:{method}"):
                     raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
             except ImportError:
-                # Audit/cleanup unavailable — degrade gracefully, never silently
-                # bypass PII checks.
                 raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
-            _respond(msg_id, json.loads(raw_json))
-        except Exception:
+
+            # BUG-B2 fix: redact before sending to Java client.
+            raw_dict = json.loads(raw_json)
+            try:
+                redacted = _redact_bridge_response(raw_dict, allow_pii=allow_pii)
+            except RuntimeError as rr:
+                _error(msg_id, -32000, "bridge_redaction_failed")
+                return
+            _respond(msg_id, redacted)
+
+        except Exception as exc:  # BUG-B1 fix: capture exc explicitly
             tb = traceback.format_exc()
             log.error("Bridge tool %r raised:\n%s", method, tb)
             try:
-                from core.audit import audit
+                from ledger_agent.core.audit import audit
                 audit("bridge.tool_error", method=method,
-                      error_type=type(sys.exc_info()[1]).__name__ if sys.exc_info()[1] else "Unknown")
+                      error_type=type(exc).__name__)
             except Exception:
                 pass
             _error(msg_id, -32603, f"Internal error: {tb}")
@@ -103,8 +161,8 @@ def serve() -> None:
     # Boot-time cleanup: purge anything a crashed previous bridge run left
     # behind, then open a fresh audit log for this session.
     try:
-        from core.cleanup import boot_cleanup
-        from core.audit import audit, current_run_id
+        from ledger_agent.core.cleanup import boot_cleanup
+        from ledger_agent.core.audit import audit, current_run_id
         boot_cleanup()
         audit("bridge.session.start", transport="jsonrpc_stdio")
         log.info("ledger-agent JSON-RPC bridge ready on stdio (run_id=%s)",
@@ -114,22 +172,32 @@ def serve() -> None:
         # the audit module can't (e.g. missing data/ dir on first run).
         log.info("ledger-agent JSON-RPC bridge ready on stdio")
 
-    while True:
-        try:
-            line = sys.stdin.readline()
-            if not line:
+    try:
+        while True:
+            try:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                _dispatch(msg)
+            except EOFError:
                 break
-            line = line.strip()
-            if not line:
-                continue
-            msg = json.loads(line)
-            _dispatch(msg)
-        except EOFError:
-            break
-        except json.JSONDecodeError as exc:
-            _error(None, -32700, f"Parse error: {exc}")
+            except json.JSONDecodeError as exc:
+                _error(None, -32700, f"Parse error: {exc}")
+            except Exception:
+                _error(None, -32603, traceback.format_exc())
+    finally:
+        # SMELL-B4 fix: emit clean shutdown marker so the audit trail closes
+        # properly regardless of how the bridge loop exits.
+        try:
+            from ledger_agent.core.audit import audit, shutdown_audit
+            audit("bridge.session.end", transport="jsonrpc_stdio")
+            shutdown_audit()
         except Exception:
-            _error(None, -32603, traceback.format_exc())
+            pass
 
 
 if __name__ == "__main__":

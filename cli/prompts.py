@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from core.models import COAEntry, Transaction
+from ledger_agent.core.models import COAEntry, Transaction
 
 try:
     import questionary

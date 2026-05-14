@@ -341,10 +341,18 @@ jobs:
           path: dist-webapp-windows/
 
   # ╔════════════════════════════════════════════════════════════════════════════
-  # ║  JOB 8 — CPA Parity Gate (ARCH-12)
+  # ║  JOB 8 — CPA Parity Gate (ARCH-12 / ARCH-21 / ARCH-23)
+  # ║
+  # ║  Primary source: tests/integration/fixtures/2024_cpa_expected.json
+  # ║  (committed JSON fixture — no raw 2024.txt required in CI).
+  # ║
+  # ║  Optional full-regen path (tagged releases only):
+  # ║  Set FI_CPA_CORPUS_2024 GitHub Actions secret to the raw CPA text;
+  # ║  the job will regenerate the fixture via scripts/regen_parity_corpus.py
+  # ║  and assert it matches the committed fixture byte-for-byte.
   # ╚════════════════════════════════════════════════════════════════════════════
   parity-gate:
-    name: CPA parity gate (ARCH-12)
+    name: CPA parity gate (ARCH-12/21/23)
     needs: [build-core, build-cli, build-mcp]
     runs-on: ubuntu-latest
     steps:
@@ -359,33 +367,70 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Prepare CPA corpus
-        env:
-          # Secret takes precedence over the committed corpus file.
-          # If the secret is set it overrides statements/2024.txt with the
-          # CPA's private figures (e.g. different from what is in the repo).
-          # If the secret is empty the committed statements/2024.txt is used.
-          FI_CPA_CORPUS: ${{ secrets.FI_CPA_CORPUS_2024 }}
+      - name: Verify committed JSON fixture is present
         run: |
-          if [ -n "$FI_CPA_CORPUS" ]; then
-            echo "$FI_CPA_CORPUS" > statements/2024.txt
-            echo "Corpus: loaded from FI_CPA_CORPUS_2024 secret"
-          else
-            echo "Corpus: using committed statements/2024.txt"
+          FIXTURE="tests/integration/fixtures/2024_cpa_expected.json"
+          if [ ! -f "$FIXTURE" ]; then
+            echo "::error::CPA parity fixture missing: $FIXTURE"
+            echo "Run 'python scripts/regen_parity_corpus.py' locally and commit the result."
+            exit 1
           fi
-          echo "Corpus contents:"
-          grep -v "^#" statements/2024.txt | head -20
+          echo "Fixture present: $FIXTURE"
+          python -m json.tool "$FIXTURE" > /dev/null && echo "Fixture JSON is valid."
 
-      - name: Run parity gate
-        # FI_CPA_CORPUS_PATH is unset here intentionally — the test resolves
-        # the default path (statements/2024.txt relative to repo root) itself.
+      - name: Optional full-regen from CPA secret (tagged releases)
+        # If FI_CPA_CORPUS_2024 secret is set, regenerate the fixture from the
+        # raw CPA text and assert it is byte-identical to the committed fixture.
+        # This catches drift between the secret and the committed fixture on tags.
+        env:
+          FI_CPA_CORPUS: ${{ secrets.FI_CPA_CORPUS_2024 }}
+        if: ${{ env.FI_CPA_CORPUS != '' }}
+        run: |
+          echo "$FI_CPA_CORPUS" > /tmp/2024_cpa.txt
+          mkdir -p statements/2024
+          cp /tmp/2024_cpa.txt statements/2024/2024.txt
+          python scripts/regen_parity_corpus.py \
+            --corpus statements/2024/2024.txt \
+            --out /tmp/2024_cpa_regen.json
+          echo "--- Regen diff vs committed fixture ---"
+          # Strip volatile metadata keys before diffing
+          python - <<'PYEOF'
+          import json, sys
+          def _strip_meta(d):
+              return {k: v for k, v in d.items() if not k.startswith("_")}
+          committed = _strip_meta(json.loads(open("tests/integration/fixtures/2024_cpa_expected.json").read()))
+          regen     = _strip_meta(json.loads(open("/tmp/2024_cpa_regen.json").read()))
+          diffs = {k: (committed.get(k), regen.get(k))
+                   for k in set(committed) | set(regen)
+                   if committed.get(k) != regen.get(k)}
+          if diffs:
+              for k, (c, r) in sorted(diffs.items()):
+                  print(f"  DIFF {k}: committed={c!r}  regen={r!r}")
+              print(f"\n{len(diffs)} field(s) differ.")
+              print("Run: python scripts/regen_parity_corpus.py && git add tests/integration/fixtures/2024_cpa_expected.json")
+              sys.exit(1)
+          print("✅ Committed fixture matches regen — no drift.")
+          PYEOF
+
+      - name: Run parity gate (fixture + DB-dependent tests)
+        # Tests load from the committed JSON fixture automatically (ARCH-21).
+        # DB-dependent tests (Form1065, K-1, BalanceSheet) skip when DB is absent in CI;
+        # TestFixtureIntegrity tests always run since they only inspect the fixture file.
         run: |
           python -m pytest -m parity \
             tests/integration/test_2024_cpa_parity.py \
-            --maxfail=1 -q 2>&1 || {
-            echo "::error::CPA parity gate FAILED — release blocked."
+            --maxfail=1 -q 2>&1
+          CODE=$?
+          # Exit 5 = "no tests ran" — treated as error (fixture tests should always collect).
+          if [ $CODE -ne 0 ] && [ $CODE -ne 5 ]; then
+            echo "::error::CPA parity gate FAILED (exit $CODE) — release blocked."
+            exit $CODE
+          fi
+          if [ $CODE -eq 5 ]; then
+            echo "::error::No parity tests collected — fixture may be missing or mis-marked."
             exit 1
-          }
+          fi
+          echo "✅ Parity gate passed."
 
   # ╔════════════════════════════════════════════════════════════════════════════
   # ║  JOB 9 — Smoke test (end-to-end sanity before publish)

@@ -109,7 +109,7 @@ class ReconcileReport:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _entity_and_periods(fiscal_year: int):
-    from core.database import EntityRepo, get_conn, init_db
+    from ledger_agent.core.database import EntityRepo, get_conn, init_db
     init_db()
     entities = EntityRepo.list_all()
     if not entities:
@@ -127,7 +127,7 @@ def _entity_and_periods(fiscal_year: int):
 
 
 def _transactions_for_year(fiscal_year: int):
-    from core.database import TransactionRepo, get_conn, init_db
+    from ledger_agent.core.database import TransactionRepo, get_conn, init_db
     init_db()
     prefix = str(fiscal_year) + "-%"
     with get_conn() as conn:
@@ -149,13 +149,13 @@ def import_statements(
     *,
     allow_partial: bool = False,
 ) -> ImportReport:
-    from parsers.base import BaseStatementParser
-    from parsers.registry import ParserRegistry
-    from core.database import (
+    from ledger_agent.core.parsers.base import BaseStatementParser
+    from ledger_agent.core.parsers.registry import ParserRegistry
+    from ledger_agent.core.database import (
         init_db, AccountRepo, EntityRepo, SnapshotRepo,
         TransactionRepo, PositionRepo, ImportRegistry,
     )
-    import parsers  # noqa: F401 — trigger auto-discovery
+    import ledger_agent.core.parsers  # noqa: F401 — trigger auto-discovery
 
     folder = Path(folder).expanduser().resolve()
     if not folder.is_dir():
@@ -169,7 +169,7 @@ def import_statements(
     if entities:
         entity = entities[0]
     else:
-        from core.models import Entity
+        from ledger_agent.core.models import Entity
         _default_name = os.environ.get("FI_DEFAULT_ENTITY_NAME", "Entity")
         entity = Entity(name=_default_name, entity_type="LLC", state="MO")
         EntityRepo.upsert(entity)
@@ -188,7 +188,7 @@ def import_statements(
             stmt = parser_cls().parse(pdf_path)
 
             # Get or create account
-            from core.models import Account, AccountType
+            from ledger_agent.core.models import Account, AccountType
             acct = AccountRepo.find(stmt.institution, stmt.account_number_masked or "****")
             if acct is None:
                 acct = Account(
@@ -209,6 +209,29 @@ def import_statements(
                 for t in stmt.transactions:
                     t.account_id = acct.id
                 TransactionRepo.bulk_insert(stmt.transactions)
+
+                # V9 fix: classify unclassified transactions and persist the
+                # coa_code back to the DB immediately.  classify_batch() calls
+                # TransactionRepo.update_coa() for every txn it assigns, so the
+                # DB and the in-memory objects stay in sync.  Without this call
+                # the MCP import path left coa_code='' in the DB; reports then
+                # silently skipped those rows, producing non-deterministic totals
+                # across re-runs whenever heuristics changed.
+                to_classify = [t for t in stmt.transactions if not t.coa_code]
+                if to_classify:
+                    try:
+                        from ledger_agent.core.intelligence.classifier import classify_batch
+                        classify_batch(to_classify)  # non-interactive: unmatched → 9999
+                        log.info(
+                            "Classified %d transactions from %s",
+                            len(to_classify), pdf_path.name,
+                        )
+                    except Exception as cls_exc:
+                        # Classification is best-effort; don't fail the import.
+                        log.warning(
+                            "Classification skipped for %s: %s",
+                            pdf_path.name, cls_exc,
+                        )
 
             if stmt.positions:
                 for p in stmt.positions:
@@ -236,8 +259,8 @@ def import_statements(
 
 
 def generate_balance_sheet(fiscal_year: int):
-    from accounting.balance_sheet import BalanceSheetBuilder
-    from core.database import init_db
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.database import init_db
 
     init_db()
     entity, periods = _entity_and_periods(fiscal_year)
@@ -262,7 +285,7 @@ def _compute_net_ltcg(txns) -> Decimal:
 
 
 def generate_form_1065(fiscal_year: int) -> Form1065:
-    from core.database import init_db
+    from ledger_agent.core.database import init_db
 
     init_db()
     entity, _ = _entity_and_periods(fiscal_year)
@@ -347,8 +370,8 @@ def generate_k1(fiscal_year: int, partner_id: str) -> ScheduleK1:
 
 
 def pte_estimate(fiscal_year: int) -> PTEEstimate:
-    from accounting.tax_estimator import TaxEstimator
-    from core.database import init_db
+    from ledger_agent.core.accounting.tax_estimator import TaxEstimator
+    from ledger_agent.core.database import init_db
 
     init_db()
     entity, periods = _entity_and_periods(fiscal_year)
@@ -375,8 +398,8 @@ def pte_estimate(fiscal_year: int) -> PTEEstimate:
 
 
 def reconcile_year(fiscal_year: int) -> ReconcileReport:
-    from intelligence.reconciler import reconcile
-    from core.database import init_db
+    from ledger_agent.core.intelligence.reconciler import reconcile
+    from ledger_agent.core.database import init_db
 
     init_db()
     entity, _ = _entity_and_periods(fiscal_year)

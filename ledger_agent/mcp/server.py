@@ -4,8 +4,7 @@ import json
 import logging
 import sys
 import traceback
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -14,11 +13,8 @@ SERVER_VERSION = "2.1.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 
-def _bootstrap() -> None:
-    root = Path(__file__).resolve().parent.parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-
+# ARCH-20: _bootstrap() sys.path shim removed — ledger_agent is installed as an
+# editable package; all submodules are importable without path manipulation.
 
 # ---------------------------------------------------------------------------
 # Privacy firewall (ARCH-07 / ARCH-22)
@@ -30,9 +26,25 @@ class PrivacyRedactionError(RuntimeError):
 
 def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
     try:
-        from core.audit import audit
+        from ledger_agent.core.audit import audit
     except Exception:
         audit = None  # type: ignore
+
+    # BUG-M1 fix: API-key sweep runs UNCONDITIONALLY regardless of allow_pii.
+    # A misconfigured or compromised client must never pull API keys out of a
+    # tool response by flipping allow_pii=True.
+    try:
+        from ledger_agent.core.privacy import PrivacyLeakError as _PLE, _detect_api_keys
+        raw_for_keys = json.dumps(payload)
+        if _detect_api_keys(raw_for_keys):
+            if audit:
+                audit("mcp.redaction.api_key_hit",
+                      payload_size=len(raw_for_keys),
+                      allow_pii=allow_pii)
+            log.error("MCP: API key detected in tool response payload — response withheld")
+            raise PrivacyRedactionError("api_key_in_response")
+    except ImportError:
+        pass  # privacy module unavailable — degrade gracefully
 
     if allow_pii:
         if audit:
@@ -40,14 +52,20 @@ def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
         return payload
 
     try:
-        from core.privacy import redact as _redact  # type: ignore[import]
+        from ledger_agent.core.privacy import redact as _redact  # type: ignore[import]
         raw = json.dumps(payload)
         redacted_text, _mapping = _redact(raw, scope="mcp_response")
+        # SMELL-M4 fix: validate that the redacted text is still valid JSON
+        # before returning.  A token placeholder that contains a JSON-breaking
+        # character (rare but possible if privacy.py is modified) would produce
+        # silently corrupted output.  The json.loads call below will raise
+        # JSONDecodeError which lands in the except branch → fail-closed.
+        result = json.loads(redacted_text)
         if audit:
             audit("mcp.redaction.applied",
                   payload_size=len(raw),
                   tokens_issued=len(_mapping))
-        return json.loads(redacted_text)
+        return result
     except Exception as exc:
         # FAIL-CLOSED: redaction failure means we cannot prove the response is
         # safe to emit. The response is withheld and the operator is alerted.
@@ -105,10 +123,10 @@ def _dispatch(msg: dict) -> Optional[dict]:
             try:
                 redacted = _redact_response(raw_dict, allow_pii=allow_pii)
             except PrivacyRedactionError as pii_err:
-                return _ok({
-                    "content": [{"type": "text", "text": "redaction_failed"}],
-                    "isError": True,
-                })
+                # BUG-M2 fix: use _err so clients can programmatically distinguish
+                # "output blocked by redaction" from a tool-side error.
+                # -32000 = implementation-defined server error (JSON-RPC spec).
+                return _err(-32000, f"redaction_failed: {pii_err}")
             return _ok({
                 "content": [{"type": "text", "text": json.dumps(redacted, indent=2)}],
             })
@@ -119,11 +137,18 @@ def _dispatch(msg: dict) -> Optional[dict]:
                 "content": [{"type": "text", "text": str(exc)}],
                 "isError": True,
             })
-        except Exception:
+        except Exception as exc:
+            # SMELL-M3 fix: log full traceback server-side; send a sanitised
+            # error ID to the client so repo layout / dev usernames don't leak.
             tb = traceback.format_exc()
             log.error("Tool %r raised:\n%s", tool_name, tb)
+            import hashlib, time
+            err_id = hashlib.sha1(
+                f"{tool_name}{time.time()}".encode()
+            ).hexdigest()[:8]
             return _ok({
-                "content": [{"type": "text", "text": f"Internal error:\n{tb}"}],
+                "content": [{"type": "text",
+                              "text": f"Internal error (ref:{err_id}) — see server logs"}],
                 "isError": True,
             })
 
@@ -137,7 +162,6 @@ def _dispatch(msg: dict) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 def serve_stdio() -> None:
-    _bootstrap()
     log.info("ledger-agent MCP stdio server ready (protocol %s)", PROTOCOL_VERSION)
 
     import sys as _sys
@@ -173,7 +197,6 @@ def serve_stdio() -> None:
 # ---------------------------------------------------------------------------
 
 def serve_http(host: str = "127.0.0.1", port: int = 7337) -> None:
-    _bootstrap()
     from ledger_agent.mcp.transport_http import serve_http as _http
 
     def _dispatch_sync(request: dict) -> dict:

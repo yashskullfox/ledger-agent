@@ -26,7 +26,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from core.logging_setup import get_logger
+from ledger_agent.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -177,9 +177,9 @@ def probe_pdf(pdf_path: Path, cache: dict) -> Optional[dict]:
         # None sentinel means previously unrecognised
         return cached if isinstance(cached, dict) else None
 
-    import parsers  # noqa: F401 – triggers auto-discovery
-    from parsers.base import BaseStatementParser
-    from parsers.registry import ParserRegistry
+    import ledger_agent.core.parsers  # noqa: F401 – triggers auto-discovery
+    from ledger_agent.core.parsers.base import BaseStatementParser
+    from ledger_agent.core.parsers.registry import ParserRegistry
 
     try:
         text = BaseStatementParser.extract_text(pdf_path)
@@ -447,7 +447,7 @@ def _poll_for_drop(
     interval_s: float = 2.0,
 ) -> bool:
     """Poll folder every interval_s seconds until a matching PDF appears or timeout."""
-    import parsers  # noqa: F401
+    import ledger_agent.core.parsers  # noqa: F401
 
     known: set = set(folder.rglob("*.pdf")) | set(folder.rglob("*.PDF"))
     deadline = time.monotonic() + timeout_s
@@ -584,11 +584,11 @@ def _ingest_discovered(
     Import every discovered PDF through the existing import pipeline.
     Returns (imported_count, skipped_count, failed_names).
     """
-    from core.database import init_db
+    from ledger_agent.core.database import init_db
     from cli.commands import _get_or_setup_entity
     from cli.prompts import print_info, print_warning, print_error, print_success, prompt_classify
     from cli.quick_scan import _import_single, _AlreadyImportedSkip
-    from core.exceptions import ParserNotFoundError
+    from ledger_agent.core.exceptions import ParserNotFoundError
 
     init_db()
     entity = _get_or_setup_entity()
@@ -753,11 +753,11 @@ def _print_no_pdfs(scan_dir: Path, no_prompt: bool) -> None:
 def _show_post_import_report() -> None:
     """After ingestion, render balance sheet + tax for the most recent period."""
     try:
-        from core.database import SnapshotRepo, init_db
+        from ledger_agent.core.database import SnapshotRepo, init_db
         from cli.commands import _get_or_setup_entity
-        from accounting.balance_sheet import BalanceSheetBuilder
-        from reports.renderer import render_balance_sheet
-        from accounting.tax_estimator import TaxEstimator, render_tax_estimate
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.reports.renderer import render_balance_sheet
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
 
         init_db()
         entity = _get_or_setup_entity()
