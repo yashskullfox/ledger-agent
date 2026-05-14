@@ -78,6 +78,7 @@ jobs:
         run: |
           pip install --require-hashes -r requirements.lock \
             || pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Smoke-test core import
         run: |
@@ -182,7 +183,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install deps
-        run: pip install -q -r requirements.txt
+        run: |
+          pip install -q -r requirements.txt
+          pip install -q -r requirements-dev.txt
 
       - name: Smoke-test MCP tools/list (13 privacy tests + tools count)
         run: |
@@ -366,6 +369,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Verify committed JSON fixture is present
         run: |
@@ -447,7 +451,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install deps
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Run architecture + MCP privacy tests
         run: |

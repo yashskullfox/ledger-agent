@@ -1,59 +1,43 @@
-"""
-core/exceptions.py  –  Custom exception hierarchy
-"""
+from __future__ import annotations
 
 
 class FinancialIntelligenceError(Exception):
-    """Base exception for the entire project."""
+    pass
 
 
 class ParserNotFoundError(FinancialIntelligenceError):
-    """Raised when no registered parser can handle a given PDF."""
+    pass
 
 
 class ParserError(FinancialIntelligenceError):
-    """Raised on unrecoverable errors inside a parser."""
+    pass
 
 
 class DatabaseError(FinancialIntelligenceError):
-    """Raised when a DB operation fails unexpectedly."""
+    pass
 
 
 class DuplicateStatementError(FinancialIntelligenceError):
-    """Raised when the same statement (same account + period) is imported again."""
+    pass
 
 
 class EntityNotFoundError(FinancialIntelligenceError):
-    """Raised when an entity lookup returns no results."""
+    pass
 
 
 class AccountNotFoundError(FinancialIntelligenceError):
-    """Raised when an account lookup returns no results."""
+    pass
 
 
 class ClassificationError(FinancialIntelligenceError):
-    """Raised when a transaction cannot be classified even after prompting."""
+    pass
 
 
 class ReconciliationError(FinancialIntelligenceError):
-    """Raised when cross-account reconciliation detects a discrepancy."""
+    pass
 
 
 class ParserGap(FinancialIntelligenceError):
-    """
-    Raised when a brokerage parser cannot populate a required field that the
-    source statement is expected to report (R-60 / ARCH-24).
-
-    Attributes
-    ----------
-    institution : str
-        Parser institution name (e.g. "Fidelity Investments").
-    statement_period : str
-        The affected statement period (e.g. "2024-12").
-    missing_fields : list[str]
-        Names of fields that could not be extracted but are required by the
-        statement type (e.g. ``["gross_asset_value", "margin_balance"]``).
-    """
 
     def __init__(
         self,
@@ -75,19 +59,6 @@ class ParserGap(FinancialIntelligenceError):
 
 
 class AggregationGap(FinancialIntelligenceError):
-    """
-    Raised when the balance-sheet aggregator detects that an expected
-    account_snapshots row is absent (R-63 / ARCH-26).
-
-    Attributes
-    ----------
-    period : str
-        The fiscal period being aggregated (e.g. "2024-12").
-    account_id : str
-        The account whose snapshot is missing.
-    reason : str
-        Human-readable explanation of why the snapshot was expected.
-    """
 
     def __init__(
         self,
