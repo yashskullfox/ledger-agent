@@ -16,64 +16,64 @@ from tests.conftest import (
 
 class TestParserRegistry:
     def test_truist_detected(self):
-        import parsers  # noqa: F401 — triggers auto-discovery
-        from parsers.registry import ParserRegistry
+        import ledger_agent.core.parsers  # noqa: F401 — triggers auto-discovery
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect(TRUIST_SAMPLE_TEXT)
         assert cls is not None
         assert cls.PARSER_ID == "truist_checking"
 
     def test_fidelity_detected(self):
-        import parsers  # noqa: F401
-        from parsers.registry import ParserRegistry
+        import ledger_agent.core.parsers  # noqa: F401
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect(FIDELITY_SAMPLE_TEXT)
         assert cls is not None
         assert cls.PARSER_ID == "fidelity_brokerage"
 
     def test_chase_detected(self):
-        import parsers  # noqa: F401
-        from parsers.registry import ParserRegistry
+        import ledger_agent.core.parsers  # noqa: F401
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect(CHASE_SAMPLE_TEXT)
         assert cls is not None
         assert cls.PARSER_ID == "chase_checking"
 
     def test_bofa_detected(self):
-        import parsers  # noqa: F401
-        from parsers.registry import ParserRegistry
+        import ledger_agent.core.parsers  # noqa: F401
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect(BOFA_SAMPLE_TEXT)
         assert cls is not None
         assert cls.PARSER_ID == "bofa_checking"
 
     def test_ibkr_detected(self):
-        import parsers  # noqa: F401
-        from parsers.registry import ParserRegistry
+        import ledger_agent.core.parsers  # noqa: F401
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect(IBKR_SAMPLE_TEXT)
         assert cls is not None
         assert cls.PARSER_ID == "ibkr"
 
     def test_usbank_checking_detected(self):
         pdfplumber = pytest.importorskip("pdfplumber")  # noqa: F841
-        import parsers  # noqa: F401
-        from parsers.registry import ParserRegistry
+        import ledger_agent.core.parsers  # noqa: F401
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect(USBANK_CHECKING_SAMPLE_TEXT)
         assert cls is not None
         assert cls.PARSER_ID == "usbank_checking"
 
     def test_usbank_cc_detected(self):
         pdfplumber = pytest.importorskip("pdfplumber")  # noqa: F841
-        import parsers  # noqa: F401
-        from parsers.registry import ParserRegistry
+        import ledger_agent.core.parsers  # noqa: F401
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect(USBANK_CC_SAMPLE_TEXT)
         assert cls is not None
         assert cls.PARSER_ID == "usbank_creditcard"
 
     def test_unknown_text_returns_none(self):
-        from parsers.registry import ParserRegistry
+        from ledger_agent.core.parsers.registry import ParserRegistry
         cls = ParserRegistry.detect("Random PDF content with no known bank")
         assert cls is None
 
     def test_detect_or_raise_unknown_raises(self):
-        from parsers.registry import ParserRegistry
-        from core.exceptions import ParserNotFoundError
+        from ledger_agent.core.parsers.registry import ParserRegistry
+        from ledger_agent.core.exceptions import ParserNotFoundError
         with pytest.raises(ParserNotFoundError):
             ParserRegistry.detect_or_raise("Unknown bank text")
 
@@ -81,7 +81,7 @@ class TestParserRegistry:
 class TestTruistCheckingParser:
     @pytest.fixture
     def parser(self):
-        from parsers.truist_checking import TruistCheckingParser
+        from ledger_agent.core.parsers.truist_checking import TruistCheckingParser
         return TruistCheckingParser()
 
     def test_can_parse_truist(self, parser):
@@ -134,7 +134,7 @@ class TestTruistCheckingParser:
 
     def test_irs_classified_as_tax(self, parser):
         debits = parser._parse_debits(TRUIST_SAMPLE_TEXT, 2025)
-        from core.models import TransactionType
+        from ledger_agent.core.models import TransactionType
         tax_txns = [t for t in debits if t.transaction_type == TransactionType.TAX]
         assert len(tax_txns) >= 1
 
@@ -142,7 +142,7 @@ class TestTruistCheckingParser:
 class TestBaseParserHelpers:
     @pytest.fixture
     def parser(self):
-        from parsers.truist_checking import TruistCheckingParser
+        from ledger_agent.core.parsers.truist_checking import TruistCheckingParser
         return TruistCheckingParser()
 
     def test_parse_amount_decimal(self, parser):
@@ -173,60 +173,60 @@ class TestBaseParserHelpers:
 
 class TestChaseCheckingCanParse:
     def test_detects_chase_business_complete(self):
-        from parsers.chase_checking import ChaseCheckingParser
+        from ledger_agent.core.parsers.chase_checking import ChaseCheckingParser
         assert ChaseCheckingParser.can_parse(CHASE_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
-        from parsers.chase_checking import ChaseCheckingParser
+        from ledger_agent.core.parsers.chase_checking import ChaseCheckingParser
         assert not ChaseCheckingParser.can_parse(TRUIST_SAMPLE_TEXT)
 
 
 class TestBofACheckingCanParse:
     def test_detects_bofa_business(self):
-        from parsers.bofa_checking import BofACheckingParser
+        from ledger_agent.core.parsers.bofa_checking import BofACheckingParser
         assert BofACheckingParser.can_parse(BOFA_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
-        from parsers.bofa_checking import BofACheckingParser
+        from ledger_agent.core.parsers.bofa_checking import BofACheckingParser
         assert not BofACheckingParser.can_parse(TRUIST_SAMPLE_TEXT)
 
 
 class TestIBKRCanParse:
     def test_detects_ibkr_activity_statement(self):
-        from parsers.ibkr import IBKRParser
+        from ledger_agent.core.parsers.ibkr import IBKRParser
         assert IBKRParser.can_parse(IBKR_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
-        from parsers.ibkr import IBKRParser
+        from ledger_agent.core.parsers.ibkr import IBKRParser
         assert not IBKRParser.can_parse(TRUIST_SAMPLE_TEXT)
 
 
 class TestUSBankCheckingCanParse:
     def test_detects_usbank_checking(self):
         pytest.importorskip("pdfplumber")
-        from parsers.usbank_checking import USBankCheckingParser
+        from ledger_agent.core.parsers.usbank_checking import USBankCheckingParser
         assert USBankCheckingParser.can_parse(USBANK_CHECKING_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
         pytest.importorskip("pdfplumber")
-        from parsers.usbank_checking import USBankCheckingParser
+        from ledger_agent.core.parsers.usbank_checking import USBankCheckingParser
         assert not USBankCheckingParser.can_parse(TRUIST_SAMPLE_TEXT)
 
     def test_rejects_usbank_cc(self):
         pytest.importorskip("pdfplumber")
-        from parsers.usbank_checking import USBankCheckingParser
+        from ledger_agent.core.parsers.usbank_checking import USBankCheckingParser
         assert not USBankCheckingParser.can_parse(USBANK_CC_SAMPLE_TEXT)
 
 
 class TestUSBankCreditCardCanParse:
     def test_detects_usbank_cc(self):
         pytest.importorskip("pdfplumber")
-        from parsers.usbank_creditcard import USBankCreditCardParser
+        from ledger_agent.core.parsers.usbank_creditcard import USBankCreditCardParser
         assert USBankCreditCardParser.can_parse(USBANK_CC_SAMPLE_TEXT)
 
     def test_rejects_usbank_checking(self):
         pytest.importorskip("pdfplumber")
-        from parsers.usbank_creditcard import USBankCreditCardParser
+        from ledger_agent.core.parsers.usbank_creditcard import USBankCreditCardParser
         assert not USBankCreditCardParser.can_parse(USBANK_CHECKING_SAMPLE_TEXT)
 
 

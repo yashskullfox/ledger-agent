@@ -1,0 +1,20 @@
+## k8s/service.yaml — ledger-agent service
+## Internal teams access via ClusterIP; add Ingress for external access.
+##
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledger-agent
+  labels:
+    app: ledger-agent
+spec:
+  selector:
+    app: ledger-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+  ## ClusterIP = internal only (recommended for financial data)
+  ## Switch to LoadBalancer + TLS termination if external access is needed.
+  type: ClusterIP

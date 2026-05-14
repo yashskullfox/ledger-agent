@@ -1,0 +1,34 @@
+{
+  "_note": "PII-scrubbed fixture for IBKR parser acceptance tests (ARCH-24/25).",
+  "_source": "Synthetic fixture based on IBKR Activity Statement layout; no real account data.",
+  "periods": {
+    "2024-12": {
+      "institution": "Interactive Brokers",
+      "account_number_masked_prefix": "U",
+      "snapshot": {
+        "ending_balance": "5000.00",
+        "beginning_balance": "4800.00",
+        "gross_asset_value": null,
+        "margin_balance": null
+      },
+      "positions_count": 2,
+      "positions": [
+        {
+          "symbol": "AAPL",
+          "quantity": "10.000",
+          "market_value": "2350.00",
+          "position_type": "equity"
+        },
+        {
+          "symbol": "MSFT",
+          "quantity": "5.000",
+          "market_value": "2100.00",
+          "position_type": "equity"
+        }
+      ]
+    }
+  },
+  "required_snapshot_fields": ["ending_balance"],
+  "optional_snapshot_fields": ["gross_asset_value", "margin_balance"],
+  "parser_id": "ibkr"
+}

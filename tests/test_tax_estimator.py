@@ -21,7 +21,7 @@ def default_rates():
 
 class TestTaxEstimator:
     def test_returns_estimate(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("50000.00")
         )
@@ -29,7 +29,7 @@ class TestTaxEstimator:
         assert est.total_annual_tax > 0
 
     def test_se_tax_calculated(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("10000.00")
         )
@@ -37,7 +37,7 @@ class TestTaxEstimator:
         assert est.se_tax == Decimal("1530.00")
 
     def test_zero_income_no_tax(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("0.00")
         )
@@ -45,14 +45,14 @@ class TestTaxEstimator:
         assert est.effective_rate == Decimal("0.00")
 
     def test_quarterly_payments_count(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("100000.00")
         )
         assert len(est.quarterly_payments) == 4
 
     def test_quarterly_sum_equals_total(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("48000.00")
         )
@@ -61,7 +61,7 @@ class TestTaxEstimator:
         assert abs(quarterly_sum - est.total_annual_tax) <= Decimal("0.04")
 
     def test_annualize_factor(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         # 1 month = annualize × 12
         est_monthly = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("5000.00"), annualize_factor=Decimal("12")
@@ -72,14 +72,14 @@ class TestTaxEstimator:
         assert abs(est_monthly.total_annual_tax - est_annual.total_annual_tax) < Decimal("1.00")
 
     def test_notes_not_empty(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("50000.00")
         )
         assert len(est.notes) > 0
 
     def test_entity_name_preserved(self):
-        from accounting.tax_estimator import TaxEstimator
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
         est = TaxEstimator("MY COMPANY LLC", 2025).estimate_from_net_income(
             Decimal("50000.00")
         )
@@ -88,7 +88,7 @@ class TestTaxEstimator:
 
 class TestRenderTaxEstimate:
     def test_renders_without_exception(self, capsys):
-        from accounting.tax_estimator import TaxEstimator, render_tax_estimate
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("60000.00")
         )

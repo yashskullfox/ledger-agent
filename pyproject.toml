@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.backends.legacy:build"
 
 [project]
-name = "financial-intelligence"
-version = "2.0.0"
-description = "Generic financial statement aggregator, balance sheet generator, and AI-assisted transaction classifier for small business entities."
+name = "ledger-agent"
+version = "2.1.0"
+description = "Four-form financial intelligence platform for SYNCED LLC — core library, CLI, MCP server, and Spring Boot webapp sharing one engine."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -71,11 +71,13 @@ all = [
 
 [project.scripts]
 fi = "main:main"
+ledger = "ledger_agent.cli.main:app"
+ledger-agent-mcp = "ledger_agent.mcp.server:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/financial-intelligence"
-Documentation = "https://github.com/your-org/financial-intelligence#readme"
-Issues = "https://github.com/your-org/financial-intelligence/issues"
+Homepage = "https://github.com/your-org/ledger-agent"
+Documentation = "https://github.com/your-org/ledger-agent#readme"
+Issues = "https://github.com/your-org/ledger-agent/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -87,6 +89,10 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "--tb=short -v"
+markers = [
+    "parity: CPA parity tests — compare computed numbers to CPA reference (ARCH-12)",
+    "integration: integration tests requiring live services or a populated database",
+]
 
 [tool.ruff]
 line-length = 100

@@ -33,7 +33,7 @@ _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from core.privacy import (
+from ledger_agent.core.privacy import (
     PrivacyFilter,
     PrivacyLeakError,
     RedactionMap,
@@ -454,7 +454,7 @@ class TestMockMode:
         import config as _cfg
         _cfg.AI_EGRESS_MODE = "mock"
 
-        from intelligence.ai_backend.openai_backend import OpenAIBackend
+        from ledger_agent.core.intelligence.ai_backend.openai_backend import OpenAIBackend
 
         # We must prevent __init__ from connecting — patch the openai import
         with patch.dict("sys.modules", {"openai": MagicMock()}):
@@ -474,7 +474,7 @@ class TestMockMode:
         import config as _cfg
         _cfg.AI_EGRESS_MODE = "mock"
 
-        from intelligence.ai_backend.gemini_backend import GeminiBackend
+        from ledger_agent.core.intelligence.ai_backend.gemini_backend import GeminiBackend
 
         with patch.dict("sys.modules", {"google.generativeai": MagicMock()}):
             backend = GeminiBackend.__new__(GeminiBackend)
@@ -596,7 +596,7 @@ class TestMemoryRedaction:
         mem_path = tmp_path / "memory.json"
         monkeypatch.setattr(_cfg, "MEMORY_FILE", mem_path)
 
-        from intelligence.memory import ClassificationMemory
+        from ledger_agent.core.intelligence.memory import ClassificationMemory
         mem = ClassificationMemory(memory_file=mem_path)
 
         # Simulate user confirming a classification for a transaction with a person name
@@ -622,7 +622,7 @@ class TestMemoryRedaction:
         mem_path = tmp_path / "memory2.json"
         monkeypatch.setattr(_cfg, "MEMORY_FILE", mem_path)
 
-        from intelligence.memory import ClassificationMemory
+        from ledger_agent.core.intelligence.memory import ClassificationMemory
         mem = ClassificationMemory(memory_file=mem_path)
         mem.remember("PAYPAL *QUICKBOOKS", "5010", "Software & Subscriptions")
 
@@ -683,7 +683,8 @@ class TestPrivacyStatus:
 
     def test_detector_count(self):
         status = privacy_status()
-        assert status["detector_categories"] == 12
+        # Count reflects actual detector categories in core/privacy.py (updated ARCH-23).
+        assert status["detector_categories"] == 23
 
     def test_egress_mode_reflects_config(self, monkeypatch):
         import config as _cfg
