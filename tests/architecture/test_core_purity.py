@@ -1,27 +1,28 @@
 """
-tests/architecture/test_core_purity.py  –  ARCH-02 core purity guardrail
-=========================================================================
+tests/architecture/test_core_purity.py  –  ARCH-02 / ARCH-20 core purity guardrail
+====================================================================================
 
-Enforces that ledger_agent.core (and its backing modules in core/,
-accounting/, intelligence/, parsers/, reports/) never import:
+Enforces that ledger_agent.core never imports:
   - cli.*            (command-line interface)
   - rich             (console rendering library)
   - click / typer    (CLI frameworks)
   - requests / httpx (outbound HTTP — all network must be opt-in)
   - fastapi / flask  (web frameworks — Form C uses mcp SDK, not these)
 
-The test walks every .py file under the core-logic directories and
-looks for forbidden top-level imports using AST analysis, so it catches
-imports regardless of indentation or conditional guards.
+ARCH-20: The old top-level packages (core/, accounting/, intelligence/,
+parsers/, reports/) have been physically moved under ledger_agent/core/.
+The test now asserts those stale top-level directories do NOT exist so the
+"carve-out" is real and not merely cosmetic.
 
-Add modules to CORE_DIRS to expand coverage as the package grows.
+The test walks every .py file under ledger_agent/core/ and inspects imports
+using AST analysis, catching imports regardless of indentation or guards.
+
 Run:
     pytest tests/architecture/test_core_purity.py -q
 """
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 
 import pytest
@@ -30,14 +31,19 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
-# Source directories that constitute Form A (core logic only)
+# ARCH-20: all core logic lives exclusively under ledger_agent/core/.
+# The old top-level aliases (core/, accounting/, …) must no longer exist.
 CORE_DIRS: list[Path] = [
-    PROJECT_ROOT / "core",
-    PROJECT_ROOT / "accounting",
-    PROJECT_ROOT / "intelligence",
-    PROJECT_ROOT / "parsers",
-    PROJECT_ROOT / "reports",
     PROJECT_ROOT / "ledger_agent" / "core",
+]
+
+# ARCH-20 acceptance criterion: these top-level directories must be absent.
+_BANNED_TOPLEVEL_DIRS: list[str] = [
+    "core",
+    "accounting",
+    "intelligence",
+    "parsers",
+    "reports",
 ]
 
 # Top-level module prefixes that must NOT appear in any core file
@@ -117,8 +123,7 @@ def test_core_file_has_no_forbidden_imports(py_file: Path) -> None:
     violations = _check_file(py_file)
     assert violations == [], (
         "Core purity violation(s) found:\n" + "\n".join(violations) + "\n\n"
-        "Core modules (core/, accounting/, intelligence/, parsers/, reports/,\n"
-        "ledger_agent/core/) must never import cli.*, rich, click, typer,\n"
+        "ledger_agent/core/ must never import cli.*, rich, click, typer,\n"
         "requests, httpx, fastapi, flask, questionary, or colorama.\n"
         "Move the offending import to the cli/ or mcp/ layer instead."
     )
@@ -137,4 +142,20 @@ def test_core_has_no_forbidden_imports() -> None:
     assert all_violations == [], (
         f"{len(all_violations)} core purity violation(s):\n"
         + "\n".join(all_violations)
+    )
+
+
+def test_arch20_old_toplevel_packages_removed() -> None:
+    """ARCH-20 acceptance criterion: the old top-level package directories must
+    not exist.  All core logic has been physically moved into ledger_agent/core/.
+    If any of these directories are present the package carve-out is incomplete.
+    """
+    still_present = [
+        d for d in _BANNED_TOPLEVEL_DIRS
+        if (PROJECT_ROOT / d).is_dir()
+    ]
+    assert still_present == [], (
+        "ARCH-20 violation: the following top-level directories still exist and "
+        "must be removed (all core code now lives under ledger_agent/core/):\n"
+        + "\n".join(f"  {PROJECT_ROOT / d}" for d in still_present)
     )

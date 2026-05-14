@@ -4,8 +4,7 @@ import json
 import logging
 import sys
 import traceback
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -14,36 +13,68 @@ SERVER_VERSION = "2.1.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 
-# ---------------------------------------------------------------------------
-# Bootstrap: add repo root to sys.path so the package is importable when
-# run from the source checkout (not just when installed as a wheel).
-# ---------------------------------------------------------------------------
-
-def _bootstrap() -> None:
-    root = Path(__file__).resolve().parent.parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-
+# ARCH-20: _bootstrap() sys.path shim removed — ledger_agent is installed as an
+# editable package; all submodules are importable without path manipulation.
 
 # ---------------------------------------------------------------------------
-# Privacy firewall  (ARCH-07)
+# Privacy firewall (ARCH-07 / ARCH-22)
 # ---------------------------------------------------------------------------
+
+class PrivacyRedactionError(RuntimeError):
+    """Raised when redaction fails and allow_pii=False — fail-closed."""
+
 
 def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
+    try:
+        from ledger_agent.core.audit import audit
+    except Exception:
+        audit = None  # type: ignore
+
+    # BUG-M1 fix: API-key sweep runs UNCONDITIONALLY regardless of allow_pii.
+    # A misconfigured or compromised client must never pull API keys out of a
+    # tool response by flipping allow_pii=True.
+    try:
+        from ledger_agent.core.privacy import PrivacyLeakError as _PLE, _detect_api_keys
+        raw_for_keys = json.dumps(payload)
+        if _detect_api_keys(raw_for_keys):
+            if audit:
+                audit("mcp.redaction.api_key_hit",
+                      payload_size=len(raw_for_keys),
+                      allow_pii=allow_pii)
+            log.error("MCP: API key detected in tool response payload — response withheld")
+            raise PrivacyRedactionError("api_key_in_response")
+    except ImportError:
+        pass  # privacy module unavailable — degrade gracefully
+
     if allow_pii:
+        if audit:
+            audit("mcp.redaction.skipped", reason="allow_pii=true")
         return payload
 
     try:
-        from core.privacy import redact as _redact  # type: ignore[import]
+        from ledger_agent.core.privacy import redact as _redact  # type: ignore[import]
         raw = json.dumps(payload)
-        redacted_text, _ = _redact(raw, scope="mcp_response")
-        return json.loads(redacted_text)
+        redacted_text, _mapping = _redact(raw, scope="mcp_response")
+        # SMELL-M4 fix: validate that the redacted text is still valid JSON
+        # before returning.  A token placeholder that contains a JSON-breaking
+        # character (rare but possible if privacy.py is modified) would produce
+        # silently corrupted output.  The json.loads call below will raise
+        # JSONDecodeError which lands in the except branch → fail-closed.
+        result = json.loads(redacted_text)
+        if audit:
+            audit("mcp.redaction.applied",
+                  payload_size=len(raw),
+                  tokens_issued=len(_mapping))
+        return result
     except Exception as exc:
-        # Privacy library not available or failed — log and pass through.
-        # This is intentionally non-fatal so the server stays up, but we
-        # emit a WARNING so operators know redaction was skipped.
-        log.warning("Privacy redaction skipped: %s", exc)
-        return payload
+        # FAIL-CLOSED: redaction failure means we cannot prove the response is
+        # safe to emit. The response is withheld and the operator is alerted.
+        if audit:
+            audit("mcp.redaction.failed",
+                  error_type=type(exc).__name__,
+                  error_message=str(exc)[:200])
+        log.error("Privacy redaction FAILED (fail-closed): %s", exc)
+        raise PrivacyRedactionError(f"redaction_failed: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +95,6 @@ def _dispatch(msg: dict) -> Optional[dict]:
         return {"jsonrpc": "2.0", "id": msg_id,
                 "error": {"code": code, "message": message}}
 
-    # ── Lifecycle ────────────────────────────────────────────────────────────
     if method == "initialize":
         return _ok({
             "protocolVersion": PROTOCOL_VERSION,
@@ -73,27 +103,30 @@ def _dispatch(msg: dict) -> Optional[dict]:
         })
 
     if method in ("notifications/initialized", "initialized"):
-        return None  # notification — no response
+        return None
 
     if method == "ping":
         return _ok({}) if msg_id is not None else None
 
-    # ── Tool discovery ───────────────────────────────────────────────────────
     if method == "tools/list":
         return _ok({"tools": TOOL_SCHEMAS})
 
-    # ── Tool invocation ──────────────────────────────────────────────────────
     if method == "tools/call":
         tool_name = params.get("name", "")
         tool_args = params.get("arguments") or {}
-        # Check allow_pii opt-in from the _meta object
         meta = params.get("_meta") or {}
         allow_pii = bool(meta.get("allow_pii", False))
 
         try:
             raw_json = call_tool(tool_name, tool_args, allow_pii=allow_pii)
             raw_dict = json.loads(raw_json)
-            redacted = _redact_response(raw_dict, allow_pii=allow_pii)
+            try:
+                redacted = _redact_response(raw_dict, allow_pii=allow_pii)
+            except PrivacyRedactionError as pii_err:
+                # BUG-M2 fix: use _err so clients can programmatically distinguish
+                # "output blocked by redaction" from a tool-side error.
+                # -32000 = implementation-defined server error (JSON-RPC spec).
+                return _err(-32000, f"redaction_failed: {pii_err}")
             return _ok({
                 "content": [{"type": "text", "text": json.dumps(redacted, indent=2)}],
             })
@@ -104,54 +137,31 @@ def _dispatch(msg: dict) -> Optional[dict]:
                 "content": [{"type": "text", "text": str(exc)}],
                 "isError": True,
             })
-        except Exception:
+        except Exception as exc:
+            # SMELL-M3 fix: log full traceback server-side; send a sanitised
+            # error ID to the client so repo layout / dev usernames don't leak.
             tb = traceback.format_exc()
             log.error("Tool %r raised:\n%s", tool_name, tb)
+            import hashlib, time
+            err_id = hashlib.sha1(
+                f"{tool_name}{time.time()}".encode()
+            ).hexdigest()[:8]
             return _ok({
-                "content": [{"type": "text", "text": f"Internal error:\n{tb}"}],
+                "content": [{"type": "text",
+                              "text": f"Internal error (ref:{err_id}) — see server logs"}],
                 "isError": True,
             })
 
-    # ── Unknown method ───────────────────────────────────────────────────────
     if msg_id is not None:
         return _err(-32601, f"Method not found: {method!r}")
-    return None  # unknown notification — ignore
+    return None
 
 
 # ---------------------------------------------------------------------------
-# Transport: stdio
+# Transport: stdio (single canonical loop — ARCH-22)
 # ---------------------------------------------------------------------------
 
 def serve_stdio() -> None:
-    """Run the MCP server over stdin/stdout (newline-delimited JSON-RPC)."""
-    _bootstrap()
-    log.info("ledger-agent MCP stdio server ready (protocol %s)", PROTOCOL_VERSION)
-
-    from ledger_agent.mcp.transport_stdio import read_message, respond, error as err_out
-
-    while True:
-        try:
-            msg = read_message()
-            if msg is None:
-                break
-            response = _dispatch(msg)
-            if response is not None:
-                respond(response.get("id"), response.get("result") or response.get("error"))
-                # Re-send as full envelope so the client sees it correctly
-                import sys as _sys
-                _sys.stdout.write(json.dumps(response) + "\n")
-                _sys.stdout.flush()
-        except EOFError:
-            break
-        except json.JSONDecodeError:
-            err_out(None, -32700, "Parse error")
-        except Exception:
-            err_out(None, -32603, traceback.format_exc())
-
-
-def _serve_stdio_clean() -> None:
-    """Cleaner stdio loop that writes full JSON-RPC envelopes directly."""
-    _bootstrap()
     log.info("ledger-agent MCP stdio server ready (protocol %s)", PROTOCOL_VERSION)
 
     import sys as _sys
@@ -187,7 +197,6 @@ def _serve_stdio_clean() -> None:
 # ---------------------------------------------------------------------------
 
 def serve_http(host: str = "127.0.0.1", port: int = 7337) -> None:
-    _bootstrap()
     from ledger_agent.mcp.transport_http import serve_http as _http
 
     def _dispatch_sync(request: dict) -> dict:
@@ -208,19 +217,14 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="ledger-agent-mcp",
-        description="ledger-agent MCP server (ARCH-06)",
+        description="ledger-agent MCP server",
     )
     parser.add_argument(
         "--transport", choices=["stdio", "http"], default="stdio",
-        help="Transport to use (default: stdio)",
     )
-    parser.add_argument("--host", default="127.0.0.1",
-                        help="HTTP bind address (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=7337,
-                        help="HTTP port (default: 7337)")
-    parser.add_argument("--debug", action="store_true",
-                        help="Enable DEBUG logging to stderr")
-    # MCP Inspector passes --method / --cli flags — accept and ignore them
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7337)
+    parser.add_argument("--debug", action="store_true")
     parser.add_argument("--method", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--cli", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -229,7 +233,6 @@ def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=level,
                         format="%(levelname)s %(name)s: %(message)s")
 
-    # Load .env if present
     try:
         from dotenv import load_dotenv
         load_dotenv()
@@ -239,7 +242,7 @@ def main() -> None:
     if args.transport == "http":
         serve_http(host=args.host, port=args.port)
     else:
-        _serve_stdio_clean()
+        serve_stdio()
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from core.models import (
+from ledger_agent.core.models import (
     BalanceSheetLine,
     COAEntry, COAType, Entity, )
 

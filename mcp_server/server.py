@@ -160,8 +160,8 @@ def _handle_get_balance_sheet(args: Dict[str, Any]) -> Dict[str, Any]:
     if not period:
         return {"error": "period is required"}
 
-    from core.database import init_db, EntityRepo
-    from accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.database import init_db, EntityRepo
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
 
     init_db()
     entities = EntityRepo.list_all()
@@ -196,7 +196,7 @@ def _handle_list_transactions(args: Dict[str, Any]) -> Dict[str, Any]:
     period: Optional[str] = args.get("period")
     limit: int = int(args.get("limit", 100))
 
-    from core.database import init_db, TransactionRepo
+    from ledger_agent.core.database import init_db, TransactionRepo
     init_db()
 
     if period:
@@ -204,7 +204,7 @@ def _handle_list_transactions(args: Dict[str, Any]) -> Dict[str, Any]:
     else:
         txns = TransactionRepo.list_unclassified() or []
         if not txns:
-            from core.database import get_conn
+            from ledger_agent.core.database import get_conn
             with get_conn() as conn:
                 rows = conn.execute(
                     "SELECT * FROM transactions ORDER BY date DESC LIMIT ?", (limit,)
@@ -214,7 +214,7 @@ def _handle_list_transactions(args: Dict[str, Any]) -> Dict[str, Any]:
     # Redact transaction descriptions before returning to MCP client (R-46)
     # An MCP client may be Claude Desktop tunneled to a cloud model.
     try:
-        from core.privacy import redact as _redact
+        from ledger_agent.core.privacy import redact as _redact
     except Exception:
         _redact = None  # type: ignore[assignment]
 
@@ -247,9 +247,9 @@ def _handle_get_tax_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
     if not period:
         return {"error": "period is required"}
 
-    from core.database import init_db, EntityRepo
-    from accounting.balance_sheet import BalanceSheetBuilder
-    from accounting.tax_estimator import TaxEstimator
+    from ledger_agent.core.database import init_db, EntityRepo
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.accounting.tax_estimator import TaxEstimator
 
     init_db()
     entities = EntityRepo.list_all()
@@ -289,8 +289,8 @@ def _handle_classify_transaction(args: Dict[str, Any]) -> Dict[str, Any]:
     if not description:
         return {"error": "description is required"}
 
-    from core.database import init_db
-    from intelligence.classifier import suggest_classification
+    from ledger_agent.core.database import init_db
+    from ledger_agent.core.intelligence.classifier import suggest_classification
 
     init_db()
     result = suggest_classification(description)
@@ -305,7 +305,7 @@ def _handle_classify_transaction(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _handle_list_periods(args: Dict[str, Any]) -> Dict[str, Any]:
-    from core.database import init_db, SnapshotRepo, EntityRepo
+    from ledger_agent.core.database import init_db, SnapshotRepo, EntityRepo
     init_db()
 
     entities = EntityRepo.list_all()
@@ -319,7 +319,7 @@ def _handle_list_periods(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _handle_get_entity_summary(args: Dict[str, Any]) -> Dict[str, Any]:
-    from core.database import init_db, EntityRepo, AccountRepo, SnapshotRepo
+    from ledger_agent.core.database import init_db, EntityRepo, AccountRepo, SnapshotRepo
     init_db()
 
     entities = EntityRepo.list_all()
@@ -353,7 +353,7 @@ def _handle_get_entity_summary(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _handle_privacy_status(_args: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        from core.privacy import privacy_status
+        from ledger_agent.core.privacy import privacy_status
         return privacy_status()
     except Exception as exc:
         return {"error": str(exc)}

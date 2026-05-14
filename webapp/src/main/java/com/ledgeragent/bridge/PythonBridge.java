@@ -15,20 +15,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Manages the lifecycle of the Python subprocess that runs
+ * Manages the lifecycle of the Python subprocess running
  * {@code ledger_agent.bridge.jsonrpc_stdio} and exposes a typed API for the
  * six core ledger operations.
  *
- * <p>The subprocess is started once at Spring Boot startup
- * ({@link InitializingBean}) and stopped on shutdown ({@link DisposableBean}).
- * The process is kept alive across all requests to avoid the ~400 ms cold-start
- * cost on every HTTP call.
+ * The subprocess is started once at Spring Boot startup ({@link InitializingBean})
+ * and stopped on shutdown ({@link DisposableBean}). It is kept alive across all
+ * requests to avoid the ~400 ms cold-start cost on every HTTP call.
  *
- * <p>If the Python home is embedded in the fat jar, call
- * {@link #setPythonHome(Path)} before the bean is initialised; otherwise the
- * bridge resolves {@code python3} / {@code python} from {@code PATH}.
- *
- * <p>ARCH-08
+ * All typed methods default to {@code allowPii=false} (R-46). Callers that
+ * need raw PII must explicitly pass {@code allowPii=true}; the flag is forwarded
+ * through the JSON-RPC {@code _meta} envelope to the Python firewall.
  */
 @Component
 public class PythonBridge implements AutoCloseable, InitializingBean, DisposableBean {
@@ -40,20 +37,9 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
     private Process process;
     private JsonRpcClient client;
 
-    // ── Configuration ────────────────────────────────────────────────────────
-
-    /**
-     * Override the Python executable directory.  Call before {@link #afterPropertiesSet()}.
-     * If not set, the bridge searches {@code PATH} for {@code python3} or {@code python}.
-     *
-     * @param pythonHome directory containing the {@code python} executable
-     *                   (e.g. {@code /tmp/ledger-agent/py-abc123/bin/})
-     */
     public void setPythonHome(Path pythonHome) {
         this.pythonHome = pythonHome;
     }
-
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
     public void afterPropertiesSet() throws Exception {
@@ -65,12 +51,6 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
         close();
     }
 
-    /**
-     * Start the Python bridge subprocess.
-     *
-     * @throws IOException      if the process cannot be started
-     * @throws BridgeException  if the initial ping fails
-     */
     public synchronized void start() throws IOException, BridgeException {
         if (process != null && process.isAlive()) {
             log.debug("Python bridge already running (pid={})", process.pid());
@@ -86,16 +66,15 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
         log.info("Starting Python bridge: {}", String.join(" ", cmd));
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(false);  // keep stderr separate for logging
-        // Inherit the webapp's environment so FI_DB_PATH etc. are visible
-        pb.inheritIO().redirectInput(ProcessBuilder.Redirect.PIPE)
-                      .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                      .redirectError(ProcessBuilder.Redirect.INHERIT);
+        pb.redirectErrorStream(false);
+        pb.inheritIO()
+          .redirectInput(ProcessBuilder.Redirect.PIPE)
+          .redirectOutput(ProcessBuilder.Redirect.PIPE)
+          .redirectError(ProcessBuilder.Redirect.INHERIT);
 
         process = pb.start();
         client = new JsonRpcClient(process.getInputStream(), process.getOutputStream());
 
-        // Verify the process is responsive
         if (!client.ping()) {
             throw new BridgeException(
                     "Python bridge started but did not respond to ping. "
@@ -104,85 +83,92 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
         log.info("Python bridge ready (pid={})", process.pid());
     }
 
-    /**
-     * Send a raw JSON-RPC call to the Python bridge.
-     *
-     * @param method JSON-RPC method name
-     * @param params Method parameters (may be null for no-arg methods)
-     * @return The {@code result} node from the response
-     * @throws BridgeException on any error
-     */
+    // ── Raw call ─────────────────────────────────────────────────────────────
+
     public JsonNode call(String method, JsonNode params) throws BridgeException {
+        return call(method, params, false);
+    }
+
+    public JsonNode call(String method, JsonNode params, boolean allowPii) throws BridgeException {
         ensureAlive();
-        return client.call(method, params);
+        return client.call(method, params, allowPii);
     }
 
-    // ── Typed API (one method per core.api function) ─────────────────────────
+    // ── Typed API — allow_pii=false (safe defaults) ──────────────────────────
 
-    /**
-     * Call {@code generate_balance_sheet} for the given fiscal year.
-     *
-     * @param fiscalYear Four-digit year (e.g. 2024)
-     * @return JSON result node
-     * @throws BridgeException on any error
-     */
     public JsonNode generateBalanceSheet(int fiscalYear) throws BridgeException {
-        ObjectNode params = mapper.createObjectNode();
-        params.put("fiscal_year", fiscalYear);
-        return call("generate_balance_sheet", params);
+        return generateBalanceSheet(fiscalYear, false);
     }
 
-    /**
-     * Call {@code generate_form_1065} for the given fiscal year.
-     */
+    public JsonNode generateBalanceSheet(int fiscalYear, boolean allowPii) throws BridgeException {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("fiscal_year", fiscalYear);
+        return call("generate_balance_sheet", params, allowPii);
+    }
+
     public JsonNode generateForm1065(int fiscalYear) throws BridgeException {
-        ObjectNode params = mapper.createObjectNode();
-        params.put("fiscal_year", fiscalYear);
-        return call("generate_form_1065", params);
+        return generateForm1065(fiscalYear, false);
     }
 
-    /**
-     * Call {@code generate_k1} for the given fiscal year and partner.
-     *
-     * @param fiscalYear Four-digit year
-     * @param partnerId  "yash" or "parin"
-     */
+    public JsonNode generateForm1065(int fiscalYear, boolean allowPii) throws BridgeException {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("fiscal_year", fiscalYear);
+        return call("generate_form_1065", params, allowPii);
+    }
+
     public JsonNode generateK1(int fiscalYear, String partnerId) throws BridgeException {
+        return generateK1(fiscalYear, partnerId, false);
+    }
+
+    public JsonNode generateK1(int fiscalYear, String partnerId, boolean allowPii)
+            throws BridgeException {
         ObjectNode params = mapper.createObjectNode();
         params.put("fiscal_year", fiscalYear);
         params.put("partner_id", partnerId);
-        return call("generate_k1", params);
+        return call("generate_k1", params, allowPii);
     }
 
-    /**
-     * Call {@code pte_estimate} for the given fiscal year.
-     */
     public JsonNode pteEstimate(int fiscalYear) throws BridgeException {
-        ObjectNode params = mapper.createObjectNode();
-        params.put("fiscal_year", fiscalYear);
-        return call("pte_estimate", params);
+        return pteEstimate(fiscalYear, false);
     }
 
-    /**
-     * Call {@code reconcile_year} for the given fiscal year.
-     */
+    public JsonNode pteEstimate(int fiscalYear, boolean allowPii) throws BridgeException {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("fiscal_year", fiscalYear);
+        return call("pte_estimate", params, allowPii);
+    }
+
     public JsonNode reconcileYear(int fiscalYear) throws BridgeException {
-        ObjectNode params = mapper.createObjectNode();
-        params.put("fiscal_year", fiscalYear);
-        return call("reconcile_year", params);
+        return reconcileYear(fiscalYear, false);
     }
 
-    /**
-     * Call {@code import_statements} for the given folder path.
-     *
-     * @param folder        Absolute path to the statements folder
-     * @param allowPartial  Skip R-45 completeness gate
-     */
+    public JsonNode reconcileYear(int fiscalYear, boolean allowPii) throws BridgeException {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("fiscal_year", fiscalYear);
+        return call("reconcile_year", params, allowPii);
+    }
+
     public JsonNode importStatements(String folder, boolean allowPartial) throws BridgeException {
+        return importStatements(folder, allowPartial, false);
+    }
+
+    public JsonNode importStatements(String folder, boolean allowPartial, boolean allowPii)
+            throws BridgeException {
         ObjectNode params = mapper.createObjectNode();
         params.put("folder", folder);
         params.put("allow_partial", allowPartial);
-        return call("import_statements", params);
+        return call("import_statements", params, allowPii);
+    }
+
+    // ── Health check ─────────────────────────────────────────────────────────
+
+    public boolean ping() {
+        try {
+            ensureAlive();
+            return client.ping();
+        } catch (BridgeException e) {
+            return false;
+        }
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
@@ -200,16 +186,13 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
 
     private String resolvePython() {
         if (pythonHome != null) {
-            // Unix
             Path unix = pythonHome.resolve("bin/python3");
             if (unix.toFile().exists()) return unix.toString();
             Path unix2 = pythonHome.resolve("bin/python");
             if (unix2.toFile().exists()) return unix2.toString();
-            // Windows
             Path win = pythonHome.resolve("python.exe");
             if (win.toFile().exists()) return win.toString();
         }
-        // Fall back to PATH
         for (String candidate : new String[]{"python3", "python"}) {
             try {
                 Process check = new ProcessBuilder(candidate, "--version").start();

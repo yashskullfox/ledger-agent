@@ -66,7 +66,7 @@ def db(tmp_path):
     prev_db_path = os.environ.get("FI_DB_PATH")
     db_path = tmp_path / "test.db"
     os.environ["FI_DB_PATH"] = str(db_path)
-    from core.database import init_db
+    from ledger_agent.core.database import init_db
     init_db()
     yield db_path
     # Restore the session-level DB path so subsequent tests are not affected.
@@ -82,7 +82,7 @@ def db(tmp_path):
 @pytest.fixture
 def make_entity():
     def _make(name="TEST LLC", entity_type="LLC", state="MO"):
-        from core.models import Entity
+        from ledger_agent.core.models import Entity
         return Entity(name=name, entity_type=entity_type, state=state)
 
     return _make
@@ -92,7 +92,7 @@ def make_entity():
 def make_account(make_entity):
     def _make(entity_id=None, name="Business Checking", institution="Truist Bank",
               account_type=None):
-        from core.models import Account, AccountType
+        from ledger_agent.core.models import Account, AccountType
         return Account(
             entity_id=entity_id or "test-entity-id",
             name=name,
@@ -113,7 +113,7 @@ def make_transaction():
             amount="-30.00",
             coa_code=None,
     ):
-        from core.models import Transaction, TransactionType
+        from ledger_agent.core.models import Transaction, TransactionType
         from datetime import date
         y, m, d = date_str.split("-")
         return Transaction(
@@ -134,7 +134,7 @@ def make_transaction():
 def make_position():
     def _make(account_id="test-acct-id", symbol="SNAP", quantity="3000",
               price="11.29", period="2025-01"):
-        from core.models import Position
+        from ledger_agent.core.models import Position
         qty = Decimal(quantity)
         ppu = Decimal(price)
         return Position(

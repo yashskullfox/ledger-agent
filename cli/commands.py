@@ -14,12 +14,12 @@ from cli.prompts import (
     prompt_classify, prompt_statement_file, wizard_entity,
 )
 from config import STATEMENTS_DIR
-from core.database import (
+from ledger_agent.core.database import (
     AccountRepo, EntityRepo, ImportRegistry, PositionRepo,
     SnapshotRepo, TransactionRepo, init_db,
 )
-from core.exceptions import ParserNotFoundError
-from core.models import Account, AccountType, Entity, StatementType
+from ledger_agent.core.exceptions import ParserNotFoundError
+from ledger_agent.core.models import Account, AccountType, Entity, StatementType
 
 
 def cmd_setup() -> Entity:
@@ -82,10 +82,10 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     pdf_path = Path(pdf_path)
     print_info(f"Reading PDF: {pdf_path.name} …")
 
-    import parsers  # noqa: F401  – triggers auto-discovery in parsers/__init__.py
-    from parsers.registry import ParserRegistry
+    import ledger_agent.core.parsers  # noqa: F401  – triggers auto-discovery in parsers/__init__.py
+    from ledger_agent.core.parsers.registry import ParserRegistry
 
-    from parsers.base import BaseStatementParser
+    from ledger_agent.core.parsers.base import BaseStatementParser
     raw_text = BaseStatementParser.extract_text(pdf_path)
 
     try:
@@ -140,7 +140,7 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
         SnapshotRepo.upsert(stmt.snapshot)
         print_info(f"  → Snapshot saved (ending balance: ${stmt.snapshot.ending_balance:,.2f})")
 
-    from intelligence.classifier import classify_batch
+    from ledger_agent.core.intelligence.classifier import classify_batch
     txns_to_classify = [t for t in stmt.transactions if not t.coa_code]
     if txns_to_classify:
         print_info(f"\nClassifying {len(txns_to_classify)} transactions…")
@@ -150,7 +150,7 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
         print_info("  → All transactions pre-classified.")
 
     all_txns = TransactionRepo.list_for_period(stmt.statement_period)
-    from intelligence.reconciler import reconcile
+    from ledger_agent.core.intelligence.reconciler import reconcile
     matches, unmatched = reconcile(all_txns)
     if matches:
         print_success(f"Reconciled {len(matches)} inter-account transfer(s).")
@@ -182,10 +182,10 @@ def cmd_balance_sheet(period: Optional[str] = None) -> None:
             default=periods[0],
         )
 
-    from accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
     bs = BalanceSheetBuilder(entity.id, period).build()
 
-    from reports.renderer import render_balance_sheet
+    from ledger_agent.core.reports.renderer import render_balance_sheet
     render_balance_sheet(bs)
 
     # Export options
@@ -195,16 +195,16 @@ def cmd_balance_sheet(period: Optional[str] = None) -> None:
         default="No thanks",
     )
     if export == "CSV":
-        from reports.renderer import export_balance_sheet_csv
+        from ledger_agent.core.reports.renderer import export_balance_sheet_csv
         path = export_balance_sheet_csv(bs)
         print_success(f"Saved: {path}")
     elif export == "Excel (.xlsx)":
-        from reports.renderer import export_balance_sheet_excel
+        from ledger_agent.core.reports.renderer import export_balance_sheet_excel
         path = export_balance_sheet_excel(bs)
         if path:
             print_success(f"Saved: {path}")
     elif export == "JSON":
-        from reports.renderer import export_balance_sheet_json
+        from ledger_agent.core.reports.renderer import export_balance_sheet_json
         path = export_balance_sheet_json(bs)
         print_success(f"Saved: {path}")
 
@@ -226,11 +226,11 @@ def cmd_transactions(period: Optional[str] = None) -> None:
         period = ask_select("Select period:", choices=periods, default=periods[0])
 
     txns = TransactionRepo.list_for_period(period)
-    from reports.renderer import render_transactions
+    from ledger_agent.core.reports.renderer import render_transactions
     render_transactions(txns, title=f"Transactions  –  {period}")
 
     if ask_confirm("Export to CSV?", default=False):
-        from reports.renderer import export_transactions_csv
+        from ledger_agent.core.reports.renderer import export_transactions_csv
         path = export_transactions_csv(txns, period)
         print_success(f"Saved: {path}")
 
@@ -238,21 +238,21 @@ def cmd_transactions(period: Optional[str] = None) -> None:
 def cmd_classify() -> None:
     """Interactively classify any unclassified transactions."""
     init_db()
-    from core.database import TransactionRepo
+    from ledger_agent.core.database import TransactionRepo
     unclassified = TransactionRepo.list_unclassified()
     if not unclassified:
         print_success("All transactions are classified!")
         return
 
     print_info(f"{len(unclassified)} unclassified transactions.")
-    from intelligence.classifier import classify_batch
+    from ledger_agent.core.intelligence.classifier import classify_batch
     classify_batch(unclassified, prompt_fn=prompt_classify)
     print_success("Classification pass complete.")
 
 
 def cmd_memory() -> None:
     """Show and manage the classification memory (learned rules)."""
-    from intelligence.memory import get_memory
+    from ledger_agent.core.intelligence.memory import get_memory
     memory = get_memory()
     rules = memory.list_rules()
     if not rules:
@@ -304,7 +304,7 @@ def cmd_mom_summary() -> None:
         print_warning("No data available.")
         return
 
-    from accounting.balance_sheet import build_comparison
+    from ledger_agent.core.accounting.balance_sheet import build_comparison
     sheets = build_comparison(entity.id, all_periods)
 
     try:

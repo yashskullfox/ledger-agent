@@ -47,9 +47,9 @@ def build_context(
       - summary: high-level KPIs
       - ai_instructions: system prompt snippet for LLMs
     """
-    from core.database import EntityRepo, SnapshotRepo, TransactionRepo
-    from accounting.balance_sheet import BalanceSheetBuilder
-    from accounting.tax_estimator import TaxEstimator
+    from ledger_agent.core.database import EntityRepo, SnapshotRepo, TransactionRepo
+    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.accounting.tax_estimator import TaxEstimator
 
     # Resolve entity
     entities = EntityRepo.list_all()
@@ -135,7 +135,7 @@ def build_context(
     if include_transactions:
         txns = TransactionRepo.list_for_period(period)
         try:
-            from core.privacy import redact as _redact
+            from ledger_agent.core.privacy import redact as _redact
         except Exception:
             _redact = None  # type: ignore[assignment]
 
@@ -159,7 +159,7 @@ def build_context(
 
     # Optionally include positions
     if include_positions:
-        from core.database import AccountRepo, PositionRepo
+        from ledger_agent.core.database import AccountRepo, PositionRepo
         accounts = AccountRepo.list_for_entity(entity_id)
         all_positions = []
         for acct in accounts:

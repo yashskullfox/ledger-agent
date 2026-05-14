@@ -9,8 +9,8 @@ deployment forms (A/B/C/D).
 Sub-modules
 -----------
 ledger_agent.core.api        Six public functions — the stable interface
-ledger_agent.core.models     Dataclass models (re-exported from core.models)
-ledger_agent.core.db         SQLite repositories (re-exported from core.database)
+ledger_agent.core.models     Dataclass models (re-exported from ledger_agent.core.models)
+ledger_agent.core.db         SQLite repositories (re-exported from ledger_agent.core.database)
 ledger_agent.core.parsers    PDF statement parser plugins
 ledger_agent.core.accounting Balance sheet + tax estimation
 ledger_agent.core.reports    Console / CSV / JSON rendering

@@ -13,15 +13,13 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * JSON-RPC 2.0 client that communicates with a Python subprocess over stdio.
  *
- * <p>Wire format: one newline-delimited JSON object per message (same framing
- * as the MCP stdio transport).  The client sends a request and blocks until
+ * Wire format: one newline-delimited JSON object per message (same framing
+ * as the MCP stdio transport). The client sends a request and blocks until
  * the matching response arrives.
  *
- * <p>Thread safety: each call acquires a unique id; concurrent calls on the
- * same client are serialised by {@code synchronized} on the writer.  For
+ * Thread safety: each call acquires a unique id; concurrent calls on the
+ * same client are serialised by {@code synchronized} on the writer. For
  * high-concurrency use, create one client per thread or use a connection pool.
- *
- * <p>ARCH-08
  */
 public class JsonRpcClient implements Closeable {
 
@@ -34,12 +32,6 @@ public class JsonRpcClient implements Closeable {
     private final AtomicLong idSeq = new AtomicLong(1);
     private volatile boolean closed = false;
 
-    /**
-     * Create a JSON-RPC client from an already-started process's streams.
-     *
-     * @param processIn  stdout of the Python subprocess (we read from it)
-     * @param processOut stdin of the Python subprocess (we write to it)
-     */
     public JsonRpcClient(InputStream processIn, OutputStream processOut) {
         this.mapper = new ObjectMapper();
         this.writer = new PrintWriter(
@@ -49,17 +41,38 @@ public class JsonRpcClient implements Closeable {
     }
 
     /**
-     * Send a JSON-RPC 2.0 request and block until the response arrives.
-     *
-     * @param method JSON-RPC method name (e.g. {@code "generate_balance_sheet"})
-     * @param params Method parameters as a {@link JsonNode}
-     * @return The {@code result} field from the response
-     * @throws BridgeException if the response contains an {@code error} field,
-     *                         the process is not running, or the call times out
+     * Send a JSON-RPC request with {@code allow_pii=false} (safe default).
      */
-    public synchronized JsonNode call(String method, JsonNode params) throws BridgeException {
+    public JsonNode call(String method, JsonNode params) throws BridgeException {
+        return call(method, params, false);
+    }
+
+    /**
+     * Send a JSON-RPC request, optionally injecting {@code _meta.allow_pii}.
+     *
+     * @param allowPii when true, injects {@code {"_meta":{"allow_pii":true}}} into
+     *                 the params object so the Python bridge passes PII through the
+     *                 redaction firewall (R-46). Default: false.
+     */
+    public synchronized JsonNode call(String method, JsonNode params, boolean allowPii)
+            throws BridgeException {
         if (closed) {
             throw new BridgeException("JsonRpcClient is closed");
+        }
+
+        ObjectNode effectiveParams = params instanceof ObjectNode
+                ? (ObjectNode) params.deepCopy()
+                : mapper.createObjectNode();
+
+        if (params != null && !(params instanceof ObjectNode)) {
+            // Merge non-object params — should not happen in practice
+            effectiveParams = mapper.createObjectNode();
+        }
+
+        if (allowPii) {
+            ObjectNode meta = mapper.createObjectNode();
+            meta.put("allow_pii", true);
+            effectiveParams.set("_meta", meta);
         }
 
         long id = idSeq.getAndIncrement();
@@ -67,7 +80,7 @@ public class JsonRpcClient implements Closeable {
         request.put("jsonrpc", "2.0");
         request.put("id", id);
         request.put("method", method);
-        request.set("params", params != null ? params : mapper.createObjectNode());
+        request.set("params", effectiveParams);
 
         try {
             String line = mapper.writeValueAsString(request);
@@ -77,7 +90,6 @@ public class JsonRpcClient implements Closeable {
                 throw new BridgeException("Write error — Python process may have exited");
             }
 
-            // Read lines until we find the response with matching id
             long deadline = System.currentTimeMillis() + DEFAULT_TIMEOUT_MS;
             while (System.currentTimeMillis() < deadline) {
                 String responseLine = reader.readLine();
@@ -92,7 +104,6 @@ public class JsonRpcClient implements Closeable {
                 JsonNode response = mapper.readTree(responseLine);
                 JsonNode responseId = response.get("id");
                 if (responseId == null || responseId.asLong() != id) {
-                    // Not our response (could be a notification) — skip
                     log.debug("Skipping response id={}", responseId);
                     continue;
                 }
@@ -112,11 +123,6 @@ public class JsonRpcClient implements Closeable {
         }
     }
 
-    /**
-     * Send a {@code ping} and verify the Python process responds.
-     *
-     * @return {@code true} if the process is alive
-     */
     public boolean ping() {
         try {
             JsonNode result = call("ping", null);

@@ -9,6 +9,8 @@
 *.env
 .env.local
 .env.*.local
+# Kubernetes Secret files — template is safe to commit; populated file is not
+k8s/secret.yaml
 
 # ── PDF statement files — NEVER commit real bank statements ──────────────────
 # (catch-all regardless of location in the repo)
@@ -126,6 +128,11 @@ debug_*.py
 scratch_*.py
 test_manual_*.py
 explore_*.py
+
+# ── CPA corpus files — real financial figures, NEVER commit ──────────────────
+# These live in statements/ but contain real Form 1065 / K-1 aggregates.
+# Populated locally or from the FI_CPA_CORPUS_2024 GitHub secret.
+statements/
 
 # ── Plan files (Wibey AI planning artifacts) ──────────────────────────────────
 *.plan.md
