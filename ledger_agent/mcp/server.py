@@ -5,7 +5,7 @@ import logging
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -28,11 +28,45 @@ class PrivacyRedactionError(RuntimeError):
     """Raised when redaction fails and allow_pii=False — fail-closed."""
 
 
+def _redact_struct(obj, redact_fn):
+    """
+    SMELL-M4 fix: walk a JSON-compatible object recursively, redacting all
+    string leaf values in place.  Avoids the json.dumps → regex → json.loads
+    round-trip that can silently corrupt JSON when a redaction token or the
+    original value contains characters that change JSON structure (e.g. `"`).
+
+    Preserves dict insertion order (Python 3.7+ guarantee) for deterministic
+    downstream consumers.  Non-string scalars (int, float, bool, None) pass
+    through unchanged.
+    """
+    if isinstance(obj, str):
+        result, _ = redact_fn(obj, scope="mcp_response")
+        return result
+    if isinstance(obj, dict):
+        return {k: _redact_struct(v, redact_fn) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_struct(item, redact_fn) for item in obj]
+    return obj  # int, float, bool, None — pass through unchanged
+
+
 def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
     try:
         from core.audit import audit
     except Exception:
         audit = None  # type: ignore
+
+    # Always sweep for API keys — even allow_pii=True must not leak credentials
+    # (ARCH-22 / BUG-M1).
+    try:
+        from core.privacy import _detect_api_keys  # type: ignore[import]
+        api_hits = _detect_api_keys(json.dumps(payload))
+        if api_hits:
+            raise PrivacyRedactionError(
+                "API key detected in payload — blocked even with allow_pii=True")
+    except PrivacyRedactionError:
+        raise
+    except Exception:
+        pass  # privacy module unavailable — fall through to full redaction path
 
     if allow_pii:
         if audit:
@@ -41,13 +75,16 @@ def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
 
     try:
         from core.privacy import redact as _redact  # type: ignore[import]
-        raw = json.dumps(payload)
-        redacted_text, _mapping = _redact(raw, scope="mcp_response")
+        raw_size = len(json.dumps(payload))  # size metric only — not used for redaction
+        # SMELL-M4 fix: structural walk instead of json.dumps → regex → json.loads.
+        # The old approach could silently corrupt the response if a redaction token
+        # or original value contained JSON-significant characters (e.g. `"`).
+        redacted = _redact_struct(payload, _redact)
         if audit:
             audit("mcp.redaction.applied",
-                  payload_size=len(raw),
-                  tokens_issued=len(_mapping))
-        return json.loads(redacted_text)
+                  payload_size=raw_size,
+                  tokens_issued=0)  # structural walk doesn't return a unified mapping
+        return redacted
     except Exception as exc:
         # FAIL-CLOSED: redaction failure means we cannot prove the response is
         # safe to emit. The response is withheld and the operator is alerted.
@@ -105,10 +142,7 @@ def _dispatch(msg: dict) -> Optional[dict]:
             try:
                 redacted = _redact_response(raw_dict, allow_pii=allow_pii)
             except PrivacyRedactionError as pii_err:
-                return _ok({
-                    "content": [{"type": "text", "text": "redaction_failed"}],
-                    "isError": True,
-                })
+                return _err(-32000, "redaction_failed")
             return _ok({
                 "content": [{"type": "text", "text": json.dumps(redacted, indent=2)}],
             })
@@ -121,9 +155,12 @@ def _dispatch(msg: dict) -> Optional[dict]:
             })
         except Exception:
             tb = traceback.format_exc()
+            # SMELL-M3: never return the full traceback to the client — it
+            # leaks file paths, module structure, and internal state.
+            # Full tb is logged server-side; client gets a sanitised message.
             log.error("Tool %r raised:\n%s", tool_name, tb)
             return _ok({
-                "content": [{"type": "text", "text": f"Internal error:\n{tb}"}],
+                "content": [{"type": "text", "text": "Internal error (see server log)"}],
                 "isError": True,
             })
 

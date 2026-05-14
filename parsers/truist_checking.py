@@ -199,8 +199,10 @@ class TruistCheckingParser(BaseStatementParser):
             d = self.parse_date(raw_date, year)
             amt = self.parse_amount(amt_str)
             if d and amt is not None:
+                desc_up = desc.upper()
                 txn_type = TransactionType.TRANSFER_IN \
-                    if "MONEYLINE" in desc.upper() \
+                    if ("MONEYLINE" in desc_up or "INTERACTIVE BROK" in desc_up
+                        or "ACH TRANSF" in desc_up) \
                     else TransactionType.CREDIT
                 txns.append(Transaction(
                     account_id="",
@@ -269,4 +271,7 @@ class TruistCheckingParser(BaseStatementParser):
             return TransactionType.TAX
         if "TRAN FEE" in desc_up or "SERVICE CHARGE" in desc_up:
             return TransactionType.FEE
+        # Inter-account transfers to brokerages
+        if "INTERACTIVE BROK" in desc_up or "ACH TRANSF" in desc_up:
+            return TransactionType.TRANSFER_OUT
         return TransactionType.DEBIT

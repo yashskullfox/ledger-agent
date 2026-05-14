@@ -1,0 +1,43 @@
+# redaction.allowlist — paths whose hits are suppressed by the scanner.
+# One path (relative to repo root) per line.  Lines starting with # are comments.
+#
+# Add paths here when:
+#   1. The file intentionally contains institution names (parsers, config)
+#   2. The file is a test fixture designed to exercise privacy detection
+#   3. The scanner produces false positives (e.g. version numbers matching digit patterns)
+#
+# ── Parser files — must reference institution names to parse statements ─────────
+parsers/truist_checking.py
+parsers/fidelity_brokerage.py
+parsers/base.py
+parsers/ibkr.py
+config.py
+
+# ── Scanner infrastructure — contains PII patterns intentionally ─────────────────
+core/privacy_allowlist.txt
+ledger_agent/core/privacy_allowlist.txt
+
+# ── Package manifests — version strings match digit-sequence pattern ──────────────
+pyproject.toml
+requirements.txt
+packaging/core/pyproject.toml
+
+# ── Documentation — institution names are necessary context ──────────────────────
+packaging/core/README.md
+DISCOVER.md
+README.md
+STRUCTURE.md
+
+# ── Test infrastructure — fixtures exercise parser/privacy detection ──────────────
+tests/conftest.py
+tests/test_privacy.py
+tests/test_models.py
+tests/test_balance_sheet.py
+tests/test_onboarding.py
+tests/integration/test_mcp_privacy.py
+_trading_report.py
+webapp/src/test/java/com/ledgeragent/api/ApiControllerIT.java
+tests/test_parsers.py
+
+# ── CI/CD workflows — shell script path-glob patterns trigger false positives ────
+.github/workflows/release.yml

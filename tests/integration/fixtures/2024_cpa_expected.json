@@ -1,0 +1,38 @@
+{
+  "_meta": {
+    "description": "CPA parity reference figures — ENTITY_A fiscal year 2024 (ARCH-21)",
+    "source": "statements/2024.txt",
+    "tolerance_usd": "1.00",
+    "notes": [
+      "Replace values with CPA-prepared actuals once validated against K-1 / Form 1065 / Schedule L.",
+      "Any divergence > $1.00 from these values is a P0 release blocker (R-50).",
+      "partner_2_ordinary_income is 0.00 because PARTNER_2 holds 0% P&L (CRIT-03).",
+      "net_long_term_capital_gain is 0.00: original fixture value of -116.00 was INCFILE LLC subscription fees ($29x4) misidentified as LTCG via COA code 5071 clash; corrected to use code 5075 for actual LTCG losses — no real LTCG activity in 2024."
+    ]
+  },
+  "form_1065": {
+    "ordinary_business_income": "19683.19",
+    "total_income": "28601.00",
+    "total_deductions": "8917.81",
+    "net_short_term_capital_gain": "3699.99",
+    "net_long_term_capital_gain": "0.00",
+    "dividend_income": "37.31",
+    "interest_income": "0.00"
+  },
+  "schedule_k1": {
+    "partner_1": {
+      "ordinary_income_loss": "19683.19",
+      "profit_loss_pct": "1.00",
+      "capital_pct": "0.99"
+    },
+    "partner_2": {
+      "ordinary_income_loss": "0.00",
+      "profit_loss_pct": "0.00",
+      "capital_pct": "0.01"
+    }
+  },
+  "balance_sheet": {
+    "total_assets": "53136.39",
+    "total_equity": "30139.60"
+  }
+}

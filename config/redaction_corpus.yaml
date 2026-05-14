@@ -1,0 +1,188 @@
+# config/redaction_corpus.yaml  –  Pseudonym corpus + redaction policy (ARCH-33)
+# ============================================================================
+# Single source of truth for what counts as a redactable identifier in
+# committed artefacts and the standardised replacement tokens.
+#
+# Used by:
+#   scripts/check_doc_redaction.py   (ARCH-34 scanner)
+#   hooks/pre-commit                 (ARCH-35)
+#   .github/workflows/doc-redaction.yml  (ARCH-36)
+#
+# Inline allow-list:  append "  # redaction: allow" on a line to suppress
+#                     the scanner for that specific occurrence.
+# File allow-list:    list paths in redaction.allowlist (one per line).
+#
+# Privacy notice: this file MUST NOT contain real entity names, partner names,
+# bank names, broker names, tickers, or account numbers.  Pseudonyms only.
+# ============================================================================
+
+schema_version: "1"
+
+# ---------------------------------------------------------------------------
+# Replacement tokens (authoritative — scanner treats these as safe output)
+# ---------------------------------------------------------------------------
+replacement_tokens:
+  entity: "ENTITY_A"
+  entity_b: "ENTITY_B"
+  partner_1: "PARTNER_1"
+  partner_2: "PARTNER_2"
+  bank: "BANK_X"
+  broker_primary: "BROKER_Y"
+  broker_secondary: "BROKER_Z"
+  ticker_1: "TICKER_SEC1"
+  ticker_2: "TICKER_SEC2"
+  account: "acct_****"          # + last-4 suffix
+  financial_small: "~$X,XXX"
+  financial_medium: "~$XX,XXX"
+  financial_large: "~$XXX,XXX"
+  financial_redacted: "[REDACTED:cash]"
+  capital_redacted: "[REDACTED:capital]"
+
+# ---------------------------------------------------------------------------
+# Entities — legal / trade names that must never appear in committed docs
+# ---------------------------------------------------------------------------
+entities:
+  - real: "SYNCED LLC"
+    token: "ENTITY_A"
+  - real: "Synced LLC"
+    token: "ENTITY_A"
+  - real: "SYNCED"
+    token: "ENTITY_A"
+
+# ---------------------------------------------------------------------------
+# Partners — individual names
+# ---------------------------------------------------------------------------
+partners:
+  - real: "Yash N Patel"
+    token: "PARTNER_1"
+  - real: "Yash Patel"
+    token: "PARTNER_1"
+  - real: "Parin R Shah"
+    token: "PARTNER_2"
+  - real: "Parin Shah"
+    token: "PARTNER_2"
+
+# ---------------------------------------------------------------------------
+# Banks / financial institutions
+# ---------------------------------------------------------------------------
+banks:
+  - real: "Truist"
+    token: "BANK_X"
+  - real: "Truist Bank"
+    token: "BANK_X"
+
+# ---------------------------------------------------------------------------
+# Brokers / investment platforms
+# ---------------------------------------------------------------------------
+brokers:
+  - real: "Fidelity"
+    token: "BROKER_Y"
+  - real: "Fidelity Investments"
+    token: "BROKER_Y"
+  - real: "FIDELITY"
+    token: "BROKER_Y"
+  - real: "Interactive Brokers"
+    token: "BROKER_Z"
+  - real: "INTERACTIVE BROK"
+    token: "BROKER_Z"
+
+# ---------------------------------------------------------------------------
+# Tickers / security symbols
+# ---------------------------------------------------------------------------
+tickers:
+  # Example:
+  #   - real: "ACME"
+  #     token: "TICKER_SEC1"
+  []
+
+# ---------------------------------------------------------------------------
+# Account-number patterns (regex applied to committed text)
+# ---------------------------------------------------------------------------
+account_number_patterns:
+  # Full account numbers — flagged regardless of context
+  - pattern: '\b\d{8,17}\b'
+    description: "8–17 consecutive digits (likely account number)"
+    context_exempt: true       # flag without requiring a nearby noun
+
+  # Routing numbers (9-digit ABA)
+  - pattern: '\b\d{9}\b'
+    description: "9-digit sequence (possible ABA routing number)"
+    context_exempt: false      # only flag near routing/ABA/transit context
+
+  # Last-4 masked — safe, do not flag
+  # Pattern: \*{3,}\d{4}  →  allowed
+
+# ---------------------------------------------------------------------------
+# Path patterns — statement/data file paths that expose structure
+# ---------------------------------------------------------------------------
+path_patterns:
+  - pattern: 'statements/[^/\s]+\.pdf'
+    description: "Literal statement file path"
+  - pattern: 'data/db/[^/\s]+\.db'
+    description: "Database file path"
+  - pattern: 'data/exports/[^/\s]+'
+    description: "Export artefact path"
+
+# ---------------------------------------------------------------------------
+# Financial figures — cent-precision amounts near financial nouns (R-74)
+# ---------------------------------------------------------------------------
+financial_figures:
+  # Regex for cent-precision dollar figures
+  pattern: '\$[\d,]+\.\d{2}\b|\b[\d,]+\.\d{2}\s*(?:USD|dollars?)\b'
+  # Financial nouns that, if within 5 tokens, make the figure redactable
+  proximity_nouns:
+    - balance
+    - cash
+    - equity
+    - capital
+    - dividend
+    - proceeds
+    - "cost basis"
+    - beginning
+    - ending
+    - subscription
+    - redemption
+    - NAV
+    - income
+    - revenue
+    - profit
+    - loss
+    - deduction
+    - assets
+    - liabilities
+  # Window size in tokens (approximate)
+  proximity_window: 5
+
+# ---------------------------------------------------------------------------
+# System words — always allowed (never flagged)
+# ---------------------------------------------------------------------------
+system_words:
+  - HTTP
+  - HTTPS
+  - JSON
+  - JSON-RPC
+  - MCP
+  - SQL
+  - SQLite
+  - REST
+  - API
+  - CLI
+  - PDF
+  - LLC     # generic entity type — do not flag the abbreviation itself
+  - EIN     # the label itself is fine; only flag a NN-NNNNNNN near EIN
+  - SSN
+  - TIN
+  - IRS
+  - CPA
+  - K-1
+  - 1065
+  - 1099
+  - W-9
+  - GAAP
+  - COA
+  - MO      # state abbreviation
+  - P0
+  - P1
+  - P2
+  - R-46
+  - ARCH

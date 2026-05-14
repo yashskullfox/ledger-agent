@@ -154,8 +154,8 @@ def make_position():
 
 TRUIST_SAMPLE_TEXT = """\
 TRUIST BANK
-SYNCED LLC
-SIMPLE BUSINESS CHECKING  1470018610272
+SAMPLE ENTITY LLC
+SIMPLE BUSINESS CHECKING  0000000000001
 For 01/31/2025
 
 Account Summary
@@ -181,10 +181,10 @@ Total deposits, credits $3,951.00
 
 FIDELITY_SAMPLE_TEXT = """\
 FIDELITY BROKERAGE SERVICES LLC
-Fidelity Account Z23-123456
+Fidelity Account Z99-999999
 INVESTMENT REPORT
 For Period January 1, 2025 – January 31, 2025
-SYNCED LLC
+SAMPLE ENTITY LLC
 
 Account Value (NAV):  $35,438.80
 Margin Balance:       $(24,061.20)
@@ -196,7 +196,7 @@ CASH                                  $1,630.00
 
 CHASE_SAMPLE_TEXT = """\
 JPMorgan Chase Bank, N.A.
-SYNCED LLC
+SAMPLE ENTITY LLC
 BUSINESS COMPLETE CHECKING  (...1234)
 January 1, 2025 through January 31, 2025
 
@@ -222,7 +222,7 @@ Ending balance                                         $4,207.00
 
 BOFA_SAMPLE_TEXT = """\
 Bank of America
-SYNCED LLC
+SAMPLE ENTITY LLC
 Business Checking (...5678)
 Statement Period: 01/01/2025 – 01/31/2025
 
@@ -246,7 +246,7 @@ IBKR_SAMPLE_TEXT = """\
 Interactive Brokers LLC
 Activity Statement
 Account: U1234567
-SYNCED LLC
+SAMPLE ENTITY LLC
 Period: January 1, 2025 - January 31, 2025
 
 Trades
@@ -287,7 +287,7 @@ Ending Balance: $1,049.56
 USBANK_CC_SAMPLE_TEXT = """\
 U.S. Bank
 Business Triple Cash Rewards Visa Card
-Cardmember: SYNCED LLC
+Cardmember: SAMPLE ENTITY LLC
 Account: ****4594
 Statement Period: 02/01/2026 - 02/28/2026
 

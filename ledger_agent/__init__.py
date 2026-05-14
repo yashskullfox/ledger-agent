@@ -1,5 +1,5 @@
 """
-ledger_agent  –  SYNCED LLC financial intelligence engine
+ledger_agent  –  partnership financial intelligence engine
 ==========================================================
 
 Four deployment forms, one source tree:

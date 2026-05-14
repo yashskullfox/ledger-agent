@@ -211,6 +211,7 @@ def export_balance_sheet_csv(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> P
     with open(fname, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Entity", bs.entity_name])
+        writer.writerow(["EntityID", bs.entity_id])  # ARCH-30: scope artefact to entity
         writer.writerow(["Period", bs.period])
         writer.writerow(["Generated", datetime.now().isoformat()])
         writer.writerow([])
@@ -331,6 +332,7 @@ def export_balance_sheet_json(bs: BalanceSheet,
     out_dir.mkdir(parents=True, exist_ok=True)
     fname = out_dir / f"balance_sheet_{bs.period}.json"
     payload = {
+        "entity_id": bs.entity_id,  # ARCH-30: scope artefact to entity
         "entity_name": bs.entity_name,
         "period": bs.period,
         "generated_at": datetime.now().isoformat(),
@@ -352,7 +354,61 @@ def export_balance_sheet_json(bs: BalanceSheet,
         ],
     }
     fname.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # ARCH-26: emit coverage manifest alongside every balance sheet export
+    _emit_coverage_manifest(bs, out_dir)
     return fname
+
+
+def _emit_coverage_manifest(bs: BalanceSheet, out_dir: Path) -> Path:
+    """ARCH-26: Write a sibling *.coverage.json listing consumed/skipped snapshots.
+
+    The manifest is consumed by the 12-month gate (R-45) to detect silent drops.
+    Any account that has a snapshot for the period is "consumed"; accounts without
+    a snapshot for this period are "skipped" (AggregationGap warning).
+    """
+    try:
+        from core.database import AccountRepo, SnapshotRepo
+        accounts = AccountRepo.list_for_entity(bs.entity_id) if bs.entity_id else []
+        snapshots_for_period = {
+            s.account_id
+            for s in SnapshotRepo.list_for_entity(bs.entity_id)
+            if s.statement_period == bs.period
+        } if bs.entity_id else set()
+
+        consumed = []
+        skipped = []
+        for acct in accounts:
+            entry = {"account_id": acct.id, "institution": acct.institution,
+                     "name": acct.name, "period": bs.period}
+            if acct.id in snapshots_for_period:
+                consumed.append(entry)
+            else:
+                skipped.append({**entry, "reason": "AggregationGap: no snapshot for period"})
+
+        manifest = {
+            "entity_id": bs.entity_id,
+            "entity_name": bs.entity_name,
+            "period": bs.period,
+            "generated_at": datetime.now().isoformat(),
+            "consumed_snapshots": consumed,
+            "skipped_snapshots": skipped,
+            "gap_count": len(skipped),
+        }
+    except Exception as exc:
+        manifest = {
+            "entity_id": bs.entity_id,
+            "entity_name": bs.entity_name,
+            "period": bs.period,
+            "generated_at": datetime.now().isoformat(),
+            "error": str(exc),
+            "consumed_snapshots": [],
+            "skipped_snapshots": [],
+            "gap_count": 0,
+        }
+
+    cov_fname = out_dir / f"balance_sheet_{bs.period}.coverage.json"
+    cov_fname.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return cov_fname
 
 
 # ── Tax estimate renderer (moved here from accounting.tax_estimator – ARCH-02) ──

@@ -21,7 +21,6 @@ Run:
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 
 import pytest
@@ -31,8 +30,10 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 # Source directories that constitute Form A (core logic only)
+# ARCH-02: ledger_agent/core is the canonical location; legacy root shim
+# core/ is intentionally excluded — it re-exports from here and is not
+# independently testable as "core" for purity purposes.
 CORE_DIRS: list[Path] = [
-    PROJECT_ROOT / "core",
     PROJECT_ROOT / "accounting",
     PROJECT_ROOT / "intelligence",
     PROJECT_ROOT / "parsers",

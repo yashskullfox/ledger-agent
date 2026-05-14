@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 # Keys are the canonical partner_id strings used by CLI/MCP/bridge.
 # Each value is (name, capital_pct, profit_loss_pct).
 # Capital and P&L splits are independent in partnership accounting (K-1 Part II J).
-# Defaults match SYNCED LLC 2024: Yash 99% capital / 100% P&L, Parin 1% / 0%.
+# Defaults match the entity's 2024 LLC agreement: Partner A 99% capital / 100% P&L, Partner B 1% / 0%.
 # Override via env vars without touching code.
 def _build_partners() -> Dict[str, Tuple[str, Decimal, Decimal]]:
     return {
@@ -150,11 +150,12 @@ def import_statements(
     allow_partial: bool = False,
 ) -> ImportReport:
     from parsers.registry import ParserRegistry
+    from parsers.base import BaseStatementParser
     from core.database import (
         init_db, AccountRepo, EntityRepo, SnapshotRepo,
         TransactionRepo, PositionRepo, ImportedStatementRepo,
     )
-    import parsers  # noqa: F401
+    import parsers  # noqa: F401  — triggers auto-discovery in parsers/__init__.py
 
     # Lazy audit/cleanup import — avoids hard failure if optional modules absent.
     try:
@@ -182,14 +183,15 @@ def import_statements(
                 report.skipped += 1
                 continue
 
-            parser = ParserRegistry.detect(pdf_path)
-            if parser is None:
+            raw_text = BaseStatementParser.extract_text(pdf_path)
+            parser_cls = ParserRegistry.detect(raw_text)
+            if parser_cls is None:
                 log.warning("No parser matched: %s", pdf_path.name)
                 report.failed += 1
                 report.failed_files.append(pdf_path.name)
                 continue
 
-            stmt = parser.parse(pdf_path)
+            stmt = parser_cls().parse(pdf_path)
 
             entities = EntityRepo.list_all()
             if entities:
@@ -230,20 +232,32 @@ def import_statements(
             ImportedStatementRepo.record(
                 file_path=str(pdf_path),
                 parser_id=stmt.parser_id,
-                institution=stmt.institution,
-                period=stmt.period or "",
-                account_last4=stmt.account_number_masked or "",
+                account_id=account.id,
+                period=stmt.statement_period or "",
             )
 
-            if stmt.period and stmt.period not in report.periods_added:
-                report.periods_added.append(stmt.period)
+            if stmt.statement_period and stmt.statement_period not in report.periods_added:
+                report.periods_added.append(stmt.statement_period)
             report.imported += 1
-            log.info("Imported %s (%s)", pdf_path.name, stmt.period)
+            log.info("Imported %s (%s)", pdf_path.name, stmt.statement_period)
 
         except Exception as exc:
             log.error("Failed to import %s: %s", pdf_path.name, exc)
             report.failed += 1
             report.failed_files.append(pdf_path.name)
+
+    # ARCH-27: classify all unclassified transactions after bulk import.
+    # Non-interactive batch mode (prompt_fn=None) — unknown transactions get
+    # code "9999" and can be corrected via CLI or MCP later.
+    try:
+        from core.database import TransactionRepo as _TxnRepo
+        from intelligence.classifier import classify_batch
+        unclassified = _TxnRepo.list_unclassified()
+        if unclassified:
+            classify_batch(unclassified, prompt_fn=None)
+            audit("import.classified", count=len(unclassified))
+    except Exception as exc:
+        log.warning("classify step skipped: %s", exc)
 
     audit(
         "import.complete",
@@ -271,13 +285,19 @@ def generate_balance_sheet(fiscal_year: int):
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
 
     last_period = periods[-1]
-    return BalanceSheetBuilder(entity.id, last_period).build()
+    # Pass all fiscal-year periods so P&L aggregates the full year (not just last month)
+    return BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
 
 
 def _compute_net_ltcg(txns) -> Decimal:
-    """Compute net long-term capital gain from classified transactions."""
+    """Compute net long-term capital gain from classified transactions.
+
+    4011 = Realised Long-Term Trading Gains
+    5075 = Realised Long-Term Trading Losses
+    Note: 5071 (Legal & Professional Fees) is NOT an LTCG code.
+    """
     LTCG_GAIN = {"4011"}
-    LTCG_LOSS = {"5071"}
+    LTCG_LOSS = {"5075"}
     total = Decimal("0")
     for t in txns:
         if t.is_transfer or not t.coa_code:
@@ -398,6 +418,87 @@ def pte_estimate(fiscal_year: int) -> PTEEstimate:
         ],
         notes=notes_str,
     )
+
+
+def check_period_continuity(entity_id: str, tolerance: Decimal = Decimal("1.00")) -> List[dict]:
+    """ARCH-31: Verify that each period's opening balance matches the prior period's closing.
+
+    For every account that has snapshots in consecutive periods, compare
+    ``beginning_balance[N+1]`` with ``ending_balance[N]``.  If the delta
+    exceeds *tolerance* (default $1.00), a ``prior_period_adjustment``
+    transaction is created and returned in the result list.
+
+    Returns a list of adjustment dicts, one per account-period gap detected.
+    """
+    from core.database import AccountRepo, SnapshotRepo, TransactionRepo, init_db
+    from core.models import Transaction, TransactionType
+    from datetime import date as _date_type
+
+    init_db()
+    adjustments: List[dict] = []
+    accounts = AccountRepo.list_for_entity(entity_id)
+
+    all_snapshots = sorted(
+        SnapshotRepo.list_for_entity(entity_id),
+        key=lambda s: s.statement_period,
+    )
+    for acct in accounts:
+        acct_snaps = [s for s in all_snapshots if s.account_id == acct.id]
+        if len(acct_snaps) < 2:
+            continue
+
+        for i in range(len(acct_snaps) - 1):
+            prev = acct_snaps[i]
+            curr = acct_snaps[i + 1]
+            if curr.beginning_balance is None:
+                continue
+            delta = curr.beginning_balance - prev.ending_balance
+            if abs(delta) <= tolerance:
+                continue
+
+            # Record the adjustment
+            try:
+                year_str, month_str = curr.statement_period[:4], curr.statement_period[5:7]
+                adj_date = _date_type(int(year_str), int(month_str), 1)
+            except Exception:
+                continue
+
+            adj_txn = Transaction(
+                account_id=acct.id,
+                date=adj_date,
+                description=(
+                    f"Prior-period adjustment: {prev.statement_period} close "
+                    f"→ {curr.statement_period} open (delta ${delta:+.2f})"
+                ),
+                raw_description="prior_period_adjustment",
+                amount=delta,
+                transaction_type=TransactionType.PRIOR_PERIOD_ADJUSTMENT,
+                statement_period=curr.statement_period,
+                coa_code="3020",  # Retained Earnings
+                coa_name="Retained Earnings",
+                notes=(
+                    f"ARCH-31 auto-generated: prior period {prev.statement_period} "
+                    f"ending={prev.ending_balance}, current {curr.statement_period} "
+                    f"beginning={curr.beginning_balance}, delta={delta}"
+                ),
+            )
+            TransactionRepo.bulk_insert([adj_txn])
+            adjustments.append({
+                "account_id": acct.id,
+                "account": str(acct),
+                "prior_period": prev.statement_period,
+                "current_period": curr.statement_period,
+                "prior_ending": str(prev.ending_balance),
+                "current_opening": str(curr.beginning_balance),
+                "delta": str(delta),
+                "adjustment_transaction_id": adj_txn.id,
+            })
+            log.info(
+                "ARCH-31: prior_period_adjustment created for %s %s→%s delta=%s",
+                acct, prev.statement_period, curr.statement_period, delta,
+            )
+
+    return adjustments
 
 
 def reconcile_year(fiscal_year: int) -> ReconcileReport:

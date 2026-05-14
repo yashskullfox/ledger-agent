@@ -200,3 +200,48 @@ class TestMcpDispatchPrivacy:
         is_error = result.get("isError", False)
         has_error = "error" in response
         assert is_error or has_error
+
+    def test_redaction_failure_is_fail_closed(self, monkeypatch):
+        """
+        When redaction raises, _dispatch must return a -32000 error — NEVER
+        an _ok envelope that leaks un-redacted data (ARCH-22 accept criterion).
+        """
+        import json as _json
+        from unittest.mock import Mock
+        from ledger_agent.mcp.server import _dispatch
+
+        # call_tool returns a valid (non-empty) payload so _redact_response is reached
+        monkeypatch.setattr(
+            "ledger_agent.mcp.tools.call_tool",
+            Mock(return_value=_json.dumps({"total_assets": 53136.39})),
+        )
+
+        # Simulate a catastrophic redaction failure (e.g. privacy module crash)
+        monkeypatch.setattr(
+            "core.privacy.redact",
+            Mock(side_effect=RuntimeError("simulated redaction failure")),
+        )
+
+        msg = {
+            "jsonrpc": "2.0",
+            "id": 42,
+            "method": "tools/call",
+            "params": {
+                "name": "generate_balance_sheet",
+                "arguments": {"fiscal_year": 2024},
+            },
+        }
+        response = _dispatch(msg)
+
+        assert response is not None, "dispatch must return a response (not None) when redaction fails"
+        assert "error" in response, (
+            "Fail-closed: redaction failure must produce an error response, "
+            "not an _ok envelope that could leak PII"
+        )
+        assert "result" not in response, (
+            "Fail-closed: an _ok result must NOT be returned when redaction failed"
+        )
+        assert response["error"]["code"] == -32000, (
+            f"Expected error code -32000 (redaction_failed), "
+            f"got {response['error']['code']}"
+        )

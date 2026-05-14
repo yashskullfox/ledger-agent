@@ -586,7 +586,7 @@ def _ingest_discovered(
     """
     from core.database import init_db
     from cli.commands import _get_or_setup_entity
-    from cli.prompts import print_info, print_warning, print_error, print_success, prompt_classify
+    from cli.prompts import print_info, print_warning, print_error, prompt_classify
     from cli.quick_scan import _import_single, _AlreadyImportedSkip
     from core.exceptions import ParserNotFoundError
 
@@ -701,7 +701,7 @@ def cmd_onboard(
 
     if not accounts:
         print("⚠  No PDFs were recognised by any parser.")
-        print("   Supported: Truist, Fidelity, Chase, BofA, U.S. Bank, IBKR")
+        print("   Supported: BANK_X, BROKER_Y, Chase, BofA, U.S. Bank, IBKR")
         return 2
 
     # ── 5. Render matrix

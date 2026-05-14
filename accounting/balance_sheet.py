@@ -9,12 +9,12 @@ Assembles a balance sheet for a given period and entity using:
 Output is a list of BalanceSheetLine objects which the renderer
 then formats into console / CSV / Excel output.
 
-Balance Sheet structure (for a trading LLC like SYNCED LLC):
+Balance Sheet structure (for a trading LLC):
 
   ASSETS
     Current Assets
       Cash & Cash Equivalents
-        Business Checking (Truist)       $X
+        Business Checking (BANK_X)       $X
     Investment Assets
       Equity Securities (Long)           $X
       ─────────────────────────────────
@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from core.database import (
     AccountRepo, COARepo, PositionRepo, SnapshotRepo, TransactionRepo,
@@ -56,8 +56,9 @@ from core.models import (
 class BalanceSheet:
     """Fully assembled balance sheet for one entity-period."""
 
-    def __init__(self, entity_name: str, period: str):
+    def __init__(self, entity_name: str, period: str, entity_id: str = ""):
         self.entity_name = entity_name
+        self.entity_id = entity_id  # ARCH-30: every artefact scoped to one entity
         self.period = period
         self.lines: List[BalanceSheetLine] = []
 
@@ -88,11 +89,19 @@ class BalanceSheet:
 class BalanceSheetBuilder:
     """
     Builds a BalanceSheet from the database for a given entity and period.
+
+    *period* is the snapshot period used for asset/liability balances (year-end).
+    *pl_periods* is the optional list of all fiscal-year periods whose transactions
+    feed the revenue/expense (P&L) section.  When omitted, only *period* is used,
+    which gives a single-month P&L.  Pass all 12 months for a year-end balance sheet.
     """
 
-    def __init__(self, entity_id: str, period: str):
+    def __init__(self, entity_id: str, period: str,
+                 pl_periods: Optional[List[str]] = None):
         self.entity_id = entity_id
         self.period = period
+        # P&L aggregation periods: defaults to snapshot period only
+        self.pl_periods: List[str] = pl_periods if pl_periods else [period]
 
     def build(self) -> BalanceSheet:
         from core.database import EntityRepo
@@ -109,7 +118,7 @@ class BalanceSheetBuilder:
         }
         coa = {c.code: c for c in COARepo.list_all()}
 
-        bs = BalanceSheet(entity_name, self.period)
+        bs = BalanceSheet(entity_name, self.period, entity_id=self.entity_id)
 
         total_assets = Decimal("0")
 
@@ -172,18 +181,14 @@ class BalanceSheetBuilder:
                     "1110_gross", "Gross Securities Holdings",
                     gross, COAType.ASSET, is_subtotal=True, indent=2,
                 ))
-                if margin < 0:
-                    bs.lines.append(BalanceSheetLine(
-                        "2010_contra", "Less: Margin Loan",
-                        margin, COAType.ASSET, indent=2,
-                    ))
+                # ARCH-28/V8: margin loan is a 2xxx liability — no contra-asset display.
+                # Showing it as a contra-asset here AND in liabilities would double-count.
 
-        net_invest = invest_gross + margin_total  # margin_total is negative
         bs.lines.append(BalanceSheetLine(
-            "1100_sub", "Net Investment Assets",
-            net_invest, COAType.ASSET, is_subtotal=True, indent=1,
+            "1100_sub", "Gross Investment Assets",
+            invest_gross, COAType.ASSET, is_subtotal=True, indent=1,
         ))
-        total_assets += invest_gross  # gross shown; contra under liabilities
+        total_assets += invest_gross  # ARCH-28/V8: gross; margin loan lives in 2xxx liabilities
 
         bs.lines.append(BalanceSheetLine(
             "TOTAL_ASSETS", "TOTAL ASSETS",
@@ -204,8 +209,10 @@ class BalanceSheetBuilder:
                 COAType.LIABILITY, indent=2,
             ))
 
-        # Estimated taxes (IRS debit transactions still pending)
-        txns = TransactionRepo.list_for_period(self.period)
+        # Transactions for P&L: aggregate all fiscal-year periods (ARCH-31 / year-end)
+        txns = []
+        for _p in self.pl_periods:
+            txns.extend(TransactionRepo.list_for_period(_p))
         tax_paid = sum(
             abs(t.amount) for t in txns
             if t.coa_code in ("5050", "5040") and t.amount < 0

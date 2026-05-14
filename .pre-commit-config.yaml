@@ -1,0 +1,43 @@
+# .pre-commit-config.yaml  –  Pre-commit hooks (ARCH-35)
+# =========================================================
+# Install:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run manually:
+#   pre-commit run --all-files
+#
+# The doc-redaction gate (local hook) requires no extra packages —
+# it uses the project's own scanner script.
+
+repos:
+  # ── Doc-redaction gate (ARCH-35) ──────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: check-doc-redaction
+        name: "Doc redaction scanner (ARCH-34/35)"
+        entry: python scripts/check_doc_redaction.py --staged
+        language: python
+        pass_filenames: false
+        always_run: false
+        stages: [pre-commit]
+        description: >
+          Blocks commits that introduce real entity/partner/bank/broker/ticker
+          names, bare account numbers, or cent-precision financial figures
+          near financial nouns.  Replace with pseudonyms from
+          config/redaction_corpus.yaml.
+
+  # ── Standard sanity hooks ─────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+        exclude: '\.md$'
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]

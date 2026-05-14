@@ -1,0 +1,83 @@
+# .github/workflows/doc-redaction.yml  –  Doc-redaction CI gate (ARCH-36)
+# =========================================================================
+# Runs the doc-redaction scanner on every PR and push to main.
+# Failing this gate blocks merge (configure as required status check in
+# Settings → Branches → Branch protection rules).
+#
+# Output format: path:line:col: hit <category>  (never the matched value)
+# Exit 0 = clean, 1 = hits found.
+
+name: Doc Redaction
+
+on:
+  pull_request:
+    branches: ["main", "master"]
+  push:
+    branches: ["main", "master"]
+
+permissions:
+  contents: read
+  pull-requests: write   # only needed for PR comment step
+
+jobs:
+  doc-redaction:
+    name: "Doc Redaction Scanner (ARCH-34)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so git ls-files works correctly
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyYAML
+        run: pip install pyyaml --quiet
+
+      - name: Run doc-redaction scanner
+        id: scanner
+        run: |
+          python scripts/check_doc_redaction.py --all-tracked -v 2>&1 | tee scanner_output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Post PR comment on failure
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const raw = fs.readFileSync('scanner_output.txt', 'utf8');
+            // Parse hits — format is path:line:col: hit <category>
+            // We report category + file/line but NEVER the matched value.
+            const lines = raw.split('\n').filter(l => l.includes(': hit '));
+            const summary = lines.slice(0, 20).join('\n');
+            const truncated = lines.length > 20 ? `\n…and ${lines.length - 20} more hit(s).` : '';
+            const body = [
+              '## ❌ Doc-Redaction gate failed',
+              '',
+              'The scanner found identifiers that should be replaced with pseudonyms.',
+              'See `config/redaction_corpus.yaml` and `docs/redaction-policy.md`.',
+              '',
+              '**Hits (path:line:col: hit category):**',
+              '```',
+              summary + truncated,
+              '```',
+              '',
+              '**Fix:** Replace real identifiers with pseudonyms.',
+              'Suppress a specific line by appending `  # redaction: allow`.',
+              '',
+              '> ℹ️ The matched values are never shown in this comment.',
+              '',
+              '🌀 Magic applied with [Wibey CLI](https://wibey.walmart.com/cli) 🪄',
+            ].join('\n');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
