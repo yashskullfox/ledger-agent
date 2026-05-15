@@ -1,3 +1,6 @@
+"""
+parsers/broker_z.py  –  Broker Z activity statement parser
+"""
 from __future__ import annotations
 
 import re
@@ -14,17 +17,25 @@ from ledger_agent.core.models import (
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
 
+try:
+    from private.institutions import BROKER_Z as _CFG  # type: ignore
+except ImportError:
+    _CFG = {"detect": []}
+
 
 @ParserRegistry.register
-class IBKRParser(BaseStatementParser):
-    PARSER_ID = "ibkr"
-    INSTITUTION = "Interactive Brokers"
+class BrokerZParser(BaseStatementParser):
+    PARSER_ID = "broker_z"
+    INSTITUTION = "Broker Z"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
+        if not _CFG.get("detect"):
+            return False
         upper = text.upper()
-        return "INTERACTIVE BROKERS" in upper and (
-                "ACTIVITY STATEMENT" in upper or "ACCOUNT STATEMENT" in upper
+        has_inst = all(tok in upper for tok in _CFG["detect"])
+        return has_inst and (
+            "ACTIVITY STATEMENT" in upper or "ACCOUNT STATEMENT" in upper
         )
 
     def parse(self, pdf_path: Path) -> ParsedStatement:

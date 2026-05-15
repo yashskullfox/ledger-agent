@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from ledger_agent.core.database import init_db
 from ledger_agent.core.logging_setup import configure_logging
-from cli.prompts import ask_select, print_error, print_info
+from ledger_agent.cli.prompts import ask_select, print_error, print_info
 
 
 def _boot() -> None:
@@ -92,41 +92,41 @@ def interactive_menu() -> None:
         choice = ask_select("\nWhat would you like to do?", choices=MENU_CHOICES)
 
         if choice and "Quick Scan" in choice:
-            from cli.onboarding import cmd_onboard
+            from ledger_agent.cli.onboarding import cmd_onboard
             cmd_onboard(show_report=True)
 
         elif choice and "Import" in choice:
-            from cli.commands import cmd_import
+            from ledger_agent.cli.commands import cmd_import
             cmd_import()
 
         elif choice and "balance sheet" in choice:
-            from cli.commands import cmd_balance_sheet
+            from ledger_agent.cli.commands import cmd_balance_sheet
             cmd_balance_sheet()
 
         elif choice and "Tax obligation" in choice:
             _cmd_tax()
 
         elif choice and "transactions" in choice:
-            from cli.commands import cmd_transactions
+            from ledger_agent.cli.commands import cmd_transactions
             cmd_transactions()
 
         elif choice and "Classify" in choice:
-            from cli.commands import cmd_classify
+            from ledger_agent.cli.commands import cmd_classify
             cmd_classify()
 
         elif choice and "Month-over-month" in choice:
-            from cli.commands import cmd_mom_summary
+            from ledger_agent.cli.commands import cmd_mom_summary
             cmd_mom_summary()
 
         elif choice and "AI context" in choice:
             _cmd_context()
 
         elif choice and "memory" in choice:
-            from cli.commands import cmd_memory
+            from ledger_agent.cli.commands import cmd_memory
             cmd_memory()
 
         elif choice and "setup" in choice.lower():
-            from cli.commands import cmd_setup
+            from ledger_agent.cli.commands import cmd_setup
             cmd_setup()
 
         elif choice and ("Exit" in choice or "exit" in choice):
@@ -137,7 +137,7 @@ def interactive_menu() -> None:
 def _cmd_tax(period: str | None = None) -> None:
     """Show tax obligation estimate for a period."""
     init_db()
-    from cli.commands import _get_or_setup_entity
+    from ledger_agent.cli.commands import _get_or_setup_entity
     from ledger_agent.core.database import SnapshotRepo
     entity = _get_or_setup_entity()
     if not entity:
@@ -159,9 +159,9 @@ def _cmd_tax(period: str | None = None) -> None:
 def _cmd_context(period: str | None = None) -> None:
     """Export AI-consumable context JSON for a period."""
     init_db()
-    from cli.commands import _get_or_setup_entity
+    from ledger_agent.cli.commands import _get_or_setup_entity
     from ledger_agent.core.database import SnapshotRepo
-    from cli.prompts import print_success
+    from ledger_agent.cli.prompts import print_success
     entity = _get_or_setup_entity()
     if not entity:
         return
@@ -193,7 +193,7 @@ def main() -> None:
     rest = args[1:]
 
     if cmd in ("scan", "s", "onboard", "o"):
-        from cli.onboarding import cmd_onboard
+        from ledger_agent.cli.onboarding import cmd_onboard
         force = "--force" in rest or "-f" in rest
         no_prompt = "--no-prompt" in rest
         show_report = "--report" in rest
@@ -212,27 +212,27 @@ def main() -> None:
         sys.exit(code)
 
     elif cmd in ("import", "i"):
-        from cli.commands import cmd_import
+        from ledger_agent.cli.commands import cmd_import
         cmd_import(rest[0] if rest else None)
 
     elif cmd in ("balance", "bs", "b"):
-        from cli.commands import cmd_balance_sheet
+        from ledger_agent.cli.commands import cmd_balance_sheet
         cmd_balance_sheet(rest[0] if rest else None)
 
     elif cmd in ("transactions", "tx", "t"):
-        from cli.commands import cmd_transactions
+        from ledger_agent.cli.commands import cmd_transactions
         cmd_transactions(rest[0] if rest else None)
 
     elif cmd in ("classify", "c"):
-        from cli.commands import cmd_classify
+        from ledger_agent.cli.commands import cmd_classify
         cmd_classify()
 
     elif cmd in ("memory", "m"):
-        from cli.commands import cmd_memory
+        from ledger_agent.cli.commands import cmd_memory
         cmd_memory()
 
     elif cmd in ("summary", "mom"):
-        from cli.commands import cmd_mom_summary
+        from ledger_agent.cli.commands import cmd_mom_summary
         cmd_mom_summary()
 
     elif cmd in ("tax", "taxes"):
@@ -242,7 +242,7 @@ def main() -> None:
         _cmd_context(rest[0] if rest else None)
 
     elif cmd in ("setup", "init"):
-        from cli.commands import cmd_setup
+        from ledger_agent.cli.commands import cmd_setup
         cmd_setup()
 
     elif cmd in ("mcp",):

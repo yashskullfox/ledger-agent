@@ -1,18 +1,18 @@
 """
-parsers/usbank_checking.py  –  U.S. Bank Business Checking statement parser
+parsers/bank_x4_checking.py  –  Bank X4 Business Checking statement parser
 
-Handles U.S. Bank Business Essentials / Silver Business Checking PDFs.
+Handles Bank X4 Business Essentials / Silver Business Checking PDFs.
 
 Statement layout (char-level reconstruction per line):
   Other Deposits
   DateDescription of TransactionRef NumberAmount
-  Mar4Ext Tfr DepositTRN #= EB089E3FAD0686B$800.00
+  MmmDDExt Tfr DepositTRN #= <REF>~$X,XXX
 
   Other Withdrawals
   DateDescription of TransactionRef NumberAmount
-  Mar16Internet Banking PaymentTo Credit Card *************4594$925.44-
+  MmmDDInternet Banking PaymentTo Credit Card <acct>~$X,XXX-
 
-Amounts use US Bank's negative-suffix convention: 925.44- means debit.
+Amounts use Bank X4's negative-suffix convention: NN.NN- means debit.
 """
 from __future__ import annotations
 
@@ -30,6 +30,11 @@ from ledger_agent.core.models import (
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
 
+try:
+    from private.institutions import BANK_X4 as _CFG  # type: ignore
+except ImportError:
+    _CFG = {"detect": []}
+
 _MONTH_MAP: dict[str, int] = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
@@ -38,19 +43,21 @@ _MONTH_NUM: dict[str, str] = {k: f"{v:02d}" for k, v in _MONTH_MAP.items()}
 
 
 @ParserRegistry.register
-class USBankCheckingParser(BaseStatementParser):
-    """Parser for U.S. Bank Business Checking statements."""
+class BankX4CheckingParser(BaseStatementParser):
+    """Parser for Bank X4 Business Checking statements."""
 
-    PARSER_ID = "usbank_checking"
-    INSTITUTION = "U.S. Bank"
+    PARSER_ID = "bank_x4_checking"
+    INSTITUTION = "Bank X4"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
+        if not _CFG.get("detect"):
+            return False
         upper = text.upper()
-        has_usbank = "U.S. BANK" in upper or "USBANK" in upper
+        has_inst = all(tok in upper for tok in _CFG["detect"])
         has_checking = "CHECKING" in upper or "BUSINESS ESSENTIALS" in upper
         not_card = "TRIPLE CASH" not in upper and "CREDIT CARD" not in upper
-        return has_usbank and has_checking and not_card
+        return has_inst and has_checking and not_card
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         lines = _extract_lines_by_y(pdf_path)
@@ -169,7 +176,7 @@ class USBankCheckingParser(BaseStatementParser):
             amt = self.parse_amount(amt_str)
             if amt is None:
                 continue
-            desc = _clean_usbank_desc(desc_raw)
+            desc = _clean_bank_x4_desc(desc_raw)
             txn_type = _classify(desc, is_debit)
             txns.append(Transaction(
                 account_id="",
@@ -219,7 +226,7 @@ def _slice_section(lines: List[str], start_pat: str, end_pat: str) -> List[str]:
     return result
 
 
-def _clean_usbank_desc(raw: str) -> str:
+def _clean_bank_x4_desc(raw: str) -> str:
     cleaned = re.sub(r"\s*TRN\s*#=\s*\S+", "", raw)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned

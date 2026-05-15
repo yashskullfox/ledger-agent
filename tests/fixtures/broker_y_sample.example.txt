@@ -1,0 +1,12 @@
+EXAMPLE_BROKER_NAME_Y
+Account Z23-123456
+INVESTMENT REPORT
+For Period January 1, 2025 - January 31, 2025
+ENTITY_A
+
+Account Value (NAV):  ~$XX,XXX
+Margin Balance:       (~$XX,XXX)
+
+Holdings
+TICKER_SEC1 INC  TICKER_SEC1  3000  ~$XX  ~$XX,XXX
+CASH                                  ~$X,XXX

@@ -1,3 +1,6 @@
+"""
+parsers/broker_y_brokerage.py  –  Broker Y brokerage statement parser
+"""
 from __future__ import annotations
 
 import re
@@ -14,20 +17,28 @@ from ledger_agent.core.models import (
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
 
+try:
+    from private.institutions import BROKER_Y as _CFG  # type: ignore
+except ImportError:
+    _CFG = {"detect": [], "intra_xfer_keywords": []}
+
+try:
+    from private.institutions import BANK_X as _BANK_X_CFG  # type: ignore
+except ImportError:
+    _BANK_X_CFG = {"detect": []}
+
 
 @ParserRegistry.register
-class FidelityBrokerageParser(BaseStatementParser):
-    PARSER_ID = "fidelity_brokerage"
-    INSTITUTION = "Fidelity Investments"
+class BrokerYBrokerageParser(BaseStatementParser):
+    PARSER_ID = "broker_y_brokerage"
+    INSTITUTION = "Broker Y"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
-        return (
-                "FIDELITY" in text.upper()
-                and "INVESTMENT REPORT" in text.upper()
-                and ("BROKERAGE" in text.upper() or "Z23-" in text.upper()
-                     or "Account Number" in text)
-        )
+        if not _CFG.get("detect"):
+            return False
+        upper = text.upper()
+        return all(tok in upper for tok in _CFG["detect"])
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -303,22 +314,39 @@ class FidelityBrokerageParser(BaseStatementParser):
 
         return trades
 
-    _WITHDRAWAL_RE = re.compile(
-        r"(\d{2}/\d{2})\s+Money Line Paid\s+EFT FUNDS PAID\s+\S+\s+/WEB\s+"
-        r"TRUIST BANK[^-\d]*-([\d,]+\.\d{2})",
-        re.IGNORECASE,
-    )
+    @classmethod
+    def _build_withdrawal_re(cls) -> Optional[re.Pattern]:
+        """
+        Build the cross-institution-transfer regex at runtime from the private
+        config. The withdrawal line in a Broker Y statement references the
+        receiving bank's name (Bank X) verbatim; that name is private so we
+        compose the regex from BANK_X['detect'] tokens.
+        """
+        tokens = _BANK_X_CFG.get("detect") or []
+        if not tokens:
+            return None
+        # Join tokens with whitespace tolerance to form the bank-name segment.
+        bank_name_pat = r"\s+".join(re.escape(t) for t in tokens)
+        return re.compile(
+            r"(\d{2}/\d{2})\s+Money Line Paid\s+EFT FUNDS PAID\s+\S+\s+/WEB\s+"
+            + bank_name_pat
+            + r"[^-\d]*-([\d,]+\.\d{2})",
+            re.IGNORECASE,
+        )
 
     def _parse_withdrawals(self, text: str, period: str, year: int) -> List[Transaction]:
+        regex = self._build_withdrawal_re()
+        if regex is None:
+            return []
         txns = []
-        for m in self._WITHDRAWAL_RE.finditer(text):
+        for m in regex.finditer(text):
             d = self.parse_date(m.group(1), year)
             amt = self.parse_amount(m.group(2))
             if d and amt:
                 txns.append(Transaction(
                     account_id="",
                     date=d,
-                    description="Transfer Out – Truist Bank",
+                    description="Transfer Out – Bank X",
                     raw_description=m.group(0),
                     amount=-abs(amt),
                     transaction_type=TransactionType.TRANSFER_OUT,

@@ -18,9 +18,9 @@ Selecting a backend (FI_AI_BACKEND env var):
   gemini  → ChainedBackend(local→Gem)  (Gemini called only for low-confidence)
 
 Cost model:
-  - local:  $0.00 / transaction, no network, instantaneous
-  - openai: ~$0.00002 / uncertain transaction (low volume for small business)
-  - gemini: ~$0.000001 / uncertain transaction
+  - local:  zero cost / transaction, no network, instantaneous
+  - openai: sub-cent cost per uncertain transaction (low volume for small business)
+  - gemini: sub-cent cost per uncertain transaction (typically cheaper than openai)
 """
 from __future__ import annotations
 

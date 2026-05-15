@@ -59,7 +59,36 @@ _PROCESS_SCRATCH_PREFIX = "ledger-agent-raw-"
 
 _log = logging.getLogger("fi.cleanup")
 _lock = threading.Lock()
+# BUG-C1 fix: write lock shared between raw-data writers and cycle_cleanup.
+# Writers acquire via hold_write_lock(); cleanup acquires with a short timeout
+# and emits cleanup.skipped_busy if it cannot (rather than racing with writers).
+_write_lock = threading.Lock()
 _hooks: List[Callable[[], None]] = []
+
+
+# ── Write-lock API (BUG-C1) ───────────────────────────────────────────────────
+
+
+@contextmanager
+def hold_write_lock() -> Iterator[None]:
+    """
+    Acquire the per-cycle write lock before writing any raw artefacts.
+
+    Prevents cycle_cleanup from purging files that are still being written.
+    The context manager is re-entrant-safe for the *same* thread only if the
+    caller is careful: it uses a plain ``threading.Lock``, so recursive
+    acquisition from the same thread will deadlock just as any Lock would.
+
+    Usage::
+
+        with hold_write_lock():
+            write_pdf_to_raw_cache(data)
+    """
+    _write_lock.acquire()
+    try:
+        yield
+    finally:
+        _write_lock.release()
 
 
 # ── Hook registry ────────────────────────────────────────────────────────────
@@ -136,7 +165,16 @@ def _purge_process_scratch() -> int:
     for entry in tmp.glob(f"{_PROCESS_SCRATCH_PREFIX}*"):
         try:
             # Skip entries not owned by us — avoids confused-deputy errors.
-            if entry.stat().st_uid != my_uid:
+            st = entry.stat()
+            if st.st_uid != my_uid:
+                # SMELL-C4 fix: emit audit event so operators can detect
+                # pre-created trap directories on shared hosts.
+                try:
+                    from ledger_agent.core.audit import audit
+                    audit("cleanup.skipped_foreign_uid",
+                          path=str(entry), uid=st.st_uid)
+                except Exception:
+                    pass
                 continue
             if entry.is_dir():
                 shutil.rmtree(entry, ignore_errors=True)
@@ -163,8 +201,8 @@ def _purge_privacy_session() -> None:
 def _do_cleanup(event_name: str, *, run_hooks: bool, label: Optional[str] = None) -> None:
     """
     SMELL-C3 fix: single implementation shared by boot_cleanup and
-    cycle_cleanup. Previously those two functions were 95% duplicated,
-    which allowed them to drift silently.
+    cycle_cleanup. Previously those two functions were near-duplicates
+    (only a handful of lines differed), which allowed them to drift silently.
 
     :param event_name:  Audit event key (``"cleanup.boot"`` or ``"cleanup.cycle"``).
     :param run_hooks:   Whether to invoke registered cleanup hooks (boot does not).
@@ -175,11 +213,27 @@ def _do_cleanup(event_name: str, *, run_hooks: bool, label: Optional[str] = None
     except Exception:
         audit = None  # type: ignore
 
-    raw = _purge_directory(_RAW_CACHE_DIR)
-    exp = _purge_directory(_EXPORT_TMP_DIR)
-    scratch = _purge_process_scratch()
-    hooks_ran = _run_hooks() if run_hooks else 0
-    _purge_privacy_session()
+    # BUG-C1 fix: acquire write lock before purging so we don't race with
+    # workers that are still writing raw artefacts under hold_write_lock().
+    # A 2-second timeout is generous for any in-flight write; if it expires
+    # we skip this cycle's purge rather than block indefinitely.
+    acquired = _write_lock.acquire(blocking=True, timeout=2.0)
+    if not acquired:
+        if audit:
+            kwargs: dict = {"event": event_name}
+            if label is not None:
+                kwargs["label"] = label
+            audit("cleanup.skipped_busy", **kwargs)
+        return
+
+    try:
+        raw = _purge_directory(_RAW_CACHE_DIR)
+        exp = _purge_directory(_EXPORT_TMP_DIR)
+        scratch = _purge_process_scratch()
+        hooks_ran = _run_hooks() if run_hooks else 0
+        _purge_privacy_session()
+    finally:
+        _write_lock.release()
 
     if audit:
         payload = dict(

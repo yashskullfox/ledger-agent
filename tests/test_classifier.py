@@ -121,11 +121,20 @@ class TestLocalBackend:
         result = backend.classify_transaction("QUICKBOOKS ONLINE", -30.00)
         assert result["coa_code"] == "5010"
 
-    def test_classifies_transfer(self):
+    @pytest.mark.parametrize("description", [
+        # Exercises the generic TRANSFER\s*(IN|OUT|TO|FROM) rule in local_backend._RULES
+        "TRANSFER IN FROM SAVINGS",
+        # Exercises the ZELLE\s*TO|ZELLE\s*FROM rule in local_backend._RULES
+        "ZELLE TO RECIPIENT",
+        # Exercises the WIRE\s*(IN|OUT|TRANSFER) rule in local_backend._RULES
+        "WIRE TRANSFER OUTGOING",
+    ])
+    def test_classifies_transfer(self, description):
         from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend
         backend = LocalBackend()
-        result = backend.classify_transaction("MONEYLINE FID BKG SVC LLC", 1000.00)
+        result = backend.classify_transaction(description, 1000.00)
         assert result["is_transfer"] is True
+        assert result["coa_code"] == "9000"
 
     def test_backend_name(self):
         from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend

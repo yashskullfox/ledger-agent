@@ -27,10 +27,10 @@ public class RunController {
     @Value("${ledger.app-badge:Form D}")
     private String appBadge;
 
-    @Value("${ledger.partner-a-label:Partner A (99%)}")
+    @Value("${ledger.partner-a-label:partner_1}")
     private String partnerALabel;
 
-    @Value("${ledger.partner-b-label:Partner B (1%)}")
+    @Value("${ledger.partner-b-label:partner_2}")
     private String partnerBLabel;
 
     @Autowired
@@ -121,7 +121,7 @@ public class RunController {
             }
             case "balance_sheet" -> "Review net income, then run 'form1065' to see the partnership return.";
             case "form1065"      -> "Review ordinary income, then generate K-1s for each partner.";
-            case "k1_yash", "k1_parin" ->
+            case "k1_partner_1", "k1_partner_2" ->
                     "Partner K-1 generated. Run 'tax_estimate' to see quarterly payments.";
             case "tax_estimate"  -> "Quarterly payment schedule ready. Run 'reconcile' to verify transfers.";
             case "reconcile" -> {

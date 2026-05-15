@@ -1,0 +1,20 @@
+EXAMPLE_BROKER_NAME_Z
+Activity Statement
+Account: U1234567
+ENTITY_A
+Period: January 1, 2025 - January 31, 2025
+
+Trades
+Symbol  Date/Time             Quantity  Price    Proceeds   P/L
+TICKER_SEC1    2025-01-10 09:30:00   1000      11.50    11500.00   250.00
+
+Cash Report
+Starting Cash Balance                          ~$X,XXX
+Deposits                                       ~$X,XXX
+Withdrawals                                      (~$XXX)
+Commissions                                        (~$X)
+Ending Cash Balance                            ~$X,XXX
+
+Open Positions
+Symbol  Quantity  Price  Market Value  Cost Basis
+TICKER_SEC1    3000      11.29  33870.00      32500.00

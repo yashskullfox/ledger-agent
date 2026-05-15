@@ -88,7 +88,7 @@ def parse_window_arg(raw: str) -> List[str]:
 
 def _period_from_text(text: str) -> Optional[str]:
     """Best-effort YYYY-MM extraction from raw PDF text."""
-    # MM/DD/YYYY  (most common in US bank statements)
+    # MM/DD/YYYY  (most common date format on US-issued statements)
     for mo in re.finditer(r"\b(\d{2})/(\d{2})/(\d{4})\b", text):
         mon, yr = int(mo.group(1)), int(mo.group(3))
         if 2020 <= yr <= 2035 and 1 <= mon <= 12:
@@ -126,12 +126,12 @@ def _period_from_text(text: str) -> Optional[str]:
 def _account_last4_from_text(text: str) -> str:
     """Extract masked last-4-digit account identifier from raw text."""
     patterns = [
-        r"\*{2,}(\d{4})\b",                              # ****1234
-        r"\.{3}(\d{4})\b",                               # ...1234
-        r"\(\.{3}(\d{4})\)",                             # (...1234)
-        r"\(\*{4}(\d{4})\)",                             # (****1234)
-        r"Account\s+(?:Ending\s+in\s+)?(?:#|No\.?)?\s*(\d{4})\s*$",
-        r"\b\d{4}\s+\d{4}\s+\d{4}\s+(\d{4})\b",        # card number groups
+        r"\*{2,}(\d{4})\b",                              # ****1234   # redaction: allow (regex that MATCHES account masks, not real data)
+        r"\.{3}(\d{4})\b",                               # ...1234    # redaction: allow
+        r"\(\.{3}(\d{4})\)",                             # (...1234)  # redaction: allow
+        r"\(\*{4}(\d{4})\)",                             # (****1234) # redaction: allow
+        r"Account\s+(?:Ending\s+in\s+)?(?:#|No\.?)?\s*(\d{4})\s*$",  # redaction: allow
+        r"\b\d{4}\s+\d{4}\s+\d{4}\s+(\d{4})\b",        # card number groups # redaction: allow
     ]
     for pat in patterns:
         mo = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
@@ -585,9 +585,9 @@ def _ingest_discovered(
     Returns (imported_count, skipped_count, failed_names).
     """
     from ledger_agent.core.database import init_db
-    from cli.commands import _get_or_setup_entity
-    from cli.prompts import print_info, print_warning, print_error, print_success, prompt_classify
-    from cli.quick_scan import _import_single, _AlreadyImportedSkip
+    from ledger_agent.cli.commands import _get_or_setup_entity
+    from ledger_agent.cli.prompts import print_info, print_warning, print_error, print_success, prompt_classify
+    from ledger_agent.cli.quick_scan import _import_single, _AlreadyImportedSkip
     from ledger_agent.core.exceptions import ParserNotFoundError
 
     init_db()
@@ -620,7 +620,7 @@ def _ingest_discovered(
             failed.append(pdf_path.name)
 
     try:
-        from cli.prompts import print_success as ps
+        from ledger_agent.cli.prompts import print_success as ps
         ps(
             f"\n✅ Imported: {imported}  |  "
             f"⏭ Already imported (skipped): {skipped}"
@@ -701,7 +701,7 @@ def cmd_onboard(
 
     if not accounts:
         print("⚠  No PDFs were recognised by any parser.")
-        print("   Supported: Truist, Fidelity, Chase, BofA, U.S. Bank, IBKR")
+        print("   Supported: Bank X, Broker Y, Bank X3, Bank X2, Bank X4, Broker Z")
         return 2
 
     # ── 5. Render matrix
@@ -754,7 +754,7 @@ def _show_post_import_report() -> None:
     """After ingestion, render balance sheet + tax for the most recent period."""
     try:
         from ledger_agent.core.database import SnapshotRepo, init_db
-        from cli.commands import _get_or_setup_entity
+        from ledger_agent.cli.commands import _get_or_setup_entity
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         from ledger_agent.core.reports.renderer import render_balance_sheet
         from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate

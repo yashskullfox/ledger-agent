@@ -29,8 +29,8 @@ ledger:
   # Display labels — set via env var or K8s ConfigMap; never hardcode real names here
   app-title:       ${LEDGER_APP_TITLE:Financial Intelligence}
   app-badge:       ${LEDGER_APP_BADGE:Form D}
-  partner-a-label: ${LEDGER_PARTNER_A_LABEL:Partner A (99%)}
-  partner-b-label: ${LEDGER_PARTNER_B_LABEL:Partner B (1%)}
+  partner-a-label: ${LEDGER_PARTNER_A_LABEL:partner_1}
+  partner-b-label: ${LEDGER_PARTNER_B_LABEL:partner_2}
 
 logging:
   level:

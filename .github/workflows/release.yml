@@ -252,9 +252,9 @@ jobs:
           mvn -q versions:set-property -Dproperty=project.build.outputTimestamp -DnewValue="$TS" \
               -DgenerateBackupPoms=false 2>/dev/null || true
 
-      - name: Build fat jar (unit tests only — no IT)
+      - name: Build and test fat jar
         working-directory: webapp
-        run: mvn -q package -DskipITs
+        run: mvn -q verify
 
       - name: Rename artifact
         working-directory: webapp
@@ -283,6 +283,7 @@ jobs:
     runs-on: macos-latest
     env:
       VERSION: ${{ needs.compute-version.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
       - uses: actions/checkout@v4
 
@@ -291,9 +292,18 @@ jobs:
           distribution: ${{ env.JDK_DISTRO }}
           java-version: ${{ env.JDK_VERSION }}
 
-      - name: Build fat jar
+      - name: Inject reproducible timestamp into pom.xml
         working-directory: webapp
-        run: mvn -q package -DskipITs -DskipTests
+        run: |
+          EPOCH="${{ needs.compute-version.outputs.epoch }}"
+          TS=$(date -u -r "$EPOCH" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+               || python3 -c "import datetime,sys; print(datetime.datetime.utcfromtimestamp(int(sys.argv[1])).strftime('%Y-%m-%dT%H:%M:%SZ'))" "$EPOCH")
+          mvn -q versions:set-property -Dproperty=project.build.outputTimestamp \
+              -DnewValue="$TS" -DgenerateBackupPoms=false
+
+      - name: Build and test fat jar
+        working-directory: webapp
+        run: mvn -q verify
 
       - name: Rename artifact
         working-directory: webapp
@@ -317,6 +327,7 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.compute-version.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
       - uses: actions/checkout@v4
 
@@ -325,10 +336,18 @@ jobs:
           distribution: ${{ env.JDK_DISTRO }}
           java-version: ${{ env.JDK_VERSION }}
 
-      - name: Build fat jar
+      - name: Inject reproducible timestamp into pom.xml
+        working-directory: webapp
+        shell: powershell
+        run: |
+          $epoch = "${{ needs.compute-version.outputs.epoch }}"
+          $ts = [System.DateTimeOffset]::FromUnixTimeSeconds([long]$epoch).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
+          mvn -q versions:set-property -Dproperty=project.build.outputTimestamp "-DnewValue=$ts" -DgenerateBackupPoms=false
+
+      - name: Build and test fat jar
         working-directory: webapp
         shell: cmd
-        run: mvn -q package -DskipITs -DskipTests
+        run: mvn -q verify
 
       - name: Rename artifact
         working-directory: webapp
@@ -526,7 +545,7 @@ jobs:
           | \`ledger-agent-webapp-v${VER}-windows-x86_64.jar\` | D | Spring Boot fat jar (Windows) |
           | \`SHA256SUMS\` | — | Checksums for all artifacts |
 
-          All four forms produce identical numbers for the SYNCED LLC 2024 corpus.
+          All four forms produce identical numbers for the ENTITY_A 2024 corpus.
 
           🌀 Magic applied with [Wibey VS Code Extension](https://wibey.walmart.com/code) 🪄
           EOF

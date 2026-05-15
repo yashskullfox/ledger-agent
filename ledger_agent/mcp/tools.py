@@ -127,7 +127,7 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "generate_k1",
         "description": (
             "Generate Schedule K-1 for a single partner. "
-            "Partner IDs: 'yash' (99% ownership) or 'parin' (1% ownership). "
+            "Partner IDs are canonical slugs configured on the entity (see api.PARTNERS). "
             "Returns the partner's distributive share of income, gains, and deductions."
         ),
         "inputSchema": {
@@ -139,8 +139,8 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "partner_id": {
                     "type": "string",
-                    "description": "Partner identifier: 'yash' or 'parin'.",
-                    "enum": ["yash", "parin"],
+                    "description": "Canonical partner identifier slug (see api.PARTNERS keys).",
+                    "enum": ["partner_1", "partner_2"],
                 },
             },
             "required": ["fiscal_year", "partner_id"],
@@ -168,7 +168,7 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "reconcile_year",
         "description": (
             "Run inter-account transfer reconciliation for the fiscal year. "
-            "Matches MONEYLINE FID / Zelle / wire transfers between accounts "
+            "Matches INTRA_BANK_XFER / Zelle / wire transfers between accounts "
             "and flags unmatched movements.  Returns matched/unmatched counts "
             "and a list of issues."
         ),

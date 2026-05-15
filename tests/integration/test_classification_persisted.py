@@ -42,7 +42,7 @@ def db(tmp_path, monkeypatch):
 def _entity(db):
     from ledger_agent.core.database import EntityRepo
     from ledger_agent.core.models import Entity
-    e = Entity(name="SYNCED LLC", entity_type="LLC", state="FL",
+    e = Entity(name="ENTITY_A", entity_type="LLC", state="FL",
                id=str(uuid.uuid4()))
     EntityRepo.upsert(e, db)
     return e
@@ -54,7 +54,7 @@ def _account(db, entity_id):
     a = Account(
         entity_id=entity_id,
         name="Business Checking",
-        institution="Truist",
+        institution="Bank X",
         account_type=AccountType.CHECKING,
         account_number_masked="0001",
         id=str(uuid.uuid4()),
@@ -123,7 +123,7 @@ class TestClassificationPersisted:
         acct = _account(db, entity.id)
         txns = [
             _txn(db, acct.id, "GOOGLE WORKSPACE SUBSCRIPTION", "-12.00"),
-            _txn(db, acct.id, "TRUIST BANK SERVICE FEE", "-3.50"),
+            _txn(db, acct.id, "BANK X SERVICE FEE", "-3.50"),
             _txn(db, acct.id, "INTUIT PAYROLL TAX", "-150.00"),
         ]
 
