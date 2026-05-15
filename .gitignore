@@ -70,6 +70,9 @@ MANIFEST
 wheels/
 pip-wheel-metadata/
 
+# ── Maven build output ────────────────────────────────────────────────────────
+webapp/target/
+
 # ── Pytest & coverage ─────────────────────────────────────────────────────────
 .pytest_cache/
 .coverage
