@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title th:text="'ledger-agent — ' + ${appTitle}">ledger-agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f7fa; color: #222; margin: 0; padding: 0;
+    }
+    header {
+      background: #1a1f36; color: #fff; padding: 1.2rem 2rem;
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    header h1 { margin: 0; font-size: 1.35rem; font-weight: 600; }
+    header span.badge {
+      background: #4c6ef5; color: #fff; font-size: 0.7rem;
+      padding: 0.15rem 0.55rem; border-radius: 999px; letter-spacing: 0.04em;
+    }
+    main { max-width: 680px; margin: 3rem auto; padding: 0 1.5rem; }
+    .card {
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08); padding: 2rem;
+    }
+    h2 { margin-top: 0; font-size: 1.1rem; color: #1a1f36; }
+    label { display: block; margin-top: 1.2rem; font-weight: 500; font-size: .9rem; }
+    label small { font-weight: 400; color: #666; }
+    input[type=text], input[type=number], select {
+      width: 100%; padding: .6rem .75rem; border: 1.5px solid #d0d7de;
+      border-radius: 6px; font-size: .95rem; margin-top: .35rem;
+      outline: none; transition: border-color .15s;
+    }
+    input:focus, select:focus { border-color: #4c6ef5; }
+    button[type=submit] {
+      margin-top: 1.75rem; width: 100%; background: #4c6ef5; color: #fff;
+      border: none; border-radius: 8px; padding: .8rem 1.5rem;
+      font-size: 1rem; font-weight: 600; cursor: pointer;
+      transition: background .15s;
+    }
+    button[type=submit]:hover { background: #3b5bdb; }
+    .hint { font-size: .82rem; color: #888; margin-top: .3rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📒 ledger-agent</h1>
+  <span class="badge" th:text="${appBadge}">Financial Intelligence</span>
+  <span class="badge" style="background:#20c997">Form D</span>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Run a Financial Report</h2>
+
+    <form method="post" action="/run">
+
+      <label>
+        Report
+        <select name="report">
+          <option value="balance_sheet"  th:selected="${report == 'balance_sheet'}">Balance Sheet (year-end)</option>
+          <option value="form1065"       th:selected="${report == 'form1065'}">Form 1065 — Partnership Return</option>
+          <option value="k1_yash"        th:selected="${report == 'k1_yash'}"
+                  th:text="'Schedule K-1 — ' + ${partnerALabel}">Schedule K-1 — Partner A</option>
+          <option value="k1_parin"       th:selected="${report == 'k1_parin'}"
+                  th:text="'Schedule K-1 — ' + ${partnerBLabel}">Schedule K-1 — Partner B</option>
+          <option value="tax_estimate"   th:selected="${report == 'tax_estimate'}">Quarterly Tax Estimate (PTE)</option>
+          <option value="reconcile"      th:selected="${report == 'reconcile'}">Year-End Reconciliation</option>
+          <option value="import"         th:selected="${report == 'import'}">Import Statements from Folder</option>
+        </select>
+      </label>
+
+      <label>
+        Fiscal Year
+        <input type="number" name="fiscalYear" min="2020" max="2099"
+               th:value="${fiscalYear}" placeholder="2024"/>
+      </label>
+
+      <label>
+        Statements Folder <small>(used only for "Import" report)</small>
+        <input type="text" name="folder" th:value="${folder}"
+               placeholder="/Users/you/statements"/>
+        <p class="hint">Full absolute path to the folder containing PDF bank/brokerage statements.</p>
+      </label>
+
+      <button type="submit">▶ Run Report</button>
+    </form>
+  </div>
+</main>
+
+</body>
+</html>

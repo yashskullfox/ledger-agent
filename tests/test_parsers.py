@@ -81,7 +81,7 @@ class TestParserRegistry:
 class TestTruistCheckingParser:
     @pytest.fixture
     def parser(self):
-        from ledger_agent.core.parsers.truist_checking import TruistCheckingParser
+        from ledger_agent.core.parsers.bank_x_checking import TruistCheckingParser
         return TruistCheckingParser()
 
     def test_can_parse_truist(self, parser):
@@ -142,7 +142,7 @@ class TestTruistCheckingParser:
 class TestBaseParserHelpers:
     @pytest.fixture
     def parser(self):
-        from ledger_agent.core.parsers.truist_checking import TruistCheckingParser
+        from ledger_agent.core.parsers.bank_x_checking import TruistCheckingParser
         return TruistCheckingParser()
 
     def test_parse_amount_decimal(self, parser):
@@ -173,60 +173,60 @@ class TestBaseParserHelpers:
 
 class TestChaseCheckingCanParse:
     def test_detects_chase_business_complete(self):
-        from ledger_agent.core.parsers.chase_checking import ChaseCheckingParser
+        from ledger_agent.core.parsers.bank_x3_checking import ChaseCheckingParser
         assert ChaseCheckingParser.can_parse(CHASE_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
-        from ledger_agent.core.parsers.chase_checking import ChaseCheckingParser
+        from ledger_agent.core.parsers.bank_x3_checking import ChaseCheckingParser
         assert not ChaseCheckingParser.can_parse(TRUIST_SAMPLE_TEXT)
 
 
 class TestBofACheckingCanParse:
     def test_detects_bofa_business(self):
-        from ledger_agent.core.parsers.bofa_checking import BofACheckingParser
+        from ledger_agent.core.parsers.bank_x2_checking import BofACheckingParser
         assert BofACheckingParser.can_parse(BOFA_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
-        from ledger_agent.core.parsers.bofa_checking import BofACheckingParser
+        from ledger_agent.core.parsers.bank_x2_checking import BofACheckingParser
         assert not BofACheckingParser.can_parse(TRUIST_SAMPLE_TEXT)
 
 
 class TestIBKRCanParse:
     def test_detects_ibkr_activity_statement(self):
-        from ledger_agent.core.parsers.ibkr import IBKRParser
+        from ledger_agent.core.parsers.broker_z import IBKRParser
         assert IBKRParser.can_parse(IBKR_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
-        from ledger_agent.core.parsers.ibkr import IBKRParser
+        from ledger_agent.core.parsers.broker_z import IBKRParser
         assert not IBKRParser.can_parse(TRUIST_SAMPLE_TEXT)
 
 
 class TestUSBankCheckingCanParse:
     def test_detects_usbank_checking(self):
         pytest.importorskip("pdfplumber")
-        from ledger_agent.core.parsers.usbank_checking import USBankCheckingParser
+        from ledger_agent.core.parsers.bank_x4_checking import USBankCheckingParser
         assert USBankCheckingParser.can_parse(USBANK_CHECKING_SAMPLE_TEXT)
 
     def test_rejects_truist(self):
         pytest.importorskip("pdfplumber")
-        from ledger_agent.core.parsers.usbank_checking import USBankCheckingParser
+        from ledger_agent.core.parsers.bank_x4_checking import USBankCheckingParser
         assert not USBankCheckingParser.can_parse(TRUIST_SAMPLE_TEXT)
 
     def test_rejects_usbank_cc(self):
         pytest.importorskip("pdfplumber")
-        from ledger_agent.core.parsers.usbank_checking import USBankCheckingParser
+        from ledger_agent.core.parsers.bank_x4_checking import USBankCheckingParser
         assert not USBankCheckingParser.can_parse(USBANK_CC_SAMPLE_TEXT)
 
 
 class TestUSBankCreditCardCanParse:
     def test_detects_usbank_cc(self):
         pytest.importorskip("pdfplumber")
-        from ledger_agent.core.parsers.usbank_creditcard import USBankCreditCardParser
+        from ledger_agent.core.parsers.bank_x4_creditcard import USBankCreditCardParser
         assert USBankCreditCardParser.can_parse(USBANK_CC_SAMPLE_TEXT)
 
     def test_rejects_usbank_checking(self):
         pytest.importorskip("pdfplumber")
-        from ledger_agent.core.parsers.usbank_creditcard import USBankCreditCardParser
+        from ledger_agent.core.parsers.bank_x4_creditcard import USBankCreditCardParser
         assert not USBankCreditCardParser.can_parse(USBANK_CHECKING_SAMPLE_TEXT)
 
 

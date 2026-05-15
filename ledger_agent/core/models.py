@@ -29,6 +29,7 @@ class TransactionType(str, Enum):
     MARGIN_INTEREST = "margin_interest"
     DIVIDEND = "dividend"
     OTHER = "other"
+    PRIOR_PERIOD_ADJUSTMENT = "prior_period_adjustment"
 
 
 class StatementType(str, Enum):
