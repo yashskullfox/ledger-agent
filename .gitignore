@@ -134,6 +134,11 @@ explore_*.py
 # Populated locally or from the FI_CPA_CORPUS_2024 GitHub secret.
 statements/
 
+# ── Private local config (gitignored) — institution match strings, pseudonym map ──
+private/
+notes/
+*.draft.md
+
 # ── Plan files (Wibey AI planning artifacts) ──────────────────────────────────
 *.plan.md
 .wibey/

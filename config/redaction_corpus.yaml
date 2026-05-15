@@ -1,0 +1,22 @@
+# config/redaction_corpus.yaml  –  Pseudonym corpus for doc-redaction scanner
+# ─────────────────────────────────────────────────────────────────────────────
+# All real identifiers live in private/pseudonym-map.local.md (gitignored).
+# This file contains only the public pseudonym tokens used in committed docs.
+# The scanner flags any committed file that contains tokens NOT in this list
+# that match the PII patterns below.
+
+replacement_tokens:
+  entities:     ["ENTITY_A", "ENTITY_B"]
+  partners:     ["partner_1", "partner_2", "PARTNER_1", "PARTNER_2"]
+  banks:        ["BANK_X", "BANK_X2", "BANK_X3", "BANK_X4"]
+  brokers:      ["BROKER_Y", "BROKER_Z"]
+  tickers:      ["TICKER_SEC1", "TICKER_SEC2"]
+  accounts:     ["acct_****1234"]
+  amounts:      ["~$X,XXX", "~$XX,XXX", "[REDACTED:cash]", "[REDACTED:capital]"]
+
+# Patterns the scanner uses to detect uncommitted PII (regex, case-insensitive)
+# These are intentionally generic — real institution strings are in private/
+pii_patterns:
+  account_number: "\\*{4}\\d{4}|\\d{10,17}"
+  financial_figure_with_noun: "\\$[\\d,]+\\.\\d{2}"
+  ownership_percent: "\\d{1,3}\\.\\d+%|\\d{1,3}%"

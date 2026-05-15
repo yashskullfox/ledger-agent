@@ -211,6 +211,7 @@ def export_balance_sheet_csv(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> P
     with open(fname, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Entity", bs.entity_name])
+        writer.writerow(["Entity ID", bs.entity_id])
         writer.writerow(["Period", bs.period])
         writer.writerow(["Generated", datetime.now().isoformat()])
         writer.writerow([])
@@ -332,6 +333,7 @@ def export_balance_sheet_json(bs: BalanceSheet,
     fname = out_dir / f"balance_sheet_{bs.period}.json"
     payload = {
         "entity_name": bs.entity_name,
+        "entity_id": bs.entity_id,
         "period": bs.period,
         "generated_at": datetime.now().isoformat(),
         "total_assets": str(bs.total_assets),
@@ -368,6 +370,7 @@ def export_coverage_json(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> Path:
     fname = out_dir / f"balance_sheet_{bs.period}.coverage.json"
     payload = {
         "entity_name": bs.entity_name,
+        "entity_id": bs.entity_id,
         "period": bs.period,
         "generated_at": datetime.now().isoformat(),
         "consumed_count": len(bs.coverage["consumed_snapshots"]),

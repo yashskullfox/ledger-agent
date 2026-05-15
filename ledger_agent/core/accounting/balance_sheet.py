@@ -46,7 +46,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ledger_agent.core.database import (
     AccountRepo, COARepo, PositionRepo, SnapshotRepo, TransactionRepo,
@@ -64,6 +64,7 @@ class BalanceSheet:
 
     def __init__(self, entity_name: str, period: str):
         self.entity_name = entity_name
+        self.entity_id = ""
         self.period = period
         self.lines: List[BalanceSheetLine] = []
 
@@ -103,9 +104,10 @@ class BalanceSheetBuilder:
     Builds a BalanceSheet from the database for a given entity and period.
     """
 
-    def __init__(self, entity_id: str, period: str):
+    def __init__(self, entity_id: str, period: str, pl_periods: Optional[List[str]] = None):
         self.entity_id = entity_id
         self.period = period
+        self.pl_periods = pl_periods if pl_periods is not None else [period]
 
     def build(self) -> BalanceSheet:
         from ledger_agent.core.database import EntityRepo
@@ -131,6 +133,7 @@ class BalanceSheetBuilder:
         coa = {c.code: c for c in COARepo.list_all()}
 
         bs = BalanceSheet(entity_name, self.period)
+        bs.entity_id = self.entity_id
 
         def _consume(acct, snap) -> None:
             """Record a snapshot as consumed and emit audit event."""
@@ -291,12 +294,14 @@ class BalanceSheetBuilder:
         rev_total = Decimal("0")
         exp_total = Decimal("0")
 
-        # Revenue / Expense from classified transactions
-        txns = TransactionRepo.list_for_period(self.period)
+        # Revenue / Expense from classified transactions — aggregate across all pl_periods
+        _pl_txns: list = []
+        for _p in self.pl_periods:
+            _pl_txns.extend(TransactionRepo.list_for_period(_p))
         rev_by_code: Dict[str, Decimal] = defaultdict(Decimal)
         exp_by_code: Dict[str, Decimal] = defaultdict(Decimal)
 
-        for t in txns:
+        for t in _pl_txns:
             if t.is_transfer:
                 continue
             coa_entry = coa.get(t.coa_code)
