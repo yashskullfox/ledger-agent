@@ -111,6 +111,9 @@
         <configuration>
           <includes><include>**/*IT.java</include></includes>
           <environmentVariables>
+            <!-- Disable audit-file creation in CI/test: prevents the bridge subprocess
+                 from hanging on NFS mkdir inside audit._ensure_initialised() before
+                 it can respond to the startup ping. -->
             <FI_AUDIT_DISABLED>1</FI_AUDIT_DISABLED>
           </environmentVariables>
         </configuration>
