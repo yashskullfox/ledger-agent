@@ -181,7 +181,7 @@ jobs:
       - name: Install deps
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Verify JSON fixture is committed and valid
         # TestFixtureIntegrity.test_fixture_exists / test_fixture_is_valid_json
