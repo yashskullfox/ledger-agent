@@ -134,11 +134,11 @@ jobs:
             -DnewValue="${{ steps.epoch.outputs.ts }}" \
             -DgenerateBackupPoms=false
 
-      # Build #1 — run full verify so tests execute (ApiControllerIT passes;
-      # PythonBridgeIT skips when ledger_agent is not installed in this job).
+      # Build #1 — package only (no test execution); repro-check verifies
+      # artifact determinism, not correctness — tests run in release.yml.
       - name: Build fat jar (pass 1)
         working-directory: webapp
-        run: mvn -q verify
+        run: mvn -q package -DskipITs
 
       - name: Hash jar (pass 1)
         run: sha256sum webapp/target/*.jar | tee jar-pass1.sha256
@@ -148,10 +148,10 @@ jobs:
         working-directory: webapp
         run: mvn -q clean
 
-      # Build #2 — identical invocation; test results do not affect jar contents
+      # Build #2 — identical invocation; produces bit-identical jar when inputs match.
       - name: Build fat jar (pass 2)
         working-directory: webapp
-        run: mvn -q verify
+        run: mvn -q package -DskipITs
 
       - name: Hash jar (pass 2)
         run: sha256sum webapp/target/*.jar | tee jar-pass2.sha256
