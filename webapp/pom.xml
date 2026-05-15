@@ -79,6 +79,9 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
+        <!-- Pin to 3.14.0: fixes "Index 0 out of bounds for length 0" regression
+             in 3.13.0 on fresh Ubuntu/Temurin JDK21 CI checkouts (MCOMPILER-572). -->
+        <version>3.14.0</version>
         <configuration>
           <release>21</release>
           <encoding>UTF-8</encoding>
