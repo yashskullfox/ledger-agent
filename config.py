@@ -162,13 +162,13 @@ REPORT_PERIOD_FMT = "%Y-%m"
 # The authoritative registration lives in each parser module via
 # ParserRegistry.register(), auto-loaded by parsers/__init__.py.
 KNOWN_PARSERS = {
-    "truist_checking": "Truist Simple Business Checking",
-    "fidelity_brokerage": "Fidelity Brokerage / Investment Account",
-    "chase_checking": "Chase Business Complete Checking",
-    "bofa_checking": "Bank of America Business Checking",
-    "usbank_checking": "U.S. Bank Business Essentials Checking",
-    "usbank_creditcard": "U.S. Bank Business Credit Card",
-    "ibkr": "Interactive Brokers Activity Statement",
+    "bank_x_checking":   "Bank X Simple Business Checking",
+    "bank_x2_checking":  "Bank X2 Business Checking",
+    "bank_x3_checking":  "Bank X3 Business Complete Checking",
+    "bank_x4_checking":  "Bank X4 Business Essentials Checking",
+    "bank_x4_creditcard":"Bank X4 Business Credit Card",
+    "broker_y_brokerage":"Broker Y Brokerage / Investment Account",
+    "broker_z":          "Broker Z Activity Statement",
 }
 
 # ── Chart-of-Accounts account-type labels ────────────────────────────────────

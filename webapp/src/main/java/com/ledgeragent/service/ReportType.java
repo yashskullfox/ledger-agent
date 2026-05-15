@@ -13,8 +13,8 @@ public enum ReportType {
 
     BALANCE_SHEET("balance_sheet"),
     FORM1065("form1065"),
-    K1_YASH("k1_yash"),
-    K1_PARIN("k1_parin"),
+    K1_PARTNER_1("k1_partner_1"),
+    K1_PARTNER_2("k1_partner_2"),
     TAX_ESTIMATE("tax_estimate"),
     RECONCILE("reconcile"),
     IMPORT("import");

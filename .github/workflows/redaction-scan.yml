@@ -1,0 +1,80 @@
+name: Redaction scan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redaction-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11.9"
+
+jobs:
+  scan:
+    name: Scan repo for real-name leaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout (full history for diff context)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements.lock
+
+      - name: Install dependencies (PyYAML only -- scanner has minimal deps)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml
+
+      - name: Show scanner version + corpus hash
+        run: |
+          echo "Scanner: scripts/check_doc_redaction.py"
+          python -c "import hashlib, pathlib; print('Corpus SHA-256:', hashlib.sha256(pathlib.Path('config/redaction_corpus.yaml').read_bytes()).hexdigest())"
+
+      - name: Run redaction scan (strict)
+        id: scan
+        run: |
+          python scripts/check_doc_redaction.py --strict 2>&1 | tee scan-report.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redaction-scan-report
+          path: scan-report.txt
+          retention-days: 30
+
+      - name: Annotate hit lines as PR comments
+        if: failure() && github.event_name == 'pull_request'
+        run: |
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([^:]+):([0-9]+):.+hit ]]; then
+              file="${BASH_REMATCH[1]}"
+              lineno="${BASH_REMATCH[2]}"
+              echo "::error file=${file},line=${lineno}::Redaction scan: ${line}"
+            fi
+          done < scan-report.txt
+
+      - name: Fail if scan returned non-zero
+        if: steps.scan.outputs.exit_code != '0'
+        run: |
+          echo "Redaction scan found leaks. See uploaded scan-report.txt artifact." >&2
+          exit 1

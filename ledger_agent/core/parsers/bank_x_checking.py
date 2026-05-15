@@ -1,7 +1,7 @@
 """
-parsers/truist_checking.py  –  Truist Simple Business Checking statement parser
+parsers/bank_x_checking.py  –  Bank X Simple Business Checking statement parser
 ────────────────────────────────────────────────────────────────────────────────
-Parses the Truist bank statement format:
+Parses the Bank X bank statement format:
 
   Other withdrawals, debits and service charges
   DATE  DESCRIPTION                    AMOUNT($)
@@ -9,7 +9,7 @@ Parses the Truist bank statement format:
 
   Deposits, credits and interest
   DATE  DESCRIPTION                    AMOUNT($)
-  01/21 MONEYLINE FID BKG ...          250.00
+  01/21 INTRA_BANK_XFER FID BKG ...    250.00
 
 Account summary block supplies beginning / ending balances.
 """
@@ -27,20 +27,23 @@ from ledger_agent.core.models import (
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
 
+try:
+    from private.institutions import BANK_X as _CFG  # type: ignore
+except ImportError:
+    _CFG = {"detect": [], "intra_xfer_keywords": []}
+
 
 @ParserRegistry.register
-class TruistCheckingParser(BaseStatementParser):
-    PARSER_ID = "truist_checking"
-    INSTITUTION = "Truist Bank"
+class BankXCheckingParser(BaseStatementParser):
+    PARSER_ID = "bank_x_checking"
+    INSTITUTION = "Bank X"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
-        # pdfplumber sometimes collapses spaces: "TRUISTSIMPLEBUSINESSCHECKING"
+        if not _CFG.get("detect"):
+            return False
         t = text.upper().replace(" ", "")
-        return "TRUIST" in text.upper() and (
-                "SIMPLEBUSINESSCHECKING" in t
-                or "TRUISTSIMPLEBUSINESS" in t
-        )
+        return all(tok.replace(" ", "") in t for tok in _CFG["detect"])
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -97,12 +100,12 @@ class TruistCheckingParser(BaseStatementParser):
         return ("0000-00", 0)
 
     def _extract_account_number(self, text: str) -> str:
-        """Look for 'CHECKING1470018610272' or 'CHECKING 1470018610272'."""
-        # pdfplumber sometimes merges spaces → CHECKING1470018610272
+        """Look for 'CHECKING<digits>' or 'CHECKING <digits>'."""
+        # pdfplumber sometimes merges spaces → CHECKING<digits>
         m = re.search(r"CHECKING\s*(\d{10,})", text, re.IGNORECASE)
         if m:
             return m.group(1)
-        # Fallback: any standalone 10+ digit number near TRUIST
+        # Fallback: any standalone 10+ digit number near state code
         m2 = re.search(r"VA\s+(\d{10,})", text)
         if m2:
             return m2.group(1)
@@ -126,8 +129,8 @@ class TruistCheckingParser(BaseStatementParser):
     def _extract_balances(self, text: str) -> Tuple[Optional[Decimal], Optional[Decimal]]:
         """
         Match both spaced and space-collapsed formats:
-          'Your previous balance as of 05/15/2024 $0.00'
-          'Yourpreviousbalanceasof09/30/2024 $742.41'
+          'Your previous balance as of MM/DD/YYYY ~$X,XXX'
+          'YourpreviousbalanceasofMM/DD/YYYY ~$X,XXX'
         """
         prev = new = None
         m_prev = re.search(
@@ -195,13 +198,14 @@ class TruistCheckingParser(BaseStatementParser):
             end_pattern=r"Total\s*deposits",
         )
         txns = []
+        kw = _CFG.get("intra_xfer_keywords", []) or []
         for raw_date, desc, amt_str in self._parse_tx_lines(section):
             d = self.parse_date(raw_date, year)
             amt = self.parse_amount(amt_str)
             if d and amt is not None:
-                txn_type = TransactionType.TRANSFER_IN \
-                    if "MONEYLINE" in desc.upper() \
-                    else TransactionType.CREDIT
+                desc_upper = desc.upper()
+                is_intra = any(k in desc_upper for k in kw)
+                txn_type = TransactionType.TRANSFER_IN if is_intra else TransactionType.CREDIT
                 txns.append(Transaction(
                     account_id="",
                     date=d,

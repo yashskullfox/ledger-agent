@@ -1,7 +1,7 @@
 """
 intelligence/reconciler.py  –  Cross-account reconciliation
 ─────────────────────────────────────────────────────────────
-Identifies transfers between accounts (e.g. Fidelity → Truist)
+Identifies transfers between accounts (e.g. Broker Y → Bank X)
 and marks matching transactions is_transfer=True so they are
 excluded from the P&L and balance sheet is correct.
 

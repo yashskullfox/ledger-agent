@@ -38,4 +38,7 @@ print(f"Quarterly payment: ${est.quarterly_payment:,.2f}")
 
 ## Supported institutions
 
-Truist Bank, Chase, Bank of America, U.S. Bank (checking + credit card), Fidelity Brokerage, Interactive Brokers.
+BANK_X, BANK_X3, BANK_X2, BANK_X4 (checking + credit card), BROKER_Y brokerage, BROKER_Z.
+
+> Real institution names are pseudonymised in public source. The live mapping
+> is kept in `private/pseudonym-map.local.md` (gitignored).

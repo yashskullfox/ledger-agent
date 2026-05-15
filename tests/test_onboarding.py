@@ -1,5 +1,5 @@
 """
-tests/test_onboarding.py  –  Unit tests for cli/onboarding.py (R-45)
+tests/test_onboarding.py  –  Unit tests for ledger_agent/cli/onboarding.py (R-45)
 
 Tests cover:
   - rolling_window() produces correct 12-month list
@@ -25,7 +25,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from cli.onboarding import (
+from ledger_agent.cli.onboarding import (
     rolling_window,
     parse_window_arg,
     _period_from_text,
@@ -118,16 +118,16 @@ class TestPeriodFromText:
     def test_month_name_abbrev(self):
         assert _period_from_text("Mar 2026 report") == "2026-03"
 
-    def test_truist_sample(self):
-        text = "For 01/31/2025\nAccount Summary\nPrevious balance $572.15"
+    def test_bank_x_sample(self):
+        text = "For 01/31/2025\nAccount Summary\nPrevious balance $XXX.XX"
         result = _period_from_text(text)
         assert result == "2025-01"
 
-    def test_chase_sample(self):
+    def test_bank_x3_sample(self):
         text = "January 1, 2025 through January 31, 2025"
         assert _period_from_text(text) == "2025-01"
 
-    def test_usbank_sample(self):
+    def test_bank_x4_sample(self):
         text = "Statement Period: March 1 - March 31, 2026"
         assert _period_from_text(text) == "2026-03"
 
@@ -143,19 +143,20 @@ class TestPeriodFromText:
 
 class TestAccountLast4FromText:
     def test_stars_pattern(self):
-        assert _account_last4_from_text("Account ****1234") == "1234"
+        assert _account_last4_from_text("Account ****1234") == "1234"  # redaction: allow (synthetic mask)
 
     def test_dots_pattern(self):
-        assert _account_last4_from_text("Account ...5678") == "5678"
+        assert _account_last4_from_text("Account ...5678") == "5678"  # redaction: allow (synthetic mask)
 
     def test_parens_dots(self):
-        assert _account_last4_from_text("CHECKING (...1234)") == "1234"
+        assert _account_last4_from_text("CHECKING (...1234)") == "1234"  # redaction: allow (synthetic mask)
 
     def test_parens_stars(self):
-        assert _account_last4_from_text("(****4594)") == "4594"
+        assert _account_last4_from_text("(****4594)") == "4594"  # redaction: allow (synthetic mask)
 
-    def test_truist_sample(self):
-        text = "SIMPLE BUSINESS CHECKING  1470018610272\nFor 01/31/2025"
+    def test_bank_x_sample(self):
+        # Synthetic account-id sequence used only as scanner input; no real bank data
+        text = "SIMPLE BUSINESS CHECKING  0000000000000\nFor 01/31/2025"  # redaction: allow (synthetic id)
         # No mask pattern → fallback
         result = _account_last4_from_text(text)
         # Should return something (may be 0000 if none match)
@@ -184,28 +185,28 @@ class TestBuildCoverage:
 
     def test_single_account_single_month(self):
         discovered = self._make_discovered([
-            ("Truist Bank", "1234", "truist_checking", "2025-01"),
+            ("Bank X", "1234", "bank_x_checking", "2025-01"),
         ])
         window = ["2025-01"]
         accounts, coverage = build_coverage(discovered, window)
         assert len(accounts) == 1
-        key = "Truist Bank|1234"
+        key = "Bank X|1234"
         assert key in accounts
         assert coverage.get((key, "2025-01"))
 
     def test_duplicate_detection(self):
         discovered = self._make_discovered([
-            ("Truist Bank", "1234", "truist_checking", "2025-01"),
-            ("Truist Bank", "1234", "truist_checking", "2025-01"),  # duplicate
+            ("Bank X", "1234", "bank_x_checking", "2025-01"),
+            ("Bank X", "1234", "bank_x_checking", "2025-01"),  # duplicate
         ])
         window = ["2025-01"]
         _, coverage = build_coverage(discovered, window)
-        assert len(coverage[("Truist Bank|1234", "2025-01")]) == 2
+        assert len(coverage[("Bank X|1234", "2025-01")]) == 2
 
     def test_multiple_accounts(self):
         discovered = self._make_discovered([
-            ("Truist Bank", "1234", "truist_checking", "2025-01"),
-            ("Fidelity", "5678", "fidelity_brokerage", "2025-01"),
+            ("Bank X", "1234", "bank_x_checking", "2025-01"),
+            ("Broker Y", "5678", "broker_y_brokerage", "2025-01"),
         ])
         window = ["2025-01"]
         accounts, coverage = build_coverage(discovered, window)
@@ -213,11 +214,11 @@ class TestBuildCoverage:
 
     def test_missing_months_not_in_coverage(self):
         discovered = self._make_discovered([
-            ("Truist Bank", "1234", "truist_checking", "2025-01"),
+            ("Bank X", "1234", "bank_x_checking", "2025-01"),
         ])
         window = ["2025-01", "2025-02", "2025-03"]
         accounts, coverage = build_coverage(discovered, window)
-        key = "Truist Bank|1234"
+        key = "Bank X|1234"
         assert coverage.get((key, "2025-01"))
         assert not coverage.get((key, "2025-02"))
         assert not coverage.get((key, "2025-03"))
@@ -227,19 +228,19 @@ class TestBuildCoverage:
 
 class TestEmitCoverageJson:
     def test_complete_coverage(self):
-        accounts = {"Truist Bank|1234": {"institution": "Truist Bank", "last4": "1234", "parser_id": "truist_checking"}}
-        coverage = {("Truist Bank|1234", "2025-01"): [Path("/fake.pdf")]}
+        accounts = {"Bank X|1234": {"institution": "Bank X", "last4": "1234", "parser_id": "bank_x_checking"}}
+        coverage = {("Bank X|1234", "2025-01"): [Path("/fake.pdf")]}
         window = ["2025-01"]
         result = emit_coverage_json(accounts, coverage, window)
         assert result["complete"] is True
         assert result["missing_count"] == 0
         assert result["window"] == ["2025-01"]
-        label = "Truist Bank ****1234"
+        label = "Bank X ****1234"  # redaction: allow (synthetic mask)
         assert label in result["matrix"]
         assert result["matrix"][label]["2025-01"] == "present"
 
     def test_missing_cell(self):
-        accounts = {"Truist Bank|1234": {"institution": "Truist Bank", "last4": "1234", "parser_id": "truist_checking"}}
+        accounts = {"Bank X|1234": {"institution": "Bank X", "last4": "1234", "parser_id": "bank_x_checking"}}
         coverage = {}
         window = ["2025-01", "2025-02"]
         result = emit_coverage_json(accounts, coverage, window)
@@ -247,11 +248,11 @@ class TestEmitCoverageJson:
         assert result["missing_count"] == 2
 
     def test_duplicate_cell(self):
-        accounts = {"Truist Bank|1234": {"institution": "Truist Bank", "last4": "1234", "parser_id": "truist_checking"}}
-        coverage = {("Truist Bank|1234", "2025-01"): [Path("/a.pdf"), Path("/b.pdf")]}
+        accounts = {"Bank X|1234": {"institution": "Bank X", "last4": "1234", "parser_id": "bank_x_checking"}}
+        coverage = {("Bank X|1234", "2025-01"): [Path("/a.pdf"), Path("/b.pdf")]}
         window = ["2025-01"]
         result = emit_coverage_json(accounts, coverage, window)
-        label = "Truist Bank ****1234"
+        label = "Bank X ****1234"  # redaction: allow (synthetic mask)
         assert result["matrix"][label]["2025-01"] == "duplicate"
 
     def test_json_serializable(self):
@@ -318,20 +319,20 @@ class TestResolveFolder:
 # ── _filename_hint ─────────────────────────────────────────────────────────────
 
 class TestFilenameHint:
-    def test_truist(self):
-        info = {"institution": "Truist Bank", "last4": "1234", "parser_id": "truist_checking"}
+    def test_bank_x(self):
+        info = {"institution": "Bank X", "last4": "1234", "parser_id": "bank_x_checking"}
         hint = _filename_hint(info, "2025-08")
-        assert "truist" in hint.lower()
+        assert "bank_x" in hint.lower()
         assert "2025-08" in hint
         assert hint.endswith(".pdf")
 
-    def test_us_bank(self):
-        info = {"institution": "U.S. Bank", "last4": "7428", "parser_id": "usbank_checking"}
+    def test_bank_x4(self):
+        info = {"institution": "Bank X4", "last4": "7428", "parser_id": "bank_x4_checking"}
         hint = _filename_hint(info, "2026-03")
         assert "2026-03" in hint
 
-    def test_fidelity(self):
-        info = {"institution": "Fidelity Brokerage Services LLC", "last4": "5678", "parser_id": "fidelity_brokerage"}
+    def test_broker_y(self):
+        info = {"institution": "Broker Y Brokerage Services LLC", "last4": "5678", "parser_id": "broker_y_brokerage"}
         hint = _filename_hint(info, "2025-01")
         assert "2025-01" in hint
 
@@ -341,7 +342,7 @@ class TestFilenameHint:
 class TestCmdOnboardSmoke:
     def test_empty_folder_returns_2(self, tmp_path):
         """An empty folder with no PDFs should return exit code 2."""
-        from cli.onboarding import cmd_onboard
+        from ledger_agent.cli.onboarding import cmd_onboard
         statements = tmp_path / "statements"
         statements.mkdir()
 
@@ -359,7 +360,7 @@ class TestCmdOnboardSmoke:
 
     def test_no_prompt_is_ci_safe(self, tmp_path, capsys):
         """--no-prompt mode should write JSON to stdout and return int."""
-        from cli.onboarding import cmd_onboard
+        from ledger_agent.cli.onboarding import cmd_onboard
 
         statements = tmp_path / "statements"
         statements.mkdir()

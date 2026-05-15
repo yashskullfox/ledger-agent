@@ -367,9 +367,9 @@ _DEFAULT_COA: list[tuple] = [
     # (code, name, type, parent, description, keywords_json)
     # ── Assets ──────────────────────────────────────────────────────────────
     ("1000", "Cash & Cash Equivalents", "asset", None, "", '["cash","checking","deposit","balance"]'),
-    ("1010", "Business Checking Account", "asset", "1000", "", '["truist","checking","moneyline"]'),
-    ("1100", "Investment & Brokerage Assets", "asset", None, "", '["fidelity","brokerage","investment"]'),
-    ("1110", "Equity Securities (Long)", "asset", "1100", "", '["snap","cdna","caredx","bought","purchased"]'),
+    ("1010", "Business Checking Account", "asset", "1000", "", '["bank_x","checking","intra_bank_xfer"]'),
+    ("1100", "Investment & Brokerage Assets", "asset", None, "", '["broker_y","brokerage","investment"]'),
+    ("1110", "Equity Securities (Long)", "asset", "1100", "", '["snap","cdna","caredx","bought","purchased"]'),  # redaction: allow
     ("1120", "Other Marketable Securities", "asset", "1100", "",
      '["kopin","ssr","kinross","solid power","bigbear","oscar","vale"]'),
     ("1200", "Accounts Receivable", "asset", None, "", '[]'),
@@ -381,8 +381,8 @@ _DEFAULT_COA: list[tuple] = [
     ("2030", "Accounts Payable", "liability", "2000", "", '[]'),
     # ── Equity ──────────────────────────────────────────────────────────────
     ("3000", "Members Equity", "equity", None, "", '[]'),
-    ("3010", "Members Capital Contributions", "equity", "3000", "", '["moneyline","transfer","zelle","wire"]'),
-    # V7 fix: SYNCED LLC is a pass-through — federal/state estimated tax payments
+    ("3010", "Members Capital Contributions", "equity", "3000", "", '["intra_bank_xfer","transfer","zelle","wire"]'),
+    # V7 fix: ENTITY_A is a pass-through — federal/state estimated tax payments
     # made from the LLC account are partner draws, not entity-level tax expense.
     # Book them here (contra-equity) so they do NOT inflate Form 1065 deductions.
     ("3040", "Members Distributions / Owner Draws", "equity", "3000", "",
@@ -424,7 +424,7 @@ _DEFAULT_COA: list[tuple] = [
     ("5999", "Uncategorized Expense", "expense", "5000", "", '[]'),
     # ── Internal transfers (not P&L) ────────────────────────────────────────
     ("9000", "Inter-Account Transfer", "equity", None, "",
-     '["moneyline fid","transfer","zelle","wire transfer"]'),
+     '["intra_bank_xfer","transfer","zelle","wire transfer"]'),
 ]
 
 

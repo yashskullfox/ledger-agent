@@ -205,7 +205,7 @@ def context_to_prompt(ctx: Dict[str, Any]) -> str:
         "",
         "## Tax Estimate (Annualized)",
         f"  Annual Net Income:  ${tax['annual_net_income']:>12,.2f}",
-        f"  SE Tax (15.3%):     ${tax['se_tax']:>12,.2f}",
+        f"  SE Tax (15.3%):     ${tax['se_tax']:>12,.2f}",  # redaction: allow (statutory SE tax rate)
         f"  Federal Income Tax: ${tax['federal_income_tax']:>12,.2f}",
         f"  State Income Tax:   ${tax['state_income_tax']:>12,.2f}",
         f"  TOTAL TAX:          ${tax['total_annual_tax']:>12,.2f}",

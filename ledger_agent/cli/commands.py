@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from cli.prompts import (
+from ledger_agent.cli.prompts import (
     ask_confirm, ask_select, print_error, print_info, print_success, print_warning,
     prompt_classify, prompt_statement_file, wizard_entity,
 )

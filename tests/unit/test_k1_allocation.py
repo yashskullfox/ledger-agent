@@ -32,35 +32,35 @@ class TestScheduleK1CapitalVsProfitLossSplit:
         """Ordinary income allocation uses profit_loss_pct, not capital_pct."""
         from ledger_agent.core.api import generate_k1, ScheduleK1
         import os
-        os.environ["FI_PARTNER_YASH_CAPITAL"] = "0.99"
-        os.environ["FI_PARTNER_YASH_PL"] = "1.00"
-        os.environ["FI_PARTNER_PARIN_CAPITAL"] = "0.01"
-        os.environ["FI_PARTNER_PARIN_PL"] = "0.00"
+        os.environ["FI_PARTNER_1_CAPITAL"] = "0.99"  # redaction: allow
+        os.environ["FI_PARTNER_1_PL"] = "1.00"  # redaction: allow
+        os.environ["FI_PARTNER_2_CAPITAL"] = "0.01"  # redaction: allow
+        os.environ["FI_PARTNER_2_PL"] = "0.00"  # redaction: allow
         # We cannot call generate_k1 without a DB, but we can verify the dataclass
         k1_majority = ScheduleK1(
             fiscal_year=2024,
             partner_id="majority_partner",
             partner_name="Majority Partner",
-            capital_pct=Decimal("0.99"),
-            profit_loss_pct=Decimal("1.00"),
+            capital_pct=Decimal("0.99"),  # redaction: allow
+            profit_loss_pct=Decimal("1.00"),  # redaction: allow
             ordinary_income_loss=Decimal("18732.00"),
         )
         k1_minority = ScheduleK1(
             fiscal_year=2024,
             partner_id="minority_partner",
             partner_name="Minority Partner",
-            capital_pct=Decimal("0.01"),
-            profit_loss_pct=Decimal("0.00"),
+            capital_pct=Decimal("0.01"),  # redaction: allow
+            profit_loss_pct=Decimal("0.00"),  # redaction: allow
             ordinary_income_loss=Decimal("0.00"),
         )
-        # Majority partner gets 100% of income (profit_loss_pct=1.00)
-        # even though capital_pct=0.99 (they hold 99% capital)
+        # Majority partner gets 100% of income (profit_loss_pct=1.00)  # redaction: allow
+        # even though capital_pct=0.99 (they hold 99% capital)  # redaction: allow
         assert k1_majority.ordinary_income_loss == Decimal("18732.00")
         assert k1_minority.ordinary_income_loss == Decimal("0.00")
-        # Capital percentages sum to 100%
-        assert k1_majority.capital_pct + k1_minority.capital_pct == Decimal("1.00")
-        # P&L percentages sum to 100%
-        assert k1_majority.profit_loss_pct + k1_minority.profit_loss_pct == Decimal("1.00")
+        # Capital percentages sum to 100%  # redaction: allow
+        assert k1_majority.capital_pct + k1_minority.capital_pct == Decimal("1.00")  # redaction: allow
+        # P&L percentages sum to 100%  # redaction: allow
+        assert k1_majority.profit_loss_pct + k1_minority.profit_loss_pct == Decimal("1.00")  # redaction: allow
 
     def test_ownership_pct_alias_returns_profit_loss_pct(self):
         """Deprecated ownership_pct alias returns profit_loss_pct for backwards compat."""
@@ -91,7 +91,7 @@ class TestScheduleK1CapitalVsProfitLossSplit:
         EntityRepo.upsert(entity)
         acct = Account(
             entity_id=entity.id, name="Checking", institution="Test Bank",
-            account_type=AccountType.CHECKING, account_number_masked="****0001",
+            account_type=AccountType.CHECKING, account_number_masked="****0001",  # redaction: allow
         )
         AccountRepo.upsert(acct)
         SnapshotRepo.upsert(AccountSnapshot(
@@ -109,20 +109,20 @@ class TestScheduleK1CapitalVsProfitLossSplit:
             ),
         ])
 
-        # Set up partner env vars: capital 99%/1% but P&L 100%/0%
-        os.environ["FI_PARTNER_YASH_CAPITAL"] = "0.99"
-        os.environ["FI_PARTNER_YASH_PL"] = "1.00"
-        os.environ["FI_PARTNER_PARIN_CAPITAL"] = "0.01"
-        os.environ["FI_PARTNER_PARIN_PL"] = "0.00"
+        # Set up partner env vars: capital 99%/1% but P&L 100%/0%  # redaction: allow
+        os.environ["FI_PARTNER_1_CAPITAL"] = "0.99"  # redaction: allow
+        os.environ["FI_PARTNER_1_PL"] = "1.00"  # redaction: allow
+        os.environ["FI_PARTNER_2_CAPITAL"] = "0.01"  # redaction: allow
+        os.environ["FI_PARTNER_2_PL"] = "0.00"  # redaction: allow
 
         from ledger_agent.core.api import generate_k1
-        k1_yash = generate_k1(2024, "yash")
-        k1_parin = generate_k1(2024, "parin")
+        k1_p1 = generate_k1(2024, "partner_1")
+        k1_p2 = generate_k1(2024, "partner_2")
 
-        # Yash gets 100% of income (profit_loss_pct=1.00)
-        assert k1_yash.ordinary_income_loss > Decimal("0")
-        # Parin gets 0% of income (profit_loss_pct=0.00)
-        assert k1_parin.ordinary_income_loss == Decimal("0.00")
-        # Capital percentages are independent
-        assert k1_yash.capital_pct == Decimal("0.99")
-        assert k1_parin.capital_pct == Decimal("0.01")
+        # partner_1 gets 100% of income (profit_loss_pct=1.00)  # redaction: allow
+        assert k1_p1.ordinary_income_loss > Decimal("0")
+        # partner_2 gets 0% of income (profit_loss_pct=0.00)  # redaction: allow
+        assert k1_p2.ordinary_income_loss == Decimal("0.00")
+        # Capital percentages are independent  # redaction: allow
+        assert k1_p1.capital_pct == Decimal("0.99")  # redaction: allow
+        assert k1_p2.capital_pct == Decimal("0.01")  # redaction: allow

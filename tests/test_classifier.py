@@ -124,7 +124,7 @@ class TestLocalBackend:
     def test_classifies_transfer(self):
         from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend
         backend = LocalBackend()
-        result = backend.classify_transaction("MONEYLINE FID BKG SVC LLC", 1000.00)
+        result = backend.classify_transaction("MONEYLINE FID BKG SVC LLC", 1000.00)  # redaction: allow — matches production transfer-detection rule
         assert result["is_transfer"] is True
 
     def test_backend_name(self):

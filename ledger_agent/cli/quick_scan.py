@@ -37,7 +37,7 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
         force:  Re-import even if statement was already imported.
     """
     from ledger_agent.core.database import init_db, SnapshotRepo
-    from cli.prompts import (
+    from ledger_agent.cli.prompts import (
         ask_select, ask_text,
         print_error, print_info, print_warning,
         prompt_classify,
@@ -57,7 +57,7 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
     except ImportError:
         print("\n=== Quick Scan Mode ===\n")
 
-    from cli.commands import _get_or_setup_entity
+    from ledger_agent.cli.commands import _get_or_setup_entity
     entity = _get_or_setup_entity()
     if not entity:
         print_error("No entity configured.")
@@ -146,7 +146,7 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
         _show_tax_estimate(entity.name, bs, int(p[:4]))
 
     if len(report_periods) > 1:
-        from cli.commands import cmd_mom_summary
+        from ledger_agent.cli.commands import cmd_mom_summary
         cmd_mom_summary()
 
     _offer_exports(entity, report_periods[-1], periods)
@@ -169,7 +169,7 @@ def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> N
         AccountRepo, ImportRegistry, PositionRepo, SnapshotRepo, TransactionRepo,
     )
     from ledger_agent.core.models import Account
-    from cli.commands import _infer_account_type, _default_account_name
+    from ledger_agent.cli.commands import _infer_account_type, _default_account_name
     from ledger_agent.core.intelligence.classifier import classify_batch
 
     raw_text = BaseStatementParser.extract_text(pdf_path)
@@ -210,14 +210,14 @@ def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> N
     # Classify
     unclassified = [t for t in stmt.transactions if not t.coa_code]
     if unclassified:
-        from cli.prompts import print_info
+        from ledger_agent.cli.prompts import print_info
         print_info(f"  → Classifying {len(unclassified)} transactions…")
         _, auto, prompted = classify_batch(unclassified, prompt_fn=prompt_classify_fn)
         print_info(f"  → {auto} auto-classified, {prompted} prompted.")
 
     # Register
     ImportRegistry.record(str(pdf_path), stmt.parser_id, acct.id, stmt.statement_period)
-    from cli.prompts import print_success
+    from ledger_agent.cli.prompts import print_success
     print_success(
         f"  ✓ {stmt.institution} | {stmt.statement_period} | "
         f"{len(stmt.transactions)} txns | ${stmt.snapshot.ending_balance:,.2f}"
@@ -238,7 +238,7 @@ def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
 
 def _offer_exports(entity, latest_period: str, all_periods: List[str]) -> None:
     """Offer export options after the scan."""
-    from cli.prompts import ask_select, print_success, print_info
+    from ledger_agent.cli.prompts import ask_select, print_success, print_info
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
 
     export = ask_select(

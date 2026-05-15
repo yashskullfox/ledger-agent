@@ -1,0 +1,19 @@
+EXAMPLE_BANK_NAME_2
+ENTITY_A
+Business Checking (...5678)
+Statement Period: 01/01/2025 - 01/31/2025
+
+Deposits and other credits
+Date   Description                                    Amount
+01/06  Online Banking transfer from savings           2000.00
+01/20  Zelle Credit from JOHN DOE                      500.00
+Total deposits and other credits                      ~$X,XXX
+
+Withdrawals and other debits
+Date   Description                                    Amount
+01/07  RECURRING PAYMENT authorized on 01/07 SLACK       9.00
+01/14  USATAXPYMT IRS                                   72.95
+
+Account Summary
+Beginning balance  ~$X,XXX
+Ending balance     ~$X,XXX

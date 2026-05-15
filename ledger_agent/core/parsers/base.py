@@ -21,8 +21,8 @@ from ledger_agent.core.models import ParsedStatement
 class BaseStatementParser(ABC):
     """All statement parsers must implement this interface."""
 
-    PARSER_ID: str = ""  # unique slug, e.g. "truist_checking"
-    INSTITUTION: str = ""  # human-readable, e.g. "Truist Bank"
+    PARSER_ID: str = ""  # unique slug, e.g. "bank_x_checking"
+    INSTITUTION: str = ""  # human-readable, e.g. "Bank X"
 
     @classmethod
     @abstractmethod
@@ -54,7 +54,7 @@ class BaseStatementParser(ABC):
     @staticmethod
     def parse_amount(raw: str) -> Optional[Decimal]:
         """
-        Convert a raw string amount such as "$1,234.56" or "(234.56)" to Decimal.
+        Convert a raw string amount such as "~$X,XXX" or "(XXX.XX)" to Decimal.
         Parentheses denote negative values (accounting convention).
         """
         if not raw:
