@@ -1,6 +1,6 @@
 # ledger-agent
 
-> Four-form financial intelligence platform for SYNCED LLC.
+> Four-form financial intelligence platform for ENTITY_A.
 > One source tree → Core library · CLI · MCP server · Spring Boot webapp.
 
 ---

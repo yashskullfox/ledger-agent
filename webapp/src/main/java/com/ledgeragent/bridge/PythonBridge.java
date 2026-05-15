@@ -71,6 +71,18 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
           .redirectInput(ProcessBuilder.Redirect.PIPE)
           .redirectOutput(ProcessBuilder.Redirect.PIPE)
           .redirectError(ProcessBuilder.Redirect.INHERIT);
+        pb.environment().put("PYTHONUNBUFFERED", "1");
+        String auditDisabled = System.getenv("FI_AUDIT_DISABLED");
+        if (auditDisabled != null) {
+            pb.environment().put("FI_AUDIT_DISABLED", auditDisabled);
+        }
+        java.io.File projectRoot = pythonHome != null
+                ? pythonHome.getParent().toFile()
+                : java.nio.file.Paths.get(System.getProperty("user.dir"))
+                        .getParent().toFile();
+        if (projectRoot.isDirectory()) {
+            pb.directory(projectRoot);
+        }
 
         process = pb.start();
         client = new JsonRpcClient(process.getInputStream(), process.getOutputStream());

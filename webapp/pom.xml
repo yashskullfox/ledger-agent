@@ -79,6 +79,9 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
+        <!-- Pin to 3.14.0: fixes "Index 0 out of bounds for length 0" regression
+             in 3.13.0 on fresh Ubuntu/Temurin JDK21 CI checkouts (MCOMPILER-572). -->
+        <version>3.14.0</version>
         <configuration>
           <release>21</release>
           <encoding>UTF-8</encoding>
@@ -108,9 +111,6 @@
         <configuration>
           <includes><include>**/*IT.java</include></includes>
           <environmentVariables>
-            <!-- Disable audit-file creation in CI/test: prevents the bridge subprocess
-                 from hanging on NFS mkdir inside audit._ensure_initialised() before
-                 it can respond to the startup ping. -->
             <FI_AUDIT_DISABLED>1</FI_AUDIT_DISABLED>
           </environmentVariables>
         </configuration>
