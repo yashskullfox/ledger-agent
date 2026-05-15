@@ -69,13 +69,13 @@ ledger-agent/
 │   ├── __init__.py           pkgutil.iter_modules auto-discovery
 │   ├── base.py               BaseStatementParser ABC
 │   ├── registry.py           @ParserRegistry.register + auto-detect
-│   ├── truist_checking.py
-│   ├── fidelity_brokerage.py
-│   ├── chase_checking.py
-│   ├── bofa_checking.py
-│   ├── usbank_checking.py
-│   ├── usbank_creditcard.py
-│   └── ibkr.py
+│   ├── bank_x_checking.py
+│   ├── broker_y_brokerage.py
+│   ├── bank_x3_checking.py
+│   ├── bank_x2_checking.py
+│   ├── bank_x4_checking.py
+│   ├── bank_x4_creditcard.py
+│   └── broker_z.py
 │
 ├── intelligence/             Classification and learning layer
 │   ├── classifier.py         5-step pipeline: memory → local → AI → keywords → prompt

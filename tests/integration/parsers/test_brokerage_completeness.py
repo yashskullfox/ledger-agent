@@ -104,7 +104,7 @@ class TestFidelityParserModel:
     @pytest.fixture
     def parser(self):
         import ledger_agent.core.parsers  # noqa: F401 — triggers auto-discovery
-        from ledger_agent.core.parsers.fidelity_brokerage import FidelityBrokerageParser
+        from ledger_agent.core.parsers.broker_y_brokerage import FidelityBrokerageParser
         return FidelityBrokerageParser()
 
     @pytest.fixture
@@ -228,7 +228,7 @@ class TestIBKRParserModel:
     @pytest.fixture
     def parser(self):
         import ledger_agent.core.parsers  # noqa: F401
-        from ledger_agent.core.parsers.ibkr import IBKRParser
+        from ledger_agent.core.parsers.broker_z import IBKRParser
         return IBKRParser()
 
     @pytest.fixture

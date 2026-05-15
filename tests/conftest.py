@@ -37,6 +37,7 @@ def pytest_configure(config):
     os.environ.setdefault("FI_MEMORY_FILE", str(tmp / "test_memory.json"))
     os.environ.setdefault("FI_AI_BACKEND", "local")
     os.environ.setdefault("FI_LOG_LEVEL", "WARNING")
+    os.environ.setdefault("FI_AUDIT_DISABLED", "1")
 
 
 # ── Env var setup ─────────────────────────────────────────────────────────────
@@ -53,7 +54,8 @@ def set_test_env(tmp_path_factory):
     os.environ["FI_DB_PATH"] = str(tmp / "test.db")
     os.environ["FI_MEMORY_FILE"] = str(tmp / "test_memory.json")
     os.environ["FI_AI_BACKEND"] = "local"
-    os.environ["FI_LOG_LEVEL"] = "WARNING"  # quiet during tests
+    os.environ["FI_LOG_LEVEL"] = "WARNING"
+    os.environ["FI_AUDIT_DISABLED"] = "1"
     yield
     # Teardown: env vars cleaned up by OS
 

@@ -64,8 +64,13 @@ SAMPLE_WITH_PII = {
     "ssn": "123-45-6789",
     "account_number": "000123456789",
     "routing_number": "021000021",
-    "api_key": "sk-proj-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345",
     "partner_name": "Yash N Patel",
+    "net_income": 38204.61,
+}
+
+SAMPLE_WITH_API_KEY = {
+    "entity": "SYNCED LLC",
+    "api_key": "sk-proj-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345",
     "net_income": 38204.61,
 }
 
@@ -91,12 +96,15 @@ class TestRedactResponse:
         assert result["matched"] == 4
 
     def test_allow_pii_bypasses_redaction(self):
-        """When allow_pii=True the payload is returned verbatim."""
         result = _redact_response(SAMPLE_WITH_PII.copy(), allow_pii=True)
         assert result["ein"] == "83-1234567"
         assert result["ssn"] == "123-45-6789"
         assert result["account_number"] == "000123456789"
-        assert result["api_key"] == "sk-proj-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345"
+
+    def test_api_key_always_blocked_regardless_of_allow_pii(self):
+        from ledger_agent.mcp.server import PrivacyRedactionError
+        with pytest.raises(PrivacyRedactionError, match="api_key_in_response"):
+            _redact_response(SAMPLE_WITH_API_KEY.copy(), allow_pii=True)
 
     def test_result_is_valid_json_serialisable(self):
         """After redaction the payload must still be JSON-serialisable."""

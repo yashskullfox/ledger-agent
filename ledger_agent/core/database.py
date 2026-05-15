@@ -25,7 +25,7 @@ from ledger_agent.core.models import (
 # Increment whenever the schema changes; auto-migration runs on connect.
 # v4: positions.position_type (ARCH-25)
 # v5: transactions.classifier_version, transactions.confidence (ARCH-27)
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _decimal(v) -> Decimal:
@@ -347,6 +347,13 @@ def init_db(db_path: Optional[Path] = None) -> None:
                     conn.execute(col_def)
                 except Exception:
                     pass  # column already exists on freshly-created DB
+        if current < 6:
+            try:
+                conn.execute(
+                    "ALTER TABLE transactions ADD COLUMN classification_lock_at TEXT"
+                )
+            except Exception:
+                pass  # column already exists on freshly-created DB
         if current < SCHEMA_VERSION:
             conn.execute(
                 "INSERT OR REPLACE INTO schema_meta(key,value) VALUES('version',?)",
@@ -385,6 +392,7 @@ _DEFAULT_COA: list[tuple] = [
     # ── Revenue ─────────────────────────────────────────────────────────────
     ("4000", "Revenue", "revenue", None, "", '[]'),
     ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds","realized gain"]'),
+    ("4011", "Long-Term Capital Gain", "revenue", "4000", "", '["long-term gain","ltcg gain","ltcg"]'),
     ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","deposit","invoice"]'),
     ("4021", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
     ("4030", "Other Income", "revenue", "4000", "", '[]'),
@@ -408,6 +416,7 @@ _DEFAULT_COA: list[tuple] = [
     ("5070", "Realised Trading Losses", "expense", "5000", "", '["loss","short-term loss","realized loss"]'),
     ("5071", "Legal & Professional Fees", "expense", "5000", "",
      '["incfile","registered agent","northwest registered","legalzoom","rocket lawyer","attorney","legal"]'),
+    ("5075", "Long-Term Capital Loss", "expense", "5000", "", '["long-term loss","ltcg loss"]'),
     ("5080", "Other Operating Expenses", "expense", "5000", "", '[]'),
     ("5090", "Interest Expense", "expense", "5000", "", '["interest expense","loan interest"]'),
     ("5100", "Travel & Transportation", "expense", "5000", "",
@@ -590,12 +599,15 @@ class TransactionRepo:
         db_path: Optional[Path] = None,
     ) -> None:
         """R-65/R-66 / ARCH-27: persist classification with audit metadata."""
+        from datetime import datetime, timezone
+        lock_ts = datetime.now(timezone.utc).isoformat()
         with get_conn(db_path) as conn:
             conn.execute(
                 "UPDATE transactions"
-                " SET coa_code=?, coa_name=?, classifier_version=?, confidence=?"
+                " SET coa_code=?, coa_name=?, classifier_version=?, confidence=?,"
+                " classification_lock_at=?"
                 " WHERE id=?",
-                (coa_code, coa_name, classifier_version, str(confidence), tx_id),
+                (coa_code, coa_name, classifier_version, str(confidence), lock_ts, tx_id),
             )
 
     @staticmethod

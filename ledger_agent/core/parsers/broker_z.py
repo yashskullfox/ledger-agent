@@ -1,18 +1,3 @@
-"""
-parsers/ibkr.py  –  Interactive Brokers Activity Statement parser
-
-Handles IBKR monthly/quarterly Activity Statement PDFs.
-
-Statement structure:
-  Header block: account number, entity name, statement period
-  "Trades" section: realized trades with columns Symbol, Date/Time, Qty, Proceeds, P/L
-  "Cash Report" section: deposits, withdrawals, commissions, net
-  "Open Positions" section: current holdings with market value
-
-Detection fingerprints:
-  - "Interactive Brokers" in text
-  - "Activity Statement" in text
-"""
 from __future__ import annotations
 
 import re
@@ -32,8 +17,6 @@ from ledger_agent.core.parsers.registry import ParserRegistry
 
 @ParserRegistry.register
 class IBKRParser(BaseStatementParser):
-    """Parser for Interactive Brokers Activity Statement PDFs."""
-
     PARSER_ID = "ibkr"
     INSTITUTION = "Interactive Brokers"
 
@@ -149,15 +132,13 @@ class IBKRParser(BaseStatementParser):
         beginning = _find(r"Starting Cash\s+([-\d,.]+)")
         deposits = _find(r"Deposits\s+([\d,.]+)")
         withdrawals = _find(r"Withdrawals\s+([\d,.]+)")
-        # IBKR reports Net Asset Value in the Account Information section
         gross_nav = _find(r"Net Asset Value\s+([\d,.]+)")
         margin_bal = _find(r"Net Liquidation Value\s+([-\d,.]+)")
 
-        # ── R-60 / ARCH-24: audit absent expected fields ──────────────────────
         try:
             from ledger_agent.core.audit import audit as _audit
         except Exception:
-            _audit = None  # type: ignore
+            _audit = None
 
         _absent = []
         if ending is None:
@@ -233,7 +214,7 @@ class IBKRParser(BaseStatementParser):
         return trades
 
     _POSITION_RE = re.compile(
-        r"^([A-Z]{1,6})\s+"
+        r"^([A-Z][A-Z0-9]{0,5})\s+"
         r"([A-Z][A-Z0-9 &,.-]+?)\s+"
         r"([-\d,.]+)\s+"
         r"([\d,.]+)\s+"
@@ -242,11 +223,10 @@ class IBKRParser(BaseStatementParser):
     )
 
     def _parse_positions(self, text: str, period: str, year: int) -> List[Position]:
-        # ── R-61 / ARCH-25: emit parser.position_emitted per row ─────────────
         try:
             from ledger_agent.core.audit import audit as _audit
         except Exception:
-            _audit = None  # type: ignore
+            _audit = None
 
         section = _extract_text_section(text, r"Open Positions", r"^(?:Realized|Trades|Dividends|Cash Report)")
         positions: List[Position] = []
@@ -261,7 +241,6 @@ class IBKRParser(BaseStatementParser):
                 continue
             if qty == 0 or market_val == 0:
                 continue
-            # Infer position_type: IBKR option symbols contain spaces/digits; equities are pure alpha
             pos_type = PositionType.OPTION if re.search(r"\d", symbol) else PositionType.EQUITY
             pos = Position(
                 account_id="",
@@ -332,7 +311,6 @@ class IBKRParser(BaseStatementParser):
 
 
 def _extract_text_section(text: str, start_pattern: str, end_pattern: str) -> str:
-    """Extract text between first occurrence of start_pattern and end_pattern."""
     sm = re.search(start_pattern, text, re.IGNORECASE | re.MULTILINE)
     if not sm:
         return ""

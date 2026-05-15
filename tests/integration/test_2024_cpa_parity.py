@@ -265,7 +265,7 @@ class TestScheduleK1Parity:
     """CPA parity for Schedule K-1 partner allocations (ARCH-19 / CRIT-03 fixed)."""
 
     def test_yash_ordinary_income(self, corpus, k1_yash_2024):
-        ref = _get(corpus, "yash_ordinary_income")
+        ref = _get(corpus, "partner_1_ordinary_income")
         _within(k1_yash_2024.ordinary_income_loss, ref,
                 "K-1 Yash — Ordinary Income/Loss")
 
@@ -282,7 +282,7 @@ class TestScheduleK1Parity:
         )
 
     def test_parin_ordinary_income(self, corpus, k1_parin_2024):
-        ref = _get(corpus, "parin_ordinary_income")
+        ref = _get(corpus, "partner_2_ordinary_income")
         _within(k1_parin_2024.ordinary_income_loss, ref,
                 "K-1 Parin — Ordinary Income/Loss")
 
@@ -378,22 +378,22 @@ class TestFixtureIntegrity:
 
     def test_fixture_yash_ordinary_income_is_100pct_of_obi(self, corpus):
         """Yash K-1 ordinary income must equal 100% of Form 1065 ordinary income."""
-        obi      = _get(corpus, "ordinary_business_income", required=False)
-        yash_oi  = _get(corpus, "yash_ordinary_income",     required=False)
+        obi      = _get(corpus, "ordinary_business_income",    required=False)
+        yash_oi  = _get(corpus, "partner_1_ordinary_income",   required=False)
         if obi is None or yash_oi is None:
-            pytest.skip("ordinary_business_income or yash_ordinary_income missing from fixture")
+            pytest.skip("ordinary_business_income or partner_1_ordinary_income missing from fixture")
         assert abs(yash_oi - obi) <= Decimal("0.01"), (
-            f"Fixture error: yash_ordinary_income({yash_oi}) should equal OBI({obi}) "
+            f"Fixture error: partner_1_ordinary_income({yash_oi}) should equal OBI({obi}) "
             f"(100% P&L per CRIT-03 fix)"
         )
 
     def test_fixture_parin_ordinary_income_is_zero(self, corpus):
         """Parin K-1 ordinary income must be $0 (0% P&L per CRIT-03 fix)."""
-        parin_oi = _get(corpus, "parin_ordinary_income", required=False)
+        parin_oi = _get(corpus, "partner_2_ordinary_income", required=False)
         if parin_oi is None:
-            pytest.skip("parin_ordinary_income missing from fixture")
+            pytest.skip("partner_2_ordinary_income missing from fixture")
         assert parin_oi == Decimal("0.00"), (
-            f"Fixture error: parin_ordinary_income should be 0.00 (0% P&L), got {parin_oi}"
+            f"Fixture error: partner_2_ordinary_income should be 0.00 (0% P&L), got {parin_oi}"
         )
 
     def test_fixture_balance_sheet_identity(self, corpus):

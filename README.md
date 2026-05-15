@@ -29,7 +29,7 @@ cd ledger-agent
 ./run.sh scan ~/Downloads/statements/     # coverage wizard + batch import
 ./run.sh balance 2024                     # year-end balance sheet
 ./run.sh form1065 2024                    # Form 1065 partnership return
-./run.sh k1 2024 --partner yash           # Schedule K-1
+./run.sh k1 2024 --partner partner_1      # Schedule K-1
 ./run.sh tax 2024                         # quarterly tax estimate
 ./run.sh reconcile 2024                   # inter-account reconciliation
 
@@ -91,7 +91,7 @@ Commands
   scan   [FOLDER]           Coverage wizard + batch PDF import
   balance [YEAR]            Year-end balance sheet (default: 2024)
   form1065 [YEAR]           Form 1065 partnership return summary
-  k1 [YEAR]                 Schedule K-1 (--partner yash|parin)
+  k1 [YEAR]                 Schedule K-1 (--partner partner_1|partner_2)
   tax    [YEAR]             Quarterly PTE tax estimate
   reconcile [YEAR]          Inter-account transfer reconciliation
 
@@ -100,7 +100,7 @@ Aliases: s b f1 k t r
 Flags
   --no-prompt               CI mode (no interactive prompts, JSON to stdout)
   --allow-partial           Skip R-45 12-month completeness gate
-  --partner yash|parin      Partner for k1 command
+  --partner partner_1|partner_2      Partner for k1 command
 
 Legacy pass-through (main.py)
   mcp  context  classify  memory  summary  setup  import  transactions
@@ -117,7 +117,7 @@ Six tools, one per core operation. Privacy firewall (R-46) applied to every resp
 | `import_statements`      | Scan folder for PDFs, parse and persist. Idempotent. |
 | `generate_balance_sheet` | GAAP-style year-end balance sheet.                   |
 | `generate_form_1065`     | Form 1065 partnership return data.                   |
-| `generate_k1`            | Schedule K-1 for `yash` (99%) or `parin` (1%).       |
+| `generate_k1`            | Schedule K-1 for `partner_1` or `partner_2`.           |
 | `pte_estimate`           | Quarterly estimated tax payments + due dates.        |
 | `reconcile_year`         | Inter-account transfer reconciliation.               |
 
@@ -170,13 +170,13 @@ FI_CPA_CORPUS_PATH=statements/2024.txt \
 
 | Institution          | Statement Type                | Parser               |
 |----------------------|-------------------------------|----------------------|
-| Truist Bank          | Simple Business Checking      | `truist_checking`    |
-| Fidelity Investments | Brokerage / Investment Report | `fidelity_brokerage` |
-| Chase Bank           | Business Complete Checking    | `chase_checking`     |
-| Bank of America      | Business Checking             | `bofa_checking`      |
-| U.S. Bank            | Business Essentials Checking  | `usbank_checking`    |
-| U.S. Bank            | Business Credit Card          | `usbank_creditcard`  |
-| Interactive Brokers  | Activity Statement            | `ibkr`               |
+| BANK_X               | Simple Business Checking      | `bank_x_checking`    |
+| BROKER_Y             | Brokerage / Investment Report | `broker_y_brokerage` |
+| BANK_X3              | Business Complete Checking    | `bank_x3_checking`   |
+| BANK_X2              | Business Checking             | `bank_x2_checking`   |
+| BANK_X4              | Business Essentials Checking  | `bank_x4_checking`   |
+| BANK_X4              | Business Credit Card          | `bank_x4_creditcard` |
+| BROKER_Z             | Activity Statement            | `broker_z`           |
 
 **Adding a new institution:** create `parsers/my_bank.py`, subclass `BaseStatementParser`,
 decorate with `@ParserRegistry.register`. The parser is auto-discovered — no other edits needed.
