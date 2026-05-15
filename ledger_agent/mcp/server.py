@@ -43,13 +43,29 @@ def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
 
     try:
         from ledger_agent.core.privacy import redact as _redact
-        raw = json.dumps(payload)
-        redacted_text, _mapping = _redact(raw, scope="mcp_response")
-        result = json.loads(redacted_text)
+
+        # SMELL-M4 fix: walk the dict structurally and redact each string
+        # value individually.  The previous json.dumps → regex → json.loads
+        # round-trip could silently corrupt JSON if a redacted token
+        # introduced JSON-breaking characters (e.g. a token containing \").
+        _combined_mapping: dict = {}
+
+        def _walk(obj):
+            if isinstance(obj, dict):
+                return {k: _walk(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_walk(v) for v in obj]
+            if isinstance(obj, str):
+                redacted_str, m = _redact(obj, scope="mcp_response")
+                _combined_mapping.update(m)
+                return redacted_str
+            return obj
+
+        result = _walk(payload)
         if audit:
             audit("mcp.redaction.applied",
-                  payload_size=len(raw),
-                  tokens_issued=len(_mapping))
+                  payload_size=len(json.dumps(payload)),
+                  tokens_issued=len(_combined_mapping))
         return result
     except Exception as exc:
         if audit:

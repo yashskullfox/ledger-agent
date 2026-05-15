@@ -115,7 +115,19 @@ def _dispatch(msg: dict) -> None:
                 from ledger_agent.core.cleanup import run_cycle
                 audit("bridge.tool_call", method=method, allow_pii=allow_pii)
                 with run_cycle(f"bridge:{method}"):
-                    raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
+                    # BUG-B1 fix: capture the error type here, inside the
+                    # run_cycle body, before run_cycle.__exit__ can raise a
+                    # secondary exception that would replace exc in the outer
+                    # handler and produce a misleading audit event.
+                    try:
+                        raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
+                    except Exception as _tool_exc:
+                        try:
+                            audit("bridge.tool_error", method=method,
+                                  error_type=type(_tool_exc).__name__)
+                        except Exception:
+                            pass
+                        raise
             except ImportError:
                 raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
 
@@ -130,12 +142,6 @@ def _dispatch(msg: dict) -> None:
         except Exception as exc:
             tb = traceback.format_exc()
             log.error("Bridge tool %r raised:\n%s", method, tb)
-            try:
-                from ledger_agent.core.audit import audit
-                audit("bridge.tool_error", method=method,
-                      error_type=type(exc).__name__)
-            except Exception:
-                pass
             _error(msg_id, -32603, f"Internal error: {tb}")
         return
 

@@ -79,13 +79,14 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
+        <!-- Pin to 3.12.1: last stable release before MCOMPILER-572 ("Index 0 out of
+             bounds for length 0" on fresh Ubuntu/Temurin JDK21). 3.13.0 introduced the
+             regression; 3.14.0 fixed it but broke fat-jar reproducibility. 3.12.1 is
+             unaffected by both issues. -->
+        <version>3.12.1</version>
         <configuration>
           <release>21</release>
           <encoding>UTF-8</encoding>
-          <!-- Disable incremental compilation: avoids "Index 0 out of bounds for length 0"
-               in 3.13.0 on fresh Ubuntu/Temurin JDK21 CI checkouts (MCOMPILER-572).
-               Incremental state is irrelevant in CI (clean checkout every run). -->
-          <useIncrementalCompilation>false</useIncrementalCompilation>
         </configuration>
       </plugin>
 
