@@ -68,19 +68,25 @@ jobs:
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
       # Build #1
+      # -X strips Unix extra fields (UT atime/ctime) from each entry.
+      # Without -X, zip embeds atime; pass 1's reads update atime, so pass 2
+      # would produce different UT fields → different SHA256.
+      # find | sort gives deterministic entry ordering independent of readdir(2).
       - name: Build core archive (pass 1)
         run: |
           mkdir -p dist-pass1
-          zip -r dist-pass1/core.zip ledger_agent/core/ \
-            --exclude "**/__pycache__/*" "**/*.pyc"
+          find ledger_agent/core/ \
+            ! -path "*/__pycache__/*" ! -name "*.pyc" \
+            | sort | zip -X dist-pass1/core.zip -@
           sha256sum dist-pass1/core.zip | tee dist-pass1/core.zip.sha256
 
-      # Build #2 — fresh tmpdir, same inputs
+      # Build #2 — same inputs, should produce bit-identical archive
       - name: Build core archive (pass 2)
         run: |
           mkdir -p dist-pass2
-          zip -r dist-pass2/core.zip ledger_agent/core/ \
-            --exclude "**/__pycache__/*" "**/*.pyc"
+          find ledger_agent/core/ \
+            ! -path "*/__pycache__/*" ! -name "*.pyc" \
+            | sort | zip -X dist-pass2/core.zip -@
           sha256sum dist-pass2/core.zip | tee dist-pass2/core.zip.sha256
 
       - name: Compare checksums (Python core)
