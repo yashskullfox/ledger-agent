@@ -268,13 +268,13 @@ def generate_balance_sheet(fiscal_year: int):
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
 
     last_period = periods[-1]
-    return BalanceSheetBuilder(entity.id, last_period).build()
+    return BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
 
 
 def _compute_net_ltcg(txns) -> Decimal:
     """Compute net long-term capital gain from classified transactions."""
     LTCG_GAIN = {"4011"}
-    LTCG_LOSS = {"5071"}
+    LTCG_LOSS = {"5075"}
     total = Decimal("0")
     for t in txns:
         if t.is_transfer or not t.coa_code:
