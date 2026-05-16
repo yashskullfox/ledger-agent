@@ -393,7 +393,7 @@ _DEFAULT_COA: list[tuple] = [
     ("4000", "Revenue", "revenue", None, "", '[]'),
     ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds","realized gain"]'),
     ("4011", "Long-Term Capital Gain", "revenue", "4000", "", '["long-term gain","ltcg gain","ltcg"]'),
-    ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","deposit","invoice"]'),
+    ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","invoice"]'),
     ("4021", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
     ("4030", "Other Income", "revenue", "4000", "", '[]'),
     ("4031", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
