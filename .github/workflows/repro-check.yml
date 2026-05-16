@@ -126,19 +126,15 @@ jobs:
           echo "ts=$TS" >> "$GITHUB_OUTPUT"
           echo "epoch=$EPOCH" >> "$GITHUB_OUTPUT"
 
-      - name: Inject reproducible timestamp into pom.xml
-        working-directory: webapp
-        run: |
-          mvn -q versions:set-property \
-            -Dproperty=project.build.outputTimestamp \
-            -DnewValue="${{ steps.epoch.outputs.ts }}" \
-            -DgenerateBackupPoms=false
-
       # Build #1 — package only (no test execution); repro-check verifies
       # artifact determinism, not correctness — tests run in release.yml.
+      # Timestamp is passed as a -D flag so pom.xml is never mutated on disk,
+      # guaranteeing both passes use the same value from the same source.
       - name: Build fat jar (pass 1)
         working-directory: webapp
-        run: mvn -q package -DskipITs
+        run: |
+          mvn -q package -DskipITs \
+            -Dproject.build.outputTimestamp="${{ steps.epoch.outputs.ts }}"
 
       - name: Hash jar (pass 1)
         run: sha256sum webapp/target/*.jar | tee jar-pass1.sha256
@@ -151,7 +147,9 @@ jobs:
       # Build #2 — identical invocation; produces bit-identical jar when inputs match.
       - name: Build fat jar (pass 2)
         working-directory: webapp
-        run: mvn -q package -DskipITs
+        run: |
+          mvn -q package -DskipITs \
+            -Dproject.build.outputTimestamp="${{ steps.epoch.outputs.ts }}"
 
       - name: Hash jar (pass 2)
         run: sha256sum webapp/target/*.jar | tee jar-pass2.sha256
