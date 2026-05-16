@@ -201,8 +201,8 @@ def _purge_privacy_session() -> None:
 def _do_cleanup(event_name: str, *, run_hooks: bool, label: Optional[str] = None) -> None:
     """
     SMELL-C3 fix: single implementation shared by boot_cleanup and
-    cycle_cleanup. Previously those two functions were 95% duplicated,
-    which allowed them to drift silently.
+    cycle_cleanup. Previously those two functions were near-duplicates
+    (only a handful of lines differed), which allowed them to drift silently.
 
     :param event_name:  Audit event key (``"cleanup.boot"`` or ``"cleanup.cycle"``).
     :param run_hooks:   Whether to invoke registered cleanup hooks (boot does not).

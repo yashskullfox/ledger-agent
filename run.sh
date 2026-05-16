@@ -9,7 +9,7 @@
 #   ./run.sh balance [YEAR]
 #   ./run.sh tax     [YEAR]
 #   ./run.sh form1065 [YEAR]
-#   ./run.sh k1 [YEAR] [--partner yash|parin]
+#   ./run.sh k1 [YEAR] [--partner partner_1|partner_2]
 #   ./run.sh reconcile [YEAR]
 #
 # Usage (legacy main.py pass-through):
@@ -20,7 +20,7 @@
 # Flags:
 #   --no-prompt     CI mode (no interactive prompts)
 #   --allow-partial Skip R-45 completeness gate
-#   --partner NAME  Partner for k1 command (yash|parin)
+#   --partner NAME  Partner for k1 command (partner_1|partner_2)
 #
 # Environment:
 #   FI_STATEMENTS_DIR   Override default statements folder

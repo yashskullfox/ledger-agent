@@ -1,0 +1,23 @@
+EXAMPLE_BANK_NAME_3
+ENTITY_A
+BUSINESS COMPLETE CHECKING  (...1234)
+January 1, 2025 through January 31, 2025
+
+DEPOSITS AND ADDITIONS
+DATE        DESCRIPTION                                 AMOUNT
+01/15       Online Transfer from savings                1500.00
+01/22       Zelle payment from JOHN DOE                  250.00
+Total deposits and additions                           ~$X,XXX
+
+ATM & DEBIT CARD WITHDRAWALS
+DATE        DESCRIPTION                                 AMOUNT
+01/03       RECURRING DEBIT CARD PURCHASE QUICKBOOKS      30.00
+01/10       RECURRING DEBIT CARD PURCHASE GOOGLE LLC       13.00
+
+ELECTRONIC WITHDRAWALS
+DATE        DESCRIPTION                                 AMOUNT
+01/07       Zelle To JANE DOE                             500.00
+
+Account Summary
+Beginning balance                                      ~$X,XXX
+Ending balance                                         ~$X,XXX

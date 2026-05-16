@@ -57,8 +57,8 @@ public class RunService {
         return switch (report) {
             case BALANCE_SHEET -> bridge.generateBalanceSheet(fiscalYear, allowPii);
             case FORM1065      -> bridge.generateForm1065(fiscalYear, allowPii);
-            case K1_YASH       -> bridge.generateK1(fiscalYear, "yash", allowPii);
-            case K1_PARIN      -> bridge.generateK1(fiscalYear, "parin", allowPii);
+            case K1_PARTNER_1  -> bridge.generateK1(fiscalYear, "partner_1", allowPii);
+            case K1_PARTNER_2  -> bridge.generateK1(fiscalYear, "partner_2", allowPii);
             case TAX_ESTIMATE  -> bridge.pteEstimate(fiscalYear, allowPii);
             case RECONCILE     -> bridge.reconcileYear(fiscalYear, allowPii);
             case IMPORT        -> bridge.importStatements(

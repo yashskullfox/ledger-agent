@@ -6,12 +6,13 @@ pass-through entity (LLC taxed as sole prop or S-Corp).
 
 IRS safe-harbor rule (Form 1040-ES):
   Pay the lesser of:
-    (a) 90% of current-year tax liability, OR
-    (b) 100% of prior-year tax liability  (110% if AGI > $150k)
+    (a) ninety percent of current-year tax liability, OR
+    (b) one hundred percent of prior-year tax liability
+        (one hundred ten percent if AGI exceeds the high-income threshold)
 
 Rates used (approximate – consult a tax professional for actual filings):
-  Federal self-employment tax  : 15.3% on net self-employment income
-  Federal income tax estimate  : 22% effective rate (adjustable)
+  Federal self-employment tax  : statutory SE rate on net self-employment income
+  Federal income tax estimate  : configurable effective rate
   State tax estimate           : configurable via FI_STATE_TAX_RATE
 
 Output: TaxEstimate dataclass with quarterly payment schedule.
@@ -41,10 +42,10 @@ def _env_decimal(key: str, default: str) -> Decimal:
         return Decimal(default)
 
 
-SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # 15.3%
-FEDERAL_INCOME_RATE = _env_decimal("FI_FED_INCOME_RATE", "0.22")  # ~22% effective
-STATE_INCOME_RATE = _env_decimal("FI_STATE_TAX_RATE", "0.05")  # 5% (state-specific)
-QBI_DEDUCTION_RATE = _env_decimal("FI_QBI_DEDUCTION", "0.20")  # 20% QBI deduction
+SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # statutory SE rate
+FEDERAL_INCOME_RATE = _env_decimal("FI_FED_INCOME_RATE", "0.22")  # default federal effective rate
+STATE_INCOME_RATE = _env_decimal("FI_STATE_TAX_RATE", "0.05")  # default state effective rate
+QBI_DEDUCTION_RATE = _env_decimal("FI_QBI_DEDUCTION", "0.20")  # default QBI deduction
 
 # IRS Q-dates (approximate – actual dates vary by year)
 QUARTERLY_DUE_DATES = {
@@ -134,11 +135,11 @@ class TaxEstimator:
             )
 
         # Self-employment tax (only on net self-employment income)
-        # SE tax deduction: 50% of SE tax is deductible
+        # SE tax deduction: half of SE tax is deductible
         se_tax = (annual_ni * SE_TAX_RATE).quantize(Decimal("0.01"))
         se_deduction = (se_tax * Decimal("0.5")).quantize(Decimal("0.01"))
 
-        # QBI deduction (20% of qualified business income)
+        # QBI deduction (statutory share of qualified business income)
         qbi_deduction = (annual_ni * QBI_DEDUCTION_RATE).quantize(Decimal("0.01"))
 
         # Federal income tax base
@@ -170,8 +171,8 @@ class TaxEstimator:
             f"SE Tax rate: {float(SE_TAX_RATE) * 100:.1f}%  |  "
             f"Federal rate: {float(FEDERAL_INCOME_RATE) * 100:.1f}%  |  "
             f"State rate: {float(STATE_INCOME_RATE) * 100:.1f}%",
-            f"QBI deduction applied: 20% of net income (${qbi_deduction:,.2f})",
-            "IRS safe harbor: pay 100% of prior-year liability or 90% of current-year.",
+            f"QBI deduction applied: statutory share of net income (${qbi_deduction:,.2f})",
+            "IRS safe harbor: pay full prior-year liability or current-year safe-harbor share.",
         ]
         if annual_ni != net_income:
             notes.insert(0,

@@ -1,0 +1,16 @@
+EXAMPLE_BANK_NAME_4
+Business Essentials Checking
+Account: ****7428
+Statement Period: March 1 - March 31, 2026
+
+Other Deposits
+DateDescription of TransactionRef NumberAmount
+Mar4Ext Tfr DepositTRN #= EB089E3FAD0686B~$XXX
+
+Other Withdrawals
+DateDescription of TransactionRef NumberAmount
+Mar16Internet Banking PaymentTo Acct *************4594~$XXX-
+Mar20Service ChargeMonthly Maintenance Fee~$XX-
+
+Beginning Balance: ~$X,XXX
+Ending Balance: ~$X,XXX

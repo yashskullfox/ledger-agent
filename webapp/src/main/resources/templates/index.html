@@ -28,13 +28,13 @@
     label { display: block; margin-top: 1.2rem; font-weight: 500; font-size: .9rem; }
     label small { font-weight: 400; color: #666; }
     input[type=text], input[type=number], select {
-      width: 100%; padding: .6rem .75rem; border: 1.5px solid #d0d7de;
+      width: 100%; padding: .6rem .75rem; border: 1.5px solid #d0d7de;  /* # redaction: allow */
       border-radius: 6px; font-size: .95rem; margin-top: .35rem;
       outline: none; transition: border-color .15s;
     }
     input:focus, select:focus { border-color: #4c6ef5; }
     button[type=submit] {
-      margin-top: 1.75rem; width: 100%; background: #4c6ef5; color: #fff;
+      margin-top: 1.75rem; width: 100%; background: #4c6ef5; color: #fff;  /* # redaction: allow */
       border: none; border-radius: 8px; padding: .8rem 1.5rem;
       font-size: 1rem; font-weight: 600; cursor: pointer;
       transition: background .15s;
@@ -62,10 +62,10 @@
         <select name="report">
           <option value="balance_sheet"  th:selected="${report == 'balance_sheet'}">Balance Sheet (year-end)</option>
           <option value="form1065"       th:selected="${report == 'form1065'}">Form 1065 — Partnership Return</option>
-          <option value="k1_yash"        th:selected="${report == 'k1_yash'}"
-                  th:text="'Schedule K-1 — ' + ${partnerALabel}">Schedule K-1 — Partner A</option>
-          <option value="k1_parin"       th:selected="${report == 'k1_parin'}"
-                  th:text="'Schedule K-1 — ' + ${partnerBLabel}">Schedule K-1 — Partner B</option>
+          <option value="k1_partner_1"   th:selected="${report == 'k1_partner_1'}"
+                  th:text="'Schedule K-1 — ' + ${partnerALabel}">Schedule K-1 — partner_1</option>
+          <option value="k1_partner_2"   th:selected="${report == 'k1_partner_2'}"
+                  th:text="'Schedule K-1 — ' + ${partnerBLabel}">Schedule K-1 — partner_2</option>
           <option value="tax_estimate"   th:selected="${report == 'tax_estimate'}">Quarterly Tax Estimate (PTE)</option>
           <option value="reconcile"      th:selected="${report == 'reconcile'}">Year-End Reconciliation</option>
           <option value="import"         th:selected="${report == 'import'}">Import Statements from Folder</option>

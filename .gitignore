@@ -139,8 +139,15 @@ statements/
 
 # ── Private local config (gitignored) — institution match strings, pseudonym map ──
 private/
+!private/institutions.example.py
+private/institutions.py
 notes/
 *.draft.md
+
+# ── Private test fixtures (real-corpus samples; pseudonymised in committed code) ──
+tests/fixtures/private/
+!tests/fixtures/private/.gitkeep
+!tests/fixtures/private/README.md
 
 # ── Plan files (Wibey AI planning artifacts) ──────────────────────────────────
 *.plan.md

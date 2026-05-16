@@ -19,8 +19,10 @@ data:
   LEDGER_APP_TITLE: "Financial Intelligence"
   LEDGER_APP_BADGE: "Internal"
   LEDGER_DEFAULT_FISCAL_YEAR: "2024"
-  LEDGER_PARTNER_A_LABEL: "Partner A (99%)"
-  LEDGER_PARTNER_B_LABEL: "Partner B (1%)"
+  # Ownership split is configured via the Secret (FI_PARTNER_1_PCT / FI_PARTNER_2_PCT).
+  # Labels here are display-only; do NOT embed the percentage in the public ConfigMap.
+  LEDGER_PARTNER_A_LABEL: "Partner A"
+  LEDGER_PARTNER_B_LABEL: "Partner B"
 
   ## ── Python financial engine ─────────────────────────────────────────────────
   ## FI_DB_PATH comes from the Secret (it may contain a sensitive path)

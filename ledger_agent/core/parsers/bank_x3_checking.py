@@ -1,7 +1,7 @@
 """
-parsers/chase_checking.py  –  Chase Business Complete Checking parser
+parsers/bank_x3_checking.py  –  Bank X3 Business Complete Checking parser
 ──────────────────────────────────────────────────────────────────────
-Handles Chase bank statement PDF format:
+Handles Bank X3 bank statement PDF format:
 
   DEPOSITS AND ADDITIONS
   DATE        DESCRIPTION                 AMOUNT
@@ -31,22 +31,23 @@ from ledger_agent.core.models import (
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
 
+try:
+    from private.institutions import BANK_X3 as _CFG  # type: ignore
+except ImportError:
+    _CFG = {"detect": []}
+
 
 @ParserRegistry.register
-class ChaseCheckingParser(BaseStatementParser):
-    PARSER_ID = "chase_checking"
-    INSTITUTION = "Chase Bank"
+class BankX3CheckingParser(BaseStatementParser):
+    PARSER_ID = "bank_x3_checking"
+    INSTITUTION = "Bank X3"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
-        upper = text.upper()
-        return (
-                "JPMORGAN CHASE" in upper or "CHASE" in upper
-        ) and (
-                "BUSINESS COMPLETE CHECKING" in upper
-                or "TOTAL CHECKING" in upper
-                or "CHASE BUSINESS" in upper
-        )
+        if not _CFG.get("detect"):
+            return False
+        t = text.upper().replace(" ", "")
+        return all(tok.replace(" ", "") in t for tok in _CFG["detect"])
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -87,7 +88,7 @@ class ChaseCheckingParser(BaseStatementParser):
 
     def _extract_period(self, text: str) -> Tuple[str, int]:
         """
-        Chase statements show: "January 01 - January 31, 2025"
+        Bank X3 statements show: "January 01 - January 31, 2025"
         or "Statement period: 01/01/25 - 01/31/25"
         """
         # Long format: Month DD - Month DD, YYYY

@@ -43,7 +43,7 @@ ledger-agent/
 │   │
 │   ├── cli/                  Form B — Thin CLI layer (ARCH-04)
 │   │   ├── __init__.py
-│   │   └── main.py           app() entrypoint; delegates 100% to core.api
+│   │   └── main.py           app() entrypoint; delegates entirely to core.api
 │   │
 │   ├── mcp/                  Form C — Spec-compliant MCP server (ARCH-06/07)
 │   │   ├── __init__.py

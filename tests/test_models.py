@@ -26,12 +26,12 @@ class TestAccount:
     def test_creates_with_uuid(self, make_account):
         a = make_account()
         assert a.id
-        assert a.institution == "Truist Bank"
+        assert a.institution == "Bank X"
 
     def test_str_representation(self, make_account):
         a = make_account(name="My Acct")
         s = str(a)
-        assert "My Acct" in s or "Truist Bank" in s
+        assert "My Acct" in s or "Bank X" in s
 
 
 class TestTransaction:

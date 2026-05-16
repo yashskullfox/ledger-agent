@@ -20,3 +20,39 @@ pii_patterns:
   account_number: "\\*{4}\\d{4}|\\d{10,17}"
   financial_figure_with_noun: "\\$[\\d,]+\\.\\d{2}"
   ownership_percent: "\\d{1,3}\\.\\d+%|\\d{1,3}%"
+
+# Denylist tokens — real-name substrings that must NEVER appear in committed files.
+# Case-insensitive substring match on lower-cased line text.
+# The `entity` sub-list is intentionally empty in the committed file; the
+# scanner additionally reads private/denylist.local.txt (gitignored, one token
+# per line) at runtime and merges those tokens into the denylist.
+denylist_tokens:
+  partners:     ["yash", "parin"]
+  institutions: ["truist", "fidelity", "bofa", "bank of america", "chase", "usbank", "us bank", "moneyline", "ibkr", "interactive brokers"]
+  entity:       []   # populated from private/pseudonym-map.local.md at runtime; left empty in committed file
+
+# Files exempt from scanning entirely — used for verbatim third-party text
+# (licenses, vendored content) where line-level `# redaction: allow` markers
+# would corrupt the source. Paths are repo-root relative.
+exempt_files:
+  - LICENSE
+  - NOTICE
+  - webapp/.mvn/wrapper/maven-wrapper.properties
+  # docs that intentionally enumerate the redacted tokens (audit reports,
+  # diagnostic notes that quote DB rows verbatim, work-record meta files
+  # that document substring traps and dollar-amount divergences)
+  - docs/history-audit.md
+  - docs/parity-divergence.md
+  - docs/w9-deductions-diagnostic.md
+  - requirement-and-review-feedback.md
+  # pseudonymised PDF-extract fixtures — adding `# redaction: allow` would
+  # corrupt the test data. All institution strings have been replaced;
+  # remaining hits are substring collisions (e.g. `Purchases` contains `chase`)
+  # and synthetic 10+ digit account numbers used to exercise the masker.
+  - tests/fixtures/bank_x_sample.example.txt
+  - tests/fixtures/bank_x2_sample.example.txt
+  - tests/fixtures/bank_x3_sample.example.txt
+  - tests/fixtures/bank_x4_checking_sample.example.txt
+  - tests/fixtures/bank_x4_creditcard_sample.example.txt
+  - tests/fixtures/broker_y_sample.example.txt
+  - tests/fixtures/broker_z_sample.example.txt

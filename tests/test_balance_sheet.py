@@ -36,7 +36,7 @@ def seeded_db(db):
         name="Business Checking",
         institution="Test Bank",
         account_type=AccountType.CHECKING,
-        account_number_masked="****1234",
+        account_number_masked="****1234",  # redaction: allow
     )
     AccountRepo.upsert(checking)
 
@@ -111,7 +111,7 @@ class TestBalanceSheetBuilder:
         entity, _, _ = seeded_db
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
-        # Assets = Liabilities + Equity (within $0.02)
+        # Assets = Liabilities + Equity (within $0.02)  # redaction: allow
         diff = abs((bs.total_liabilities + bs.total_equity) - bs.total_assets)
         assert diff < Decimal("0.02"), f"Sheet not balanced: diff={diff}"
 
@@ -166,7 +166,7 @@ class TestPlPeriodsAggregation:
         EntityRepo.upsert(entity)
         acct = Account(
             entity_id=entity.id, name="Checking", institution="Test Bank",
-            account_type=AccountType.CHECKING, account_number_masked="****1234",
+            account_type=AccountType.CHECKING, account_number_masked="****1234",  # redaction: allow
         )
         AccountRepo.upsert(acct)
 
@@ -213,7 +213,7 @@ class TestPlPeriodsAggregation:
         EntityRepo.upsert(entity)
         acct = Account(
             entity_id=entity.id, name="Checking", institution="Bank",
-            account_type=AccountType.CHECKING, account_number_masked="****5678",
+            account_type=AccountType.CHECKING, account_number_masked="****5678",  # redaction: allow
         )
         AccountRepo.upsert(acct)
         SnapshotRepo.upsert(AccountSnapshot(

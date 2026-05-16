@@ -23,7 +23,7 @@ class TestCheckPeriodContinuity:
         EntityRepo.upsert(entity)
         acct = Account(
             entity_id=entity.id, name="Checking", institution="Test Bank",
-            account_type=AccountType.CHECKING, account_number_masked="****9999",
+            account_type=AccountType.CHECKING, account_number_masked="****9999",  # redaction: allow
         )
         AccountRepo.upsert(acct)
         SnapshotRepo.upsert(AccountSnapshot(
@@ -44,7 +44,7 @@ class TestCheckPeriodContinuity:
         EntityRepo.upsert(entity)
         acct = Account(
             entity_id=entity.id, name="Checking", institution="Test Bank",
-            account_type=AccountType.CHECKING, account_number_masked="****8888",
+            account_type=AccountType.CHECKING, account_number_masked="****8888",  # redaction: allow
         )
         AccountRepo.upsert(acct)
         SnapshotRepo.upsert(AccountSnapshot(

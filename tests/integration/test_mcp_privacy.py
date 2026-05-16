@@ -8,7 +8,7 @@ correctly filters PII from every MCP tool egress according to R-46.
 Tests
 -----
 - Raw SSNs, EINs, account numbers, routing numbers are replaced with tokens.
-- Partner names (Yash N Patel, Parin R Shah) are redacted.
+- Partner names (partner_1, partner_2) are redacted.
 - ``allow_pii=True`` bypasses redaction and passes data through unchanged.
 - Non-sensitive numeric/financial data (amounts, years) is NOT stripped.
 - Full JSON payloads round-trip without data loss after redaction.
@@ -34,7 +34,7 @@ from ledger_agent.mcp.server import _redact_response
 # ---------------------------------------------------------------------------
 
 SAMPLE_BALANCE_SHEET = {
-    "entity_name": "SYNCED LLC",
+    "entity_name": "ENTITY_A",
     "period": "2024-12",
     "total_assets": 142350.78,
     "total_liabilities": 0.0,
@@ -49,8 +49,8 @@ SAMPLE_BALANCE_SHEET = {
 
 SAMPLE_K1 = {
     "fiscal_year": 2024,
-    "partner_id": "yash",
-    "partner_name": "Yash N Patel",
+    "partner_id": "partner_1",
+    "partner_name": "PARTNER_1 Holder",
     "ownership_pct": 0.99,
     "ordinary_income_loss": 37822.56,
     "net_stcg": 0.0,
@@ -59,17 +59,17 @@ SAMPLE_K1 = {
 }
 
 SAMPLE_WITH_PII = {
-    "entity": "SYNCED LLC",
+    "entity": "ENTITY_A",
     "ein": "83-1234567",
     "ssn": "123-45-6789",
-    "account_number": "000123456789",
+    "account_number": "000123456789",  # redaction: allow
     "routing_number": "021000021",
-    "partner_name": "Yash N Patel",
+    "partner_name": "PARTNER_1 Holder",
     "net_income": 38204.61,
 }
 
 SAMPLE_WITH_API_KEY = {
-    "entity": "SYNCED LLC",
+    "entity": "ENTITY_A",
     "api_key": "sk-proj-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345",
     "net_income": 38204.61,
 }
@@ -99,7 +99,7 @@ class TestRedactResponse:
         result = _redact_response(SAMPLE_WITH_PII.copy(), allow_pii=True)
         assert result["ein"] == "83-1234567"
         assert result["ssn"] == "123-45-6789"
-        assert result["account_number"] == "000123456789"
+        assert result["account_number"] == "000123456789"  # redaction: allow
 
     def test_api_key_always_blocked_regardless_of_allow_pii(self):
         from ledger_agent.mcp.server import PrivacyRedactionError
