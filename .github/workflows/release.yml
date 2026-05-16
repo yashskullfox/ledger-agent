@@ -342,7 +342,7 @@ jobs:
         run: |
           $epoch = "${{ needs.compute-version.outputs.epoch }}"
           $ts = [System.DateTimeOffset]::FromUnixTimeSeconds([long]$epoch).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
-          mvn -q versions:set-property -Dproperty=project.build.outputTimestamp "-DnewValue=$ts" -DgenerateBackupPoms=false
+          mvn -q versions:set-property "-Dproperty=project.build.outputTimestamp" "-DnewValue=$ts" "-DgenerateBackupPoms=false"
 
       - name: Build and test fat jar
         working-directory: webapp
