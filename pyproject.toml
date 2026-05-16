@@ -1,11 +1,11 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ledger-agent"
 version = "2.1.0"
-description = "Four-form financial intelligence platform for SYNCED LLC — core library, CLI, MCP server, and Spring Boot webapp sharing one engine."
+description = "Four-form financial intelligence platform — core library, CLI, MCP server, and Spring Boot webapp sharing one engine."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

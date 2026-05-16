@@ -15,7 +15,7 @@ Usage
     ledger balance [YEAR]
     ledger tax    [YEAR]
     ledger form1065 [YEAR]
-    ledger k1 [YEAR] [--partner yash|parin]
+    ledger k1 [YEAR] [--partner partner_1|partner_2]
     ledger reconcile [YEAR]
     ledger export [YEAR] [--format csv|excel|json]
     ledger --version
@@ -162,8 +162,8 @@ def cmd_k1(args: list[str]) -> int:
     """Show Schedule K-1 for a partner."""
     year_arg = next((a for a in args if a.isdigit()), None)
     year = int(year_arg) if year_arg else 2024
-    # --partner yash|parin
-    partner = "yash"
+    # --partner partner_1|partner_2
+    partner = "partner_1"
     try:
         pi = args.index("--partner")
         partner = args[pi + 1]
@@ -173,7 +173,7 @@ def cmd_k1(args: list[str]) -> int:
     api = _import_api()
     try:
         k1 = api.generate_k1(year, partner)
-        _print(f"\n[bold cyan]Schedule K-1 — {k1.partner_name} ({k1.ownership_pct:.0%}) — {k1.fiscal_year}[/bold cyan]")
+        _print(f"\n[bold cyan]Schedule K-1 — {k1.partner_name} ({k1.ownership_pct:.0%}) — {k1.fiscal_year}[/bold cyan]")  # redaction: allow (format specifier, not a real percent)
         _print(f"  Ordinary Income/Loss:      ${k1.ordinary_income_loss:>12,.2f}")
         _print(f"  Net Short-Term Cap. Gain:  ${k1.net_stcg:>12,.2f}")
         _print(f"  Dividend Income:           ${k1.dividend_income:>12,.2f}")
@@ -223,7 +223,7 @@ def _help() -> None:
     _print("\n[bold]ledger[/bold] — financial intelligence CLI\n")
     for name, (_, alias, desc) in _COMMANDS.items():
         _print(f"  [cyan]{name:12}[/cyan] ({alias})   {desc}")
-    _print("\nOptions: --no-prompt  --allow-partial  --partner yash|parin\n")
+    _print("\nOptions: --no-prompt  --allow-partial  --partner partner_1|partner_2\n")
 
 
 def app() -> None:

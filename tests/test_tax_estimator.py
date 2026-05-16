@@ -57,7 +57,7 @@ class TestTaxEstimator:
             Decimal("48000.00")
         )
         quarterly_sum = sum(p.amount for p in est.quarterly_payments)
-        # Allow $0.04 rounding difference (4 quarters × $0.01)
+        # Allow 0.04 rounding difference (4 quarters x 0.01)
         assert abs(quarterly_sum - est.total_annual_tax) <= Decimal("0.04")
 
     def test_annualize_factor(self):

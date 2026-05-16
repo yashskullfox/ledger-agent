@@ -68,19 +68,25 @@ jobs:
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
       # Build #1
+      # -X strips Unix extra fields (UT atime/ctime) from each entry.
+      # Without -X, zip embeds atime; pass 1's reads update atime, so pass 2
+      # would produce different UT fields → different SHA256.
+      # find | sort gives deterministic entry ordering independent of readdir(2).
       - name: Build core archive (pass 1)
         run: |
           mkdir -p dist-pass1
-          zip -r dist-pass1/core.zip ledger_agent/core/ \
-            --exclude "**/__pycache__/*" "**/*.pyc"
+          find ledger_agent/core/ \
+            ! -path "*/__pycache__/*" ! -name "*.pyc" \
+            | sort | zip -X dist-pass1/core.zip -@
           sha256sum dist-pass1/core.zip | tee dist-pass1/core.zip.sha256
 
-      # Build #2 — fresh tmpdir, same inputs
+      # Build #2 — same inputs, should produce bit-identical archive
       - name: Build core archive (pass 2)
         run: |
           mkdir -p dist-pass2
-          zip -r dist-pass2/core.zip ledger_agent/core/ \
-            --exclude "**/__pycache__/*" "**/*.pyc"
+          find ledger_agent/core/ \
+            ! -path "*/__pycache__/*" ! -name "*.pyc" \
+            | sort | zip -X dist-pass2/core.zip -@
           sha256sum dist-pass2/core.zip | tee dist-pass2/core.zip.sha256
 
       - name: Compare checksums (Python core)
@@ -120,18 +126,15 @@ jobs:
           echo "ts=$TS" >> "$GITHUB_OUTPUT"
           echo "epoch=$EPOCH" >> "$GITHUB_OUTPUT"
 
-      - name: Inject reproducible timestamp into pom.xml
-        working-directory: webapp
-        run: |
-          mvn -q versions:set-property \
-            -Dproperty=project.build.outputTimestamp \
-            -DnewValue="${{ steps.epoch.outputs.ts }}" \
-            -DgenerateBackupPoms=false 2>/dev/null || true
-
-      # Build #1
+      # Build #1 — package only (no test execution); repro-check verifies
+      # artifact determinism, not correctness — tests run in release.yml.
+      # Timestamp is passed as a -D flag so pom.xml is never mutated on disk,
+      # guaranteeing both passes use the same value from the same source.
       - name: Build fat jar (pass 1)
         working-directory: webapp
-        run: mvn -q package -DskipTests -DskipITs
+        run: |
+          mvn -q package -DskipITs \
+            -Dproject.build.outputTimestamp="${{ steps.epoch.outputs.ts }}"
 
       - name: Hash jar (pass 1)
         run: sha256sum webapp/target/*.jar | tee jar-pass1.sha256
@@ -141,10 +144,12 @@ jobs:
         working-directory: webapp
         run: mvn -q clean
 
-      # Build #2
+      # Build #2 — identical invocation; produces bit-identical jar when inputs match.
       - name: Build fat jar (pass 2)
         working-directory: webapp
-        run: mvn -q package -DskipTests -DskipITs
+        run: |
+          mvn -q package -DskipITs \
+            -Dproject.build.outputTimestamp="${{ steps.epoch.outputs.ts }}"
 
       - name: Hash jar (pass 2)
         run: sha256sum webapp/target/*.jar | tee jar-pass2.sha256
@@ -181,7 +186,7 @@ jobs:
       - name: Install deps
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Verify JSON fixture is committed and valid
         # TestFixtureIntegrity.test_fixture_exists / test_fixture_is_valid_json

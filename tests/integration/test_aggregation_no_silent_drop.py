@@ -48,7 +48,7 @@ def db(tmp_path, monkeypatch):
 def _make_entity(db_path):
     from ledger_agent.core.database import EntityRepo
     from ledger_agent.core.models import Entity
-    e = Entity(name="SYNCED LLC", entity_type="LLC", state="FL",
+    e = Entity(name="ENTITY_A", entity_type="LLC", state="FL",
                id=str(uuid.uuid4()))
     EntityRepo.upsert(e, db_path)
     return e
@@ -92,7 +92,7 @@ class TestSnapshotConsumed:
 
     def test_checking_account_appears_in_total_assets(self, db):
         entity = _make_entity(db)
-        acct = _make_account(db, entity.id, "Truist", "checking")
+        acct = _make_account(db, entity.id, "Bank X", "checking")
         _make_snapshot(db, acct.id, "2025-01", "4031.20")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
@@ -104,7 +104,7 @@ class TestSnapshotConsumed:
 
     def test_brokerage_account_gross_in_total_assets(self, db):
         entity = _make_entity(db)
-        acct = _make_account(db, entity.id, "Fidelity", "brokerage")
+        acct = _make_account(db, entity.id, "Broker Y", "brokerage")
         _make_snapshot(db, acct.id, "2025-01", "35438.80",
                        gross="59500.00", margin="-24061.20")
 
@@ -117,7 +117,7 @@ class TestSnapshotConsumed:
 
     def test_consumed_snapshot_in_coverage_manifest(self, db):
         entity = _make_entity(db)
-        acct = _make_account(db, entity.id, "Truist", "checking")
+        acct = _make_account(db, entity.id, "Bank X", "checking")
         _make_snapshot(db, acct.id, "2025-01", "4031.20")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
@@ -130,10 +130,10 @@ class TestSnapshotConsumed:
 
     def test_two_accounts_both_in_assets(self, db):
         entity = _make_entity(db)
-        truist = _make_account(db, entity.id, "Truist", "checking", "0001")
-        fidelity = _make_account(db, entity.id, "Fidelity", "brokerage", "0002")
-        _make_snapshot(db, truist.id, "2025-01", "4031.20")
-        _make_snapshot(db, fidelity.id, "2025-01", "35438.80",
+        bank_x = _make_account(db, entity.id, "Bank X", "checking", "0001")
+        broker_y = _make_account(db, entity.id, "Broker Y", "brokerage", "0002")
+        _make_snapshot(db, bank_x.id, "2025-01", "4031.20")
+        _make_snapshot(db, broker_y.id, "2025-01", "35438.80",
                        gross="59500.00", margin="-24061.20")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
@@ -151,7 +151,7 @@ class TestSnapshotGap:
 
     def test_missing_snapshot_not_in_assets(self, db):
         entity = _make_entity(db)
-        _make_account(db, entity.id, "Truist", "checking")
+        _make_account(db, entity.id, "Bank X", "checking")
         # No snapshot inserted for this account/period
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
@@ -164,7 +164,7 @@ class TestSnapshotGap:
 
     def test_missing_snapshot_recorded_in_skipped(self, db):
         entity = _make_entity(db)
-        acct = _make_account(db, entity.id, "Truist", "checking")
+        acct = _make_account(db, entity.id, "Bank X", "checking")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
@@ -176,7 +176,7 @@ class TestSnapshotGap:
 
     def test_skipped_entry_has_reason(self, db):
         entity = _make_entity(db)
-        _make_account(db, entity.id, "Truist", "checking")
+        _make_account(db, entity.id, "Bank X", "checking")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
@@ -187,17 +187,17 @@ class TestSnapshotGap:
             )
 
     def test_missing_brokerage_recorded_in_skipped(self, db):
-        """V1 regression: Fidelity missing from 2024-12 must be skipped, not silently absent."""
+        """V1 regression: Broker Y missing from 2024-12 must be skipped, not silently absent."""
         entity = _make_entity(db)
-        fidelity = _make_account(db, entity.id, "Fidelity Investments", "brokerage")
+        broker_y = _make_account(db, entity.id, "Broker Y Investments", "brokerage")
         # Deliberately omit snapshot for 2024-12
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2024-12").build()
 
         skipped_ids = {e["account_id"] for e in bs.coverage["skipped_snapshots"]}
-        assert fidelity.id in skipped_ids, (
-            "Fidelity with missing 2024-12 snapshot must be in skipped_snapshots (V1 regression)"
+        assert broker_y.id in skipped_ids, (
+            "Broker Y with missing 2024-12 snapshot must be in skipped_snapshots (V1 regression)"
         )
 
 
@@ -214,7 +214,7 @@ class TestCoverageManifest:
 
     def test_coverage_json_written_alongside_export(self, db, tmp_path):
         entity = _make_entity(db)
-        acct = _make_account(db, entity.id, "Truist", "checking")
+        acct = _make_account(db, entity.id, "Bank X", "checking")
         _make_snapshot(db, acct.id, "2025-01", "4031.20")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
@@ -230,7 +230,7 @@ class TestCoverageManifest:
 
     def test_coverage_json_is_valid_and_complete(self, db, tmp_path):
         entity = _make_entity(db)
-        acct = _make_account(db, entity.id, "Truist", "checking")
+        acct = _make_account(db, entity.id, "Bank X", "checking")
         _make_snapshot(db, acct.id, "2025-01", "4031.20")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
@@ -252,7 +252,7 @@ class TestCoverageManifest:
 
     def test_coverage_entries_have_account_id_and_institution(self, db, tmp_path):
         entity = _make_entity(db)
-        acct = _make_account(db, entity.id, "Truist", "checking")
+        acct = _make_account(db, entity.id, "Bank X", "checking")
         _make_snapshot(db, acct.id, "2025-01", "4031.20")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder

@@ -9,12 +9,12 @@ Assembles a balance sheet for a given period and entity using:
 Output is a list of BalanceSheetLine objects which the renderer
 then formats into console / CSV / Excel output.
 
-Balance Sheet structure (for a trading LLC like SYNCED LLC):
+Balance Sheet structure (for a trading LLC like ENTITY_A):
 
   ASSETS
     Current Assets
       Cash & Cash Equivalents
-        Business Checking (Truist)       $X
+        Business Checking (Bank X)       $X
     Investment Assets
       Equity Securities (Long)           $X
       ─────────────────────────────────

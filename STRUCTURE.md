@@ -43,7 +43,7 @@ ledger-agent/
 │   │
 │   ├── cli/                  Form B — Thin CLI layer (ARCH-04)
 │   │   ├── __init__.py
-│   │   └── main.py           app() entrypoint; delegates 100% to core.api
+│   │   └── main.py           app() entrypoint; delegates entirely to core.api
 │   │
 │   ├── mcp/                  Form C — Spec-compliant MCP server (ARCH-06/07)
 │   │   ├── __init__.py
@@ -238,8 +238,8 @@ report = api.import_statements(Path("~/statements"), allow_partial=False)
 # Year-end reporting
 bs   = api.generate_balance_sheet(2024)   # → BalanceSheet
 f    = api.generate_form_1065(2024)       # → Form1065
-k1y  = api.generate_k1(2024, "yash")     # → ScheduleK1
-k1p  = api.generate_k1(2024, "parin")    # → ScheduleK1
+k1y  = api.generate_k1(2024, "partner_1")  # → ScheduleK1
+k1p  = api.generate_k1(2024, "partner_2")  # → ScheduleK1
 est  = api.pte_estimate(2024)             # → PTEEstimate
 rec  = api.reconcile_year(2024)          # → ReconcileReport
 ```

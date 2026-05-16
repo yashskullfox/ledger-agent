@@ -1,0 +1,41 @@
+# Pre-commit config — run on every `git commit`.
+# Install once with: .venv/bin/pre-commit install
+# Run on full repo:   .venv/bin/pre-commit run --all-files
+
+repos:
+  # ── 1. Standard hygiene ────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=512']
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # ── 2. Redaction scanner (project-local) ───────────────────────────────
+  - repo: local
+    hooks:
+      - id: redaction-scan
+        name: Redaction scan (denylist + corpus)
+        entry: python scripts/check_doc_redaction.py --strict
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+        description: |
+          Blocks commits that re-introduce real institution names, partner
+          names, account numbers, or other denylist tokens. See
+          config/redaction_corpus.yaml.
+
+  # ── 3. Python lint (ruff if available, else skip) ──────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]

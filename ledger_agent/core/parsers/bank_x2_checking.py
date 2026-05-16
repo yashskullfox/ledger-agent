@@ -1,7 +1,7 @@
 """
-parsers/bofa_checking.py  –  Bank of America Business Checking parser
+parsers/bank_x2_checking.py  –  Bank X2 Business Checking parser
 ───────────────────────────────────────────────────────────────────────
-Handles BofA statement PDF format:
+Handles Bank X2 statement PDF format:
 
   Deposits and other credits
   Date   Description                         Amount
@@ -27,23 +27,23 @@ from ledger_agent.core.models import (
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
 
+try:
+    from private.institutions import BANK_X2 as _CFG  # type: ignore
+except ImportError:
+    _CFG = {"detect": []}
+
 
 @ParserRegistry.register
-class BofACheckingParser(BaseStatementParser):
-    PARSER_ID = "bofa_checking"
-    INSTITUTION = "Bank of America"
+class BankX2CheckingParser(BaseStatementParser):
+    PARSER_ID = "bank_x2_checking"
+    INSTITUTION = "Bank X2"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
-        upper = text.upper()
-        return (
-                "BANK OF AMERICA" in upper
-        ) and (
-                "BUSINESS ADVANTAGE" in upper
-                or "BUSINESS CHECKING" in upper
-                or "BUSINESS FUNDAMENTALS" in upper
-                or "MERRILL" not in upper  # exclude Merrill investment statements
-        )
+        if not _CFG.get("detect"):
+            return False
+        t = text.upper().replace(" ", "")
+        return all(tok.replace(" ", "") in t for tok in _CFG["detect"])
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -83,7 +83,7 @@ class BofACheckingParser(BaseStatementParser):
 
     def _extract_period(self, text: str) -> Tuple[str, int]:
         """
-        BofA: "Your account at a glance"  section, or
+        Bank X2: "Your account at a glance"  section, or
               "Statement Period: MM/DD/YYYY through MM/DD/YYYY"
         """
         m = re.search(
@@ -135,7 +135,7 @@ class BofACheckingParser(BaseStatementParser):
             new = self.parse_amount(m_new.group(1))
         return prev, new
 
-    # BofA transaction line format:
+    # Bank X2 transaction line format:
     # "01/06/25  DESCRIPTION                          2,000.00"
     # or just "01/06" with rest of line
     _TX_RE = re.compile(
@@ -163,7 +163,7 @@ class BofACheckingParser(BaseStatementParser):
         txns = []
         for m in self._TX_RE.finditer(section):
             date_str, desc, amt_str = m.group(1), m.group(2).strip(), m.group(3)
-            # BofA date may include /YY – normalize
+            # Date may include /YY – normalize
             if "/" in date_str:
                 parts = date_str.split("/")
                 if len(parts) == 3:

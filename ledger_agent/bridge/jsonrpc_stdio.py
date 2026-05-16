@@ -6,9 +6,6 @@ import sys
 import traceback
 from pathlib import Path
 
-# ARCH-20: sys.path shim removed — all packages now live under ledger_agent.core.*
-# and are importable via the installed editable package without path manipulation.
-
 log = logging.getLogger(__name__)
 
 JSONRPC_VERSION = "2.0"
@@ -110,8 +107,6 @@ def _dispatch(msg: dict) -> None:
     if method in _TOOL_METHODS:
         try:
             from ledger_agent.mcp.tools import call_tool
-            # Read allow_pii from _meta — default deny (CRIT-01 fix).
-            # Strip ALL _-prefixed reserved keys before forwarding (SMELL-B3 fix).
             allow_pii = bool((params.get("_meta") or {}).get("allow_pii", False))
             clean_params = {k: v for k, v in params.items()
                             if not k.startswith("_")}
@@ -120,32 +115,64 @@ def _dispatch(msg: dict) -> None:
                 from ledger_agent.core.cleanup import run_cycle
                 audit("bridge.tool_call", method=method, allow_pii=allow_pii)
                 with run_cycle(f"bridge:{method}"):
-                    raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
+                    # BUG-B1 fix: capture the error type here, inside the
+                    # run_cycle body, before run_cycle.__exit__ can raise a
+                    # secondary exception that would replace exc in the outer
+                    # handler and produce a misleading audit event.
+                    try:
+                        raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
+                    except Exception as _tool_exc:
+                        try:
+                            audit("bridge.tool_error", method=method,
+                                  error_type=type(_tool_exc).__name__)
+                        except Exception:
+                            pass
+                        raise
             except ImportError:
                 raw_json = call_tool(method, clean_params, allow_pii=allow_pii)
 
-            # BUG-B2 fix: redact before sending to Java client.
             raw_dict = json.loads(raw_json)
             try:
                 redacted = _redact_bridge_response(raw_dict, allow_pii=allow_pii)
-            except RuntimeError as rr:
+            except RuntimeError:
                 _error(msg_id, -32000, "bridge_redaction_failed")
                 return
             _respond(msg_id, redacted)
 
-        except Exception as exc:  # BUG-B1 fix: capture exc explicitly
+        except Exception as exc:
             tb = traceback.format_exc()
             log.error("Bridge tool %r raised:\n%s", method, tb)
-            try:
-                from ledger_agent.core.audit import audit
-                audit("bridge.tool_error", method=method,
-                      error_type=type(exc).__name__)
-            except Exception:
-                pass
             _error(msg_id, -32603, f"Internal error: {tb}")
         return
 
     _error(msg_id, -32601, f"Method not found: {method!r}")
+
+
+def _background_init() -> None:
+    """
+    Run boot_cleanup + audit initialisation in a daemon thread so the bridge
+    enters the stdin readline loop immediately.
+
+    Without this, audit._ensure_initialised() calls mkdir() on the data/audit
+    directory.  On NFS-backed filesystems (CI, some dev machines) that mkdir()
+    blocks indefinitely while waiting for the NFS lock server — which means the
+    bridge never reaches its readline loop, Java's readLine() blocks until the
+    test harness kills the process, and the ping fails.
+
+    Running in a daemon thread means:
+    - The bridge is responsive immediately (ping works before this completes).
+    - Audit still initialises normally when the filesystem is fast.
+    - If mkdir hangs forever the daemon thread is silently reaped on exit.
+    """
+    try:
+        from ledger_agent.core.cleanup import boot_cleanup
+        from ledger_agent.core.audit import audit, current_run_id
+        boot_cleanup()
+        audit("bridge.session.start", transport="jsonrpc_stdio")
+        log.info("ledger-agent JSON-RPC bridge ready on stdio (run_id=%s)",
+                 current_run_id())
+    except Exception:
+        log.info("ledger-agent JSON-RPC bridge ready on stdio")
 
 
 def serve() -> None:
@@ -158,19 +185,10 @@ def serve() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING,
                         format="%(levelname)s %(name)s: %(message)s")
 
-    # Boot-time cleanup: purge anything a crashed previous bridge run left
-    # behind, then open a fresh audit log for this session.
-    try:
-        from ledger_agent.core.cleanup import boot_cleanup
-        from ledger_agent.core.audit import audit, current_run_id
-        boot_cleanup()
-        audit("bridge.session.start", transport="jsonrpc_stdio")
-        log.info("ledger-agent JSON-RPC bridge ready on stdio (run_id=%s)",
-                 current_run_id())
-    except Exception:
-        # Audit/cleanup is best-effort here — the bridge must boot even if
-        # the audit module can't (e.g. missing data/ dir on first run).
-        log.info("ledger-agent JSON-RPC bridge ready on stdio")
+    import threading
+    _init_thread = threading.Thread(target=_background_init, daemon=True,
+                                    name="bridge-init")
+    _init_thread.start()
 
     try:
         while True:
@@ -190,8 +208,6 @@ def serve() -> None:
             except Exception:
                 _error(None, -32603, traceback.format_exc())
     finally:
-        # SMELL-B4 fix: emit clean shutdown marker so the audit trail closes
-        # properly regardless of how the bridge loop exits.
         try:
             from ledger_agent.core.audit import audit, shutdown_audit
             audit("bridge.session.end", transport="jsonrpc_stdio")

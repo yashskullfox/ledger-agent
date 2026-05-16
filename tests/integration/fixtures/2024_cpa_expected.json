@@ -12,7 +12,7 @@
     "net_investment_interest_expense": "Schedule K investment interest expense (positive = expense)",
     "partner_1_ordinary_income": "partner_1 100% P&L x ordinary_business_income",
     "partner_2_ordinary_income": "partner_2 0% P&L x ordinary_business_income",
-    "total_assets_eoy": "Cash $573 + Other Current Assets (Fidelity) $29,566",
+    "total_assets_eoy": "Cash + Other Current Assets (Broker Y) — see private fixture for figures",
     "total_liabilities_eoy": "Other Current Liabilities (Payroll accrual)",
     "total_equity_eoy": "Partners Capital Accounts (Schedule M-2 ending balance)",
     "capital_contributed": "Schedule M-2",

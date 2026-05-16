@@ -135,6 +135,14 @@ class ClassificationMemory:
             self._seed_defaults()
 
     def _seed_defaults(self) -> None:
+        # Intra-bank transfer keywords are institution-specific and live in
+        # private/institutions.py (gitignored). Fall back to generic-only.
+        try:
+            from private.institutions import BANK_X as _bx
+        except ImportError:
+            _bx = {}
+        _intra_xfer_keywords = _bx.get("intra_xfer_keywords", [])
+
         defaults = [
             # Software — canonical 5010
             ("INCFILE LLC", "5071", "Legal & Professional Fees", False),
@@ -147,7 +155,9 @@ class ClassificationMemory:
             # Bank fees — canonical 5020
             ("TRAN FEE INTUIT", "5020", "Bank & Transaction Fees", False),
             # Transfers — canonical 9000 (is_transfer=True excluded from P&L)
-            ("MONEYLINE FID BKG", "9000", "Inter-Account Transfer (Clearing)", True),
+            # Institution-specific intra-bank keywords loaded from private config:
+            *[(kw, "9000", "Inter-Account Transfer (Clearing)", True)
+              for kw in _intra_xfer_keywords],
             ("EFT FUNDS PAID", "9000", "Inter-Account Transfer (Clearing)", True),
             # Service revenue — canonical 4020
             ("DEPOSIT INTUIT", "4020", "Service Revenue", False),

@@ -9,7 +9,7 @@
 ::   run.bat balance [YEAR]
 ::   run.bat tax     [YEAR]
 ::   run.bat form1065 [YEAR]
-::   run.bat k1 [YEAR] [--partner yash^|parin]
+::   run.bat k1 [YEAR] [--partner partner_1^|partner_2]
 ::   run.bat reconcile [YEAR]
 ::
 :: Usage (legacy main.py pass-through):
@@ -26,7 +26,7 @@ setlocal EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 :: Remove trailing backslash
-if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%" %= # redaction: allow =%
 
 set "VENV_DIR=%SCRIPT_DIR%\.venv"
 set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"

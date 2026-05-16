@@ -91,13 +91,13 @@ def _has_token(text: str, prefix: str) -> bool:
 class TestChecksums:
     def test_luhn_valid_visa(self):
         # Standard test Visa number
-        assert _luhn_valid("4532015112830366")
+        assert _luhn_valid("4532015112830366")  # redaction: allow
 
     def test_luhn_invalid(self):
-        assert not _luhn_valid("1234567890123456")
+        assert not _luhn_valid("1234567890123456")  # redaction: allow
 
     def test_aba_valid(self):
-        # ABA 021000021 = JPMorgan Chase — well-known valid routing
+        # ABA 021000021 is a well-known valid routing number  # redaction: allow
         assert _aba_valid("021000021")
 
     def test_aba_invalid(self):
@@ -108,7 +108,7 @@ class TestChecksums:
 
     def test_aba_wrong_length(self):
         assert not _aba_valid("12345678")   # 8 digits
-        assert not _aba_valid("1234567890")  # 10 digits
+        assert not _aba_valid("1234567890")  # 10 digits  # redaction: allow
 
 
 # ── Detector category 1: SSN ──────────────────────────────────────────────────
@@ -187,23 +187,23 @@ class TestDetectorRouting:
 
 class TestDetectorCreditCard:
     def test_visa_16_digit(self):
-        # 4532015112830366 is a Luhn-valid test Visa
-        out = _safe("Card: 4532015112830366")
+        # 4532015112830366 is a Luhn-valid test Visa  # redaction: allow
+        out = _safe("Card: 4532015112830366")  # redaction: allow
         assert _has_token(out, "CARD")
-        assert "4532015112830366" not in out
+        assert "4532015112830366" not in out  # redaction: allow
 
     def test_card_last4_in_token(self):
-        out = _safe("Charged to 4532015112830366")
+        out = _safe("Charged to 4532015112830366")  # redaction: allow
         assert "0366" in out  # last4 embedded in token
 
     def test_invalid_luhn_not_detected(self):
         # Not a valid card number
-        out = _safe("Reference: 1234567890123456")
+        out = _safe("Reference: 1234567890123456")  # redaction: allow
         assert not _has_token(out, "CARD")
 
     def test_mastercard(self):
-        # 5500005555555559 = Luhn-valid Mastercard test number
-        out = _safe("Mastercard 5500005555555559 charged")
+        # 5500005555555559 = Luhn-valid Mastercard test number  # redaction: allow
+        out = _safe("Mastercard 5500005555555559 charged")  # redaction: allow
         assert _has_token(out, "CARD")
 
 
@@ -211,15 +211,15 @@ class TestDetectorCreditCard:
 
 class TestDetectorAccountNumber:
     def test_with_account_context(self):
-        out = _safe("Account 1234567890 balance available")
+        out = _safe("Account 1234567890 balance available")  # redaction: allow
         assert _has_token(out, "ACCT")
 
     def test_with_acct_abbreviation(self):
-        out = _safe("ACCT 98765432100 posting")
+        out = _safe("ACCT 98765432100 posting")  # redaction: allow
         assert _has_token(out, "ACCT")
 
     def test_last4_in_token(self):
-        out = _safe("Checking account 1234567890")
+        out = _safe("Checking account 1234567890")  # redaction: allow
         assert "7890" in out
 
     def test_no_context_not_detected(self):
@@ -298,7 +298,7 @@ class TestDetectorAddress:
 class TestDetectorAPIKey:
     def test_openai_key_raises(self):
         with pytest.raises(PrivacyLeakError, match="API key"):
-            redact("Key: sk-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef1234567890abcd")
+            redact("Key: sk-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef1234567890abcd")  # redaction: allow
 
     def test_google_key_raises(self):
         with pytest.raises(PrivacyLeakError, match="API key"):
@@ -400,16 +400,16 @@ class TestMultipleCategories:
         assert "owner@mybiz.com" not in out
 
     def test_ein_and_account(self):
-        text = "EIN 12-3456789 linked to checking account 9876543210"
+        text = "EIN 12-3456789 linked to checking account 9876543210"  # redaction: allow
         out = _safe(text)
         assert "<EIN_***>" in out
         assert _has_token(out, "ACCT")
 
     def test_clean_text_unchanged(self):
-        text = "STRIPE payment $99.99 for Software & Subscriptions"
+        text = "STRIPE payment $99.99 for Software & Subscriptions"  # redaction: allow
         out = _safe(text)
         assert "STRIPE" in out
-        assert "$99.99" in out
+        assert "$99.99" in out  # redaction: allow
         assert "Software" in out
 
 
@@ -418,7 +418,7 @@ class TestMultipleCategories:
 class TestAuditEgress:
     def test_clean_payload_passes(self):
         # Should not raise
-        audit_egress("STRIPE payment $99.99 classified as 5010")
+        audit_egress("STRIPE payment $99.99 classified as 5010")  # redaction: allow
 
     def test_ssn_in_payload_raises(self):
         with pytest.raises(PrivacyLeakError, match="PII detected"):
@@ -506,7 +506,7 @@ class TestStrictMode:
         _cfg.AI_EGRESS_MODE = "strict"
 
         # Clean text with amounts < 7 digits should pass
-        safe, _ = redact("STRIPE $99.99 debit expense", scope="openai")
+        safe, _ = redact("STRIPE $99.99 debit expense", scope="openai")  # redaction: allow
         assert "STRIPE" in safe
 
 
@@ -644,11 +644,11 @@ class TestUnredact:
         assert "user@example.com" in restored
 
     def test_account_roundtrip(self):
-        original = "Account 1234567890 posting"
+        original = "Account 1234567890 posting"  # redaction: allow
         safe, m = redact(original, scope="openai")
-        assert "1234567890" not in safe
+        assert "1234567890" not in safe  # redaction: allow
         restored = unredact(safe, m)
-        assert "1234567890" in restored
+        assert "1234567890" in restored  # redaction: allow
 
     def test_empty_map_unchanged(self):
         text = "STRIPE $99 payment"
@@ -701,8 +701,8 @@ class TestPerformance:
         """R-46 acceptance: redaction of 200-char description < 1 s p95."""
         import time
         text = (
-            "PAYPAL *QUICKBOOKS SUBSCRIPTION $99.99 DEBIT "
-            "CARD 4532015112830366 ACCT 1234567890 "
+            "PAYPAL *QUICKBOOKS SUBSCRIPTION $99.99 DEBIT "  # redaction: allow
+            "CARD 4532015112830366 ACCT 1234567890 "  # redaction: allow
             "email@company.com 415-555-0101 "
             "2025-01-15"
         )[:200]

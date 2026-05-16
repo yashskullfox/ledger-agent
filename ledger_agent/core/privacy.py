@@ -105,7 +105,7 @@ _SYSTEM_WORDS: Set[str] = {
     "ACH", "ATM", "LLC", "INC", "CORP", "LTD", "DBA", "FBO",
     "REF", "CHK", "DEP", "PMT", "PAY", "TXN", "TRN", "EFT",
     "PPD", "CCD", "WEB", "TEL", "CTX", "IAT", "POS",
-    "TRANSFER", "PAYMENT", "DEPOSIT", "WITHDRAWAL", "PURCHASE",
+    "TRANSFER", "PAYMENT", "DEPOSIT", "WITHDRAWAL", "PURCHASE",  # redaction: allow (PURCHASE is a generic financial verb; substring 'chase' is incidental)
     "DEBIT", "CREDIT", "CHARGE", "REFUND", "FEE", "INTEREST",
     "BALANCE", "AVAILABLE", "PENDING", "CLEARED", "POSTED",
     "USD", "WIRE", "SWIFT", "IBAN", "BIC",
@@ -296,8 +296,9 @@ _PERSON_CTX_PAT = re.compile(
 
 # ── ALL-CAPS counterparty business name ───────────────────────────────────────
 # BUG-P2 fix: pattern now allows ONE or more all-caps tokens (changed `+` to `*`
-# on the trailing group). A bare single token like `SYNCED` or `CHASE` would
-# previously slip through because the old pattern required at least two words.
+# on the trailing group). A bare single token (e.g. an entity acronym or a bank
+# name) would previously slip through because the old pattern required at least
+# two words.
 # The existing filters inside _detect_counterparty_names still apply:
 #   • len(orig) < 5 — drops short acronyms (<5 chars) like "IRS", "ACH", "LLC"
 #   • _SYSTEM_WORDS — drops known protocol/financial acronyms

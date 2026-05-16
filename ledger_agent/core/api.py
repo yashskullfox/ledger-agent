@@ -13,19 +13,20 @@ log = logging.getLogger(__name__)
 # Keys are the canonical partner_id strings used by CLI/MCP/bridge.
 # Each value is (name, capital_pct, profit_loss_pct).
 # Capital and P&L splits are independent in partnership accounting (K-1 Part II J).
-# Defaults match SYNCED LLC 2024: Yash 99% capital / 100% P&L, Parin 1% / 0%.
-# Override via env vars without touching code.
+# Default split for the reference ENTITY_A: partner_1 majority capital / full P&L,
+# partner_2 minority capital / no P&L share.  Override via env vars without
+# touching code.
 def _build_partners() -> Dict[str, Tuple[str, Decimal, Decimal]]:
     return {
-        "yash": (
-            os.environ.get("FI_PARTNER_YASH_NAME", "Partner A"),
-            Decimal(os.environ.get("FI_PARTNER_YASH_CAPITAL", "0.99")),
-            Decimal(os.environ.get("FI_PARTNER_YASH_PL", "1.00")),
+        "partner_1": (
+            os.environ.get("FI_PARTNER_1_NAME", "Partner A"),
+            Decimal(os.environ.get("FI_PARTNER_1_CAPITAL", "0.99")),
+            Decimal(os.environ.get("FI_PARTNER_1_PL", "1.00")),
         ),
-        "parin": (
-            os.environ.get("FI_PARTNER_PARIN_NAME", "Partner B"),
-            Decimal(os.environ.get("FI_PARTNER_PARIN_CAPITAL", "0.01")),
-            Decimal(os.environ.get("FI_PARTNER_PARIN_PL", "0.00")),
+        "partner_2": (
+            os.environ.get("FI_PARTNER_2_NAME", "Partner B"),
+            Decimal(os.environ.get("FI_PARTNER_2_CAPITAL", "0.01")),
+            Decimal(os.environ.get("FI_PARTNER_2_PL", "0.00")),
         ),
     }
 

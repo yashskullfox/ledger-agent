@@ -169,10 +169,22 @@ def parse_corpus(text: str) -> dict:
     mo_over   = grab("mo_overpayment",         mo_over_line)
 
     # ── Partner ownership ─────────────────────────────────────────────────────
-    # Look for "99%" and "100%" in same block to extract ownership lines.
-    # Lines look like: "Partner 1 (Yash N Patel): 99% Capital, 100% Profit/Loss"
-    yash_line  = _find(lines, "yash", "%")
-    parin_line = _find(lines, "parin", "%")
+    # Look for ownership lines like "Partner 1 (...): NN% Capital, MM% Profit/Loss".
+    # Real partner-name tokens used to identify the partner row come from
+    # private/institutions.py (PARTNER_1_CORPUS_TOKEN / PARTNER_2_CORPUS_TOKEN)
+    # or env-var fallback so the script can run against the gitignored CPA
+    # corpus without hard-coding real names in committed source.
+    try:
+        from private.institutions import (  # type: ignore
+            PARTNER_1_CORPUS_TOKEN as _P1_TOKEN,
+            PARTNER_2_CORPUS_TOKEN as _P2_TOKEN,
+        )
+    except Exception:
+        _P1_TOKEN = os.environ.get("FI_PARTNER_1_CORPUS_TOKEN", "partner 1")
+        _P2_TOKEN = os.environ.get("FI_PARTNER_2_CORPUS_TOKEN", "partner 2")
+
+    p1_line = _find(lines, _P1_TOKEN, "%")
+    p2_line = _find(lines, _P2_TOKEN, "%")
 
     def _two_pcts(line: str) -> tuple[str | None, str | None]:
         """Return (first_pct, second_pct) from a line with two % values."""
@@ -181,28 +193,28 @@ def parse_corpus(text: str) -> dict:
         b = str(round(float(hits[1]) / 100, 6)).rstrip("0").rstrip(".") if len(hits) > 1 else None
         return a, b
 
-    yash_cap_pct, yash_pl_pct   = _two_pcts(yash_line)  if yash_line  else (None, None)
-    parin_cap_pct, parin_pl_pct = _two_pcts(parin_line) if parin_line else (None, None)
-    if yash_cap_pct:
-        provenance["yash_capital_pct"]    = (yash_line or "").strip()
-        provenance["yash_profit_loss_pct"]= (yash_line or "").strip()
-    if parin_cap_pct:
-        provenance["parin_capital_pct"]    = (parin_line or "").strip()
-        provenance["parin_profit_loss_pct"]= (parin_line or "").strip()
+    p1_cap_pct, p1_pl_pct = _two_pcts(p1_line) if p1_line else (None, None)
+    p2_cap_pct, p2_pl_pct = _two_pcts(p2_line) if p2_line else (None, None)
+    if p1_cap_pct:
+        provenance["partner_1_capital_pct"]     = (p1_line or "").strip()
+        provenance["partner_1_profit_loss_pct"] = (p1_line or "").strip()
+    if p2_cap_pct:
+        provenance["partner_2_capital_pct"]     = (p2_line or "").strip()
+        provenance["partner_2_profit_loss_pct"] = (p2_line or "").strip()
 
     # ── K-1 derived figures ───────────────────────────────────────────────────
-    # yash_ordinary_income  = ordinary_business_income × yash_pl_pct
-    # parin_ordinary_income = ordinary_business_income × parin_pl_pct
-    yash_oi = parin_oi = None
-    if ordinary_inc is not None and yash_pl_pct is not None:
-        yash_oi  = str((Decimal(ordinary_inc) * Decimal(yash_pl_pct)).quantize(Decimal("0.01")))
-        parin_oi = str((Decimal(ordinary_inc) * Decimal(parin_pl_pct or "0")).quantize(Decimal("0.01")))
-        provenance["yash_ordinary_income"]  = f"Derived: {ordinary_inc} × {yash_pl_pct}"
-        provenance["parin_ordinary_income"] = f"Derived: {ordinary_inc} × {parin_pl_pct or '0'}"
+    # partner_1_ordinary_income = ordinary_business_income × p1_pl_pct
+    # partner_2_ordinary_income = ordinary_business_income × p2_pl_pct
+    p1_oi = p2_oi = None
+    if ordinary_inc is not None and p1_pl_pct is not None:
+        p1_oi = str((Decimal(ordinary_inc) * Decimal(p1_pl_pct)).quantize(Decimal("0.01")))
+        p2_oi = str((Decimal(ordinary_inc) * Decimal(p2_pl_pct or "0")).quantize(Decimal("0.01")))
+        provenance["partner_1_ordinary_income"] = f"Derived: {ordinary_inc} x {p1_pl_pct}"
+        provenance["partner_2_ordinary_income"] = f"Derived: {ordinary_inc} x {p2_pl_pct or '0'}"
 
     # ── Assemble output ───────────────────────────────────────────────────────
     result = {
-        "_source": f"statements/2024/2024.txt — CPA-prepared 2024 figures for SYNCED LLC",
+        "_source": "statements/2024/2024.txt — CPA-prepared 2024 figures for ENTITY_A",
         "_generated_by": "scripts/regen_parity_corpus.py",
         "_source_lines": provenance,
     }
@@ -220,20 +232,20 @@ def parse_corpus(text: str) -> dict:
     _add("dividend_income",                 dividend)
     _add("net_investment_interest_expense", int_exp)
     result.setdefault("interest_income",    "0.00")
-    _add("yash_ordinary_income",            yash_oi)
-    _add("parin_ordinary_income",           parin_oi)
+    _add("partner_1_ordinary_income",       p1_oi)
+    _add("partner_2_ordinary_income",       p2_oi)
     def _fmt_pct(s: str | None) -> str:
         """Format a percentage decimal string with exactly 2 decimal places."""
         if s is None:
             return "0.00"
         return f"{Decimal(s):.2f}"
 
-    if yash_cap_pct:
-        result["yash_capital_pct"]     = _fmt_pct(yash_cap_pct)
-        result["yash_profit_loss_pct"] = _fmt_pct(yash_pl_pct)
-    if parin_cap_pct:
-        result["parin_capital_pct"]     = _fmt_pct(parin_cap_pct)
-        result["parin_profit_loss_pct"] = _fmt_pct(parin_pl_pct)
+    if p1_cap_pct:
+        result["partner_1_capital_pct"]     = _fmt_pct(p1_cap_pct)
+        result["partner_1_profit_loss_pct"] = _fmt_pct(p1_pl_pct)
+    if p2_cap_pct:
+        result["partner_2_capital_pct"]     = _fmt_pct(p2_cap_pct)
+        result["partner_2_profit_loss_pct"] = _fmt_pct(p2_pl_pct)
     _add("total_assets_eoy",               ta_eoy)
     _add("cash_eoy",                        cash_eoy)
     _add("other_current_assets_eoy",        oca_eoy)

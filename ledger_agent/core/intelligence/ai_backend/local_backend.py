@@ -23,6 +23,15 @@ from ledger_agent.core.intelligence.ai_backend.base import AIBackend
 
 _log = logging.getLogger(__name__)
 
+# Intra-bank transfer keywords are institution-specific and live OUTSIDE source.
+# Real keywords are loaded from private/institutions.py (gitignored). If the
+# private module is absent, only the generic transfer rules below apply.
+try:
+    from private.institutions import BANK_X as _BANK_X_CFG  # type: ignore[import-not-found]
+except ImportError:
+    _BANK_X_CFG = {}
+_INTRA_XFER_KEYWORDS: List[str] = _BANK_X_CFG.get("intra_xfer_keywords", [])
+
 # Each tuple: (regex_pattern, coa_code, coa_name, is_transfer)
 # Listed most-specific first.
 
@@ -30,15 +39,15 @@ _RULES: List[Tuple[str, str, str, bool]] = [
     # Codes and names match _DEFAULT_COA in core/database.py exactly.
     # Listed most-specific first so the first match wins.
 
-    # Transfers (9000)
-    (r"MONEYLINE\s*FID", "9000", "Inter-Account Transfer", True),
+    # Transfers (9000) — institution-specific keywords first, generic indicators next
+    *[(re.escape(_kw), "9000", "Inter-Account Transfer", True) for _kw in _INTRA_XFER_KEYWORDS],
     (r"TRANSFER\s*(IN|OUT|TO|FROM)", "9000", "Inter-Account Transfer", True),
     (r"ZELLE\s*TO|ZELLE\s*FROM", "9000", "Inter-Account Transfer", True),
     (r"WIRE\s*(IN|OUT|TRANSFER)", "9000", "Inter-Account Transfer", True),
 
     # Members Distributions / Owner Draws (3040)
     # V7 fix: USATAXPYMT / IRS estimated-tax payments are partner draws on a
-    # pass-through LLC (SYNCED LLC files Form 1065) — NOT a corporate income-tax
+    # pass-through LLC (ENTITY_A files Form 1065) — NOT a corporate income-tax
     # expense. Booking them as 5050 overstated operating expenses and understated
     # equity distributions. Reclassify to COA 3040 so they appear on the equity
     # schedule and are excluded from the income-statement expense lines.

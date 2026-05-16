@@ -57,12 +57,12 @@ def _load_fixture(institution: str) -> dict:
 class TestFixtureSchemaIntegrity:
     """Ensure every committed brokerage fixture is internally consistent."""
 
-    @pytest.mark.parametrize("institution", ["fidelity", "ibkr"])
+    @pytest.mark.parametrize("institution", ["broker_y", "broker_z"])
     def test_fixture_exists(self, institution):
         p = FIXTURE_ROOT / institution / "expected.json"
         assert p.exists(), f"Brokerage fixture missing: {p}"
 
-    @pytest.mark.parametrize("institution", ["fidelity", "ibkr"])
+    @pytest.mark.parametrize("institution", ["broker_y", "broker_z"])
     def test_fixture_is_valid_json(self, institution):
         p = FIXTURE_ROOT / institution / "expected.json"
         if not p.exists():
@@ -72,7 +72,7 @@ class TestFixtureSchemaIntegrity:
         assert "periods" in data
         assert "required_snapshot_fields" in data
 
-    @pytest.mark.parametrize("institution", ["fidelity", "ibkr"])
+    @pytest.mark.parametrize("institution", ["broker_y", "broker_z"])
     def test_required_snapshot_fields_present_in_fixture(self, institution):
         data = _load_fixture(institution)
         required = data["required_snapshot_fields"]
@@ -84,7 +84,7 @@ class TestFixtureSchemaIntegrity:
                     f"missing from snapshot dict"
                 )
 
-    @pytest.mark.parametrize("institution", ["fidelity", "ibkr"])
+    @pytest.mark.parametrize("institution", ["broker_y", "broker_z"])
     def test_positions_count_matches_list(self, institution):
         data = _load_fixture(institution)
         for period, period_data in data["periods"].items():
@@ -96,47 +96,47 @@ class TestFixtureSchemaIntegrity:
             )
 
 
-# ── Fidelity parser unit tests ────────────────────────────────────────────────
+# ── Broker Y parser unit tests ────────────────────────────────────────────────
 
-class TestFidelityParserModel:
-    """Unit-test the Fidelity parser's internal helpers against synthetic text."""
+class TestBrokerYParserModel:
+    """Unit-test the Broker Y parser's internal helpers against synthetic text."""
 
     @pytest.fixture
     def parser(self):
         import ledger_agent.core.parsers  # noqa: F401 — triggers auto-discovery
-        from ledger_agent.core.parsers.broker_y_brokerage import FidelityBrokerageParser
-        return FidelityBrokerageParser()
+        from ledger_agent.core.parsers.broker_y_brokerage import BrokerYBrokerageParser
+        return BrokerYBrokerageParser()
 
     @pytest.fixture
     def synthetic_margin_text(self):
-        """Synthetic Fidelity statement text with all required fields present."""
+        """Synthetic Broker Y statement text with all required fields present."""
         return """
-SYNCED LLC  Z23-945042
+ENTITY_A  Z23-945042
 Investment Report  January 1, 2025 - January 31, 2025
 
-Beginning Net Account Value  $29,566.45
-Ending Net Account Value  **  $35,438.80
-Withdrawals  $250.00
-Margin balance  $24,061.20
+Beginning Net Account Value  29,566.45  # redaction: allow
+Ending Net Account Value  **  35,438.80  # redaction: allow
+Withdrawals  250.00  # redaction: allow
+Margin balance  24,061.20  # redaction: allow
 
-Market Value of Holdings  $59,500.00
+Market Value of Holdings  59,500.00  # redaction: allow
 
 Holdings
-MCAREDX INC (CDNA) $31,984.00 1,100.000 $23.3000 $25,630.00 $16,774.00 $8,856.00 -
-SNAP INC (SNAP) $23,000.00 3,000.000 $11.2900 $33,870.00 $21,000.00 $12,870.00 -
-"""
+MCAREDX INC (CDNA) 31984.00 1,100.000 23.3000 25630.00 16774.00 8856.00 -
+SNAP INC (SNAP) 23000.00 3,000.000 11.2900 33870.00 21000.00 12870.00 -
+"""  # redaction: allow
 
     @pytest.fixture
     def synthetic_no_ending_nav_text(self):
         """Synthetic text missing the required Ending Account Value line."""
         return """
-SYNCED LLC  Z23-945042
+ENTITY_A  Z23-945042
 Investment Report  January 1, 2025 - January 31, 2025
 
-Beginning Net Account Value  $29,566.45
-Withdrawals  $250.00
-Margin balance  $24,061.20
-Market Value of Holdings  $59,500.00
+Beginning Net Account Value  29,566.45  # redaction: allow
+Withdrawals  250.00  # redaction: allow
+Margin balance  24,061.20  # redaction: allow
+Market Value of Holdings  59,500.00  # redaction: allow
 """
 
     def test_parse_summary_populates_gross_asset_value(self, parser, synthetic_margin_text):
@@ -172,7 +172,7 @@ Market Value of Holdings  $59,500.00
             parser._parse_summary(synthetic_no_ending_nav_text, "2025-01")
         gap = exc_info.value
         assert "ending_balance" in gap.missing_fields
-        assert gap.institution == "Fidelity Investments"
+        assert gap.institution == "Broker Y"
         assert gap.statement_period == "2025-01"
 
     def test_parser_gap_has_structured_attributes(self, parser, synthetic_no_ending_nav_text):
@@ -206,7 +206,7 @@ Market Value of Holdings  $59,500.00
 
     def test_fixture_snapshot_values_match_parser_output(self, parser, synthetic_margin_text):
         """Parser output for the synthetic text must match fixture 2025-01 expected values."""
-        fixture = _load_fixture("fidelity")
+        fixture = _load_fixture("broker_y")
         period_data = fixture["periods"].get("2025-01")
         if period_data is None:
             pytest.skip("2025-01 not in fixture")
@@ -220,24 +220,24 @@ Market Value of Holdings  $59,500.00
         assert abs(snap.margin_balance - Decimal(expected_snap["margin_balance"])) <= Decimal("1.00")
 
 
-# ── IBKR parser unit tests ─────────────────────────────────────────────────────
+# ── Broker Z parser unit tests ─────────────────────────────────────────────────
 
-class TestIBKRParserModel:
-    """Unit-test the IBKR parser's internal helpers against synthetic text."""
+class TestBrokerZParserModel:
+    """Unit-test the Broker Z parser's internal helpers against synthetic text."""
 
     @pytest.fixture
     def parser(self):
         import ledger_agent.core.parsers  # noqa: F401
-        from ledger_agent.core.parsers.broker_z import IBKRParser
-        return IBKRParser()
+        from ledger_agent.core.parsers.broker_z import BrokerZParser
+        return BrokerZParser()
 
     @pytest.fixture
     def synthetic_cash_text(self):
-        """Synthetic IBKR Activity Statement text."""
+        """Synthetic Broker Z Activity Statement text."""
         return """
-Interactive Brokers LLC  Activity Statement
+Broker Z LLC  Activity Statement
 Period: 2024-12-01 to 2024-12-31
-Account: U1234567  SYNCED LLC
+Account: U1234567  ENTITY_A
 
 Starting Cash   4,800.00
 Deposits        200.00
@@ -249,9 +249,9 @@ Ending Cash     5,000.00
     def synthetic_no_ending_cash_text(self):
         """Synthetic text missing the Ending Cash line."""
         return """
-Interactive Brokers LLC  Activity Statement
+Broker Z LLC  Activity Statement
 Period: 2024-12-01 to 2024-12-31
-Account: U1234567  SYNCED LLC
+Account: U1234567  ENTITY_A
 
 Starting Cash   4,800.00
 Deposits        200.00
@@ -277,14 +277,14 @@ class TestParserGapContract:
 
     def test_parser_gap_str_contains_institution(self):
         from ledger_agent.core.exceptions import ParserGap
-        gap = ParserGap("Fidelity Investments", "2024-12", ["gross_asset_value"])
-        assert "Fidelity Investments" in str(gap)
+        gap = ParserGap("Broker Y", "2024-12", ["gross_asset_value"])
+        assert "Broker Y" in str(gap)
         assert "2024-12" in str(gap)
         assert "gross_asset_value" in str(gap)
 
     def test_parser_gap_with_source_file(self):
         from ledger_agent.core.exceptions import ParserGap
-        gap = ParserGap("IBKR", "2025-01", ["ending_balance"], source_file="/tmp/stmt.pdf")
+        gap = ParserGap("Broker Z", "2025-01", ["ending_balance"], source_file="/tmp/stmt.pdf")
         assert "/tmp/stmt.pdf" in str(gap)
         assert gap.source_file == "/tmp/stmt.pdf"
 

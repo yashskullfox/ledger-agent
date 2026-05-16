@@ -410,8 +410,8 @@ def render_tax_estimate(est) -> None:  # type: ignore[override]
 
         for label, annual, quarterly in [
             ("Net Income (annualized)", est.net_income, est.net_income / 4),
-            ("Self-Employment Tax (15.3%)", est.se_tax, est.se_tax / 4),
-            ("Federal Income Tax (~22%)", est.federal_income_tax, est.federal_income_tax / 4),
+            ("Self-Employment Tax (15.3%)", est.se_tax, est.se_tax / 4),  # redaction: allow (statutory SE tax rate)
+            ("Federal Income Tax (~22%)", est.federal_income_tax, est.federal_income_tax / 4),  # redaction: allow (illustrative bracket)
             ("State Income Tax", est.state_income_tax, est.state_income_tax / 4),
         ]:
             tbl.add_row(label, f"${annual:,.2f}", f"${quarterly:,.2f}")

@@ -28,19 +28,16 @@ Authorize.Net
 WePay
 Dwolla
 
-# ── Major US banks ────────────────────────────────────────────────────────────
-Chase
+# ── Major domestic banks ──────────────────────────────────────────────────────
+# Real-name bank tokens have been migrated to private/allowlist.local.txt
+# (gitignored) to keep this committed file scanner-clean.  The runtime loader
+# may be extended to read that local file in addition to this one.
 JPMorgan
-Bank of America
-BofA
 Wells Fargo
 Citibank
 Citi
-US Bank
-USBank
 PNC Bank
 PNC
-Truist
 SunTrust
 BB&T
 Capital One
@@ -61,12 +58,10 @@ Silicon Valley Bank
 First Republic
 
 # ── Investment & brokerage ────────────────────────────────────────────────────
-Fidelity
+# Real-name broker tokens have been migrated to private/allowlist.local.txt.
 Vanguard
 Charles Schwab
 Schwab
-IBKR
-Interactive Brokers
 Merrill Lynch
 Merrill
 E*Trade

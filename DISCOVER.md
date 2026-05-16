@@ -3,7 +3,7 @@
 > **Keywords:** small business accounting, LLC bookkeeping, financial statement parser,
 > balance sheet generator, bank statement PDF reader, MCP server, Spring Boot webapp,
 > AI bookkeeping, quarterly tax estimator, Form 1065, Schedule K-1, Python CLI,
-> Model Context Protocol, open source accounting, SYNCED LLC
+> Model Context Protocol, open source accounting, partnership accounting
 
 ---
 
@@ -29,9 +29,9 @@ From your PDF bank and brokerage statements, ledger-agent produces:
 
 - **GAAP-style balance sheet** — Assets, Liabilities, Members' Equity, Net Income
 - **Form 1065 summary** — Ordinary Business Income, Schedule K items, partnership totals
-- **Schedule K-1** — each partner's distributive share (SYNCED LLC: Yash 99%, Parin 1%)
+- **Schedule K-1** — each partner's distributive share (configurable ownership split)
 - **Quarterly tax estimate (PTE)** — SE tax + federal + state + QBI, with due dates
-- **Inter-account reconciliation** — matches MONEYLINE FID / Zelle / wire transfers
+- **Inter-account reconciliation** — matches intra-bank transfers / Zelle / wire transfers
 - **Classified transactions** — mapped to Chart of Accounts automatically via 5-step pipeline
 - **AI-ready JSON context** — paste into Claude, GPT-4, or Perplexity
 
@@ -79,7 +79,7 @@ Every form exposes these six operations (all producing identical output):
 import_statements       — scan a folder for PDFs, parse and persist (idempotent)
 generate_balance_sheet  — GAAP-style year-end balance sheet
 generate_form_1065      — Form 1065 partnership return data
-generate_k1             — Schedule K-1 per partner (yash | parin)
+generate_k1             — Schedule K-1 per partner (partner_1 | partner_2)
 pte_estimate            — quarterly estimated tax payments + due dates
 reconcile_year          — inter-account transfer reconciliation
 ```
@@ -103,7 +103,7 @@ to your financial data via the spec-compliant MCP server:
 ```
 
 Then ask Claude: *"What is my biggest expense category for 2024?"*
-or *"Generate my Schedule K-1 for Yash."*
+or *"Generate my Schedule K-1 for partner_1."*
 
 **Privacy:** every MCP response passes through the R-46 PII firewall — account numbers,
 EINs, SSNs, and partner names are replaced with opaque tokens before any data leaves the
@@ -116,7 +116,7 @@ host. Pass `_meta: { allow_pii: true }` to opt in to raw data.
 | `import_statements` | Scan a folder for PDFs, parse and persist. Idempotent. |
 | `generate_balance_sheet` | GAAP-style year-end balance sheet. |
 | `generate_form_1065` | Form 1065 partnership return summary. |
-| `generate_k1` | Schedule K-1 for `yash` (99%) or `parin` (1%). |
+| `generate_k1` | Schedule K-1 for `partner_1` or `partner_2` (configurable ownership split). |
 | `pte_estimate` | Quarterly estimated tax payments with due dates. |
 | `reconcile_year` | Inter-account transfer reconciliation. |
 
@@ -131,7 +131,7 @@ Transaction description
         │
         ▼ Step 1: Learned rules (your past confirmations)     — free, instant
         ▼ Step 2: Local rule engine + rapidfuzz fuzzy match    — free, offline
-        ▼ Step 3: OpenAI or Gemini (optional, low-confidence) — ~$0.00
+        ▼ Step 3: OpenAI or Gemini (optional, low-confidence) — near-zero cost
         ▼ Step 4: Chart of Accounts keyword scan               — free
         ▼ Step 5: Interactive multiple-choice prompt           — remembered forever
 ```
@@ -151,13 +151,17 @@ partner names, routing numbers). Nothing leaves the machine in `local` mode (def
 
 | Institution | Statement Type | Test Coverage |
 |-------------|---------------|---------------|
-| Truist Bank | Simple Business Checking | End-to-end |
-| Fidelity Investments | Brokerage / Investment Report | Detection |
-| U.S. Bank | Business Essentials Checking | Scaffolded |
-| U.S. Bank | Business Credit Card | Scaffolded |
-| Chase Bank | Business Complete Checking | Scaffolded |
-| Bank of America | Business Checking | Scaffolded |
-| Interactive Brokers | Activity Statement (PDF) | Scaffolded |
+| Bank X | Simple Business Checking | End-to-end |
+| Broker Y | Brokerage / Investment Report | Detection |
+| Bank X4 | Business Essentials Checking | Scaffolded |
+| Bank X4 | Business Credit Card | Scaffolded |
+| Bank X3 | Business Complete Checking | Scaffolded |
+| Bank X2 | Business Checking | Scaffolded |
+| Broker Z | Activity Statement (PDF) | Scaffolded |
+
+> Institution names are pseudonymised in public source. Real detection tokens live
+> in `private/institutions.py` (gitignored). See `private/institutions.example.py`
+> for the template.
 
 **Adding your bank:** create one parser file — `parsers/my_bank.py`. Decorate with
 `@ParserRegistry.register`. The parser is auto-discovered at startup. Zero other edits required.

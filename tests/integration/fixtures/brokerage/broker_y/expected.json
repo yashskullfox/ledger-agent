@@ -1,9 +1,9 @@
 {
-  "_note": "PII-scrubbed fixture for Fidelity Brokerage parser acceptance tests (ARCH-24/25).",
+  "_note": "PII-scrubbed fixture for Broker Y Brokerage parser acceptance tests (ARCH-24/25).",
   "_source": "Derived from 2024-12 and 2025-01 statements; all account numbers and entity names anonymised.",
   "periods": {
     "2024-12": {
-      "institution": "Fidelity Investments",
+      "institution": "Broker Y Investments",
       "account_number_masked_prefix": "Z2",
       "snapshot": {
         "ending_balance": "29566.45",
@@ -29,7 +29,7 @@
       ]
     },
     "2025-01": {
-      "institution": "Fidelity Investments",
+      "institution": "Broker Y Investments",
       "account_number_masked_prefix": "Z2",
       "snapshot": {
         "ending_balance": "35438.80",
@@ -56,5 +56,5 @@
     }
   },
   "required_snapshot_fields": ["ending_balance", "gross_asset_value", "margin_balance"],
-  "parser_id": "fidelity_brokerage"
+  "parser_id": "broker_y_brokerage"
 }
