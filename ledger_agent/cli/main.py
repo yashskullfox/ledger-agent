@@ -183,6 +183,63 @@ def cmd_k1(args: list[str]) -> int:
         return 1
 
 
+def cmd_summary(args: list[str]) -> int:
+    """Print customer-readable outcome summary (W27 contract)."""
+    year_arg = next((a for a in args if a.isdigit()), None)
+    year = int(year_arg) if year_arg else 2024
+    no_prompt = "--no-prompt" in args
+
+    api = _import_api()
+    try:
+        s = api.build_customer_summary(year)
+    except ValueError as e:
+        _print(f"[red]{e}[/red]")
+        return 1
+
+    if no_prompt:
+        import dataclasses
+        print(json.dumps(dataclasses.asdict(s), indent=2, default=str))
+        return 0
+
+    # Human-readable output
+    pl = s.profit_or_loss
+    bs = s.balance_sheet_health
+    pte = s.pte_due_signal
+    gs = s.growth_signal
+
+    pl_color = "green" if pl["signal"] == "positive" else (
+        "red" if pl["signal"] == "negative" else "yellow"
+    )
+    _print(f"\n[bold cyan]Customer Outcome Summary — {s.fiscal_year}[/bold cyan]")
+    _print(f"  Period covered:       {s.period_covered}")
+    _print(f"  P/L status:           [{pl_color}]{pl['status'].upper()}[/{pl_color}]"
+           f"  (OBI: {float(pl['ordinary_business_income']):>+12,.2f})")
+    _print(f"  Growth signal:        {gs['status'].upper()} — {gs['note']}")
+    _print(f"\n[bold]Balance Sheet[/bold] ({bs['period']}):")
+    _print(f"  Total Assets:         {float(bs['total_assets']):>14,.2f}")
+    _print(f"  Total Liabilities:    {float(bs['total_liabilities']):>14,.2f}")
+    _print(f"  Total Equity:         {float(bs['total_equity']):>14,.2f}")
+    bs_color = "green" if bs["status"] == "healthy" else "yellow"
+    _print(f"  Health:               [{bs_color}]{bs['status'].upper()}[/{bs_color}]"
+           + (f" ({bs['skipped_accounts']} account(s) missing snapshots)"
+              if bs["skipped_accounts"] else ""))
+    _print(f"\n[bold]PTE / Tax:[/bold]")
+    pte_color = "yellow" if pte["status"] == "likely_due" else "green"
+    _print(f"  PTE status:           [{pte_color}]{pte['status'].upper()}[/{pte_color}]"
+           f"  (annual est: {float(pte['annual_estimate']):,.2f})")
+    if pte["status"] == "likely_due":
+        _print(f"  Next payment due:     {pte['next_due']}")
+    _print(f"\n[bold]Confidence:[/bold]")
+    for flag in s.confidence_flags:
+        flag_color = "red" if flag.startswith("NOT_") else "green"
+        _print(f"  [{flag_color}]{flag}[/{flag_color}]")
+    _print(f"\n[bold]Next actions:[/bold]")
+    for action in s.next_actions:
+        _print(f"  • {action}")
+    _print("")
+    return 0
+
+
 def cmd_reconcile(args: list[str]) -> int:
     """Run year-end reconciliation."""
     year_arg = next((a for a in args if a.isdigit()), None)
@@ -216,6 +273,7 @@ _COMMANDS: dict[str, tuple] = {
     "form1065":  (cmd_form1065,  "f1", "Show Form 1065 data"),
     "k1":        (cmd_k1,        "k",  "Show Schedule K-1"),
     "reconcile": (cmd_reconcile, "r",  "Run reconciliation"),
+    "summary":   (cmd_summary,   "su", "Customer outcome summary (W27)"),
 }
 
 
