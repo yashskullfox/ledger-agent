@@ -547,7 +547,6 @@ jobs:
 
           All four forms produce identical numbers for the ENTITY_A 2024 corpus.
 
-          🌀 Magic applied with [Wibey VS Code Extension](https://wibey.walmart.com/code) 🪄
           EOF
 
       - name: Create GitHub Release
