@@ -1,0 +1,38 @@
+name: Feature Request
+description: Suggest an improvement or new feature
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Privacy reminder**: Do not include real entity names, partner names,
+        account numbers, or financial figures in this form.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe your proposed approach
+    validations:
+      required: true
+  - type: dropdown
+    id: form
+    attributes:
+      label: Which form(s) does this affect?
+      multiple: true
+      options:
+        - "Form A — Python library"
+        - "Form B — CLI"
+        - "Form C — MCP server"
+        - "Form D — Spring Boot webapp"
+        - "All forms"
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

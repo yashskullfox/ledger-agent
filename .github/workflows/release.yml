@@ -192,8 +192,8 @@ jobs:
           python -m pytest tests/integration/test_mcp_privacy.py -q
           python -c "
           from ledger_agent.mcp.tools import TOOL_SCHEMAS
-          assert len(TOOL_SCHEMAS) == 6, f'Expected 6 tools, got {len(TOOL_SCHEMAS)}'
-          print('ARCH-06 PASS: 6 MCP tools registered')
+          assert len(TOOL_SCHEMAS) == 7, f'Expected 7 tools, got {len(TOOL_SCHEMAS)}'
+          print('ARCH-06 PASS: 7 MCP tools registered')
           "
 
       - name: Package MCP artifact

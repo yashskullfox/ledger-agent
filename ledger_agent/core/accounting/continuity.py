@@ -70,3 +70,64 @@ def list_discontinuities(
         if delta is not None and delta != Decimal("0"):
             results.append((pa, pb, delta))
     return results
+
+
+def materialise_prior_period_adjustments(
+        entity_id: str,
+        period_a: str,
+        period_b: str,
+        *,
+        dry_run: bool = False,
+) -> Optional[Decimal]:
+    """
+    If a carry-forward gap exists between period_a and period_b, create a
+    ``TransactionType.PRIOR_PERIOD_ADJUSTMENT`` transaction in the database
+    to reconcile it.
+
+    Args:
+        entity_id: The entity to check.
+        period_a: The earlier period (e.g. "2024-12").
+        period_b: The later period (e.g. "2025-01").
+        dry_run: If True, compute and return the delta but do NOT write to DB.
+
+    Returns:
+        The delta written (or that would be written), or None if no data.
+    """
+    from ledger_agent.core.database import AccountRepo, TransactionRepo
+    from ledger_agent.core.models import Transaction, TransactionType
+    from datetime import date as date_
+    import uuid
+
+    delta = check_period_continuity(entity_id, period_a, period_b)
+    if delta is None or delta == Decimal("0"):
+        return delta
+
+    if dry_run:
+        return delta
+
+    # Resolve the first account for this entity to attach the adjustment to
+    accounts = AccountRepo.list_for_entity(entity_id)
+    if not accounts:
+        return None
+    account_id = accounts[0].id
+
+    # Parse first day of period_b as the adjustment date
+    try:
+        year, month = (int(x) for x in period_b.split("-", 1))
+        adj_date = date_(year, month, 1)
+    except (ValueError, AttributeError):
+        return None
+
+    txn = Transaction(
+        id=str(uuid.uuid4()),
+        account_id=account_id,
+        date=adj_date,
+        description=f"Prior-period adjustment: {period_a} \u2192 {period_b}",
+        amount=abs(delta),
+        transaction_type=TransactionType.PRIOR_PERIOD_ADJUSTMENT,
+        statement_period=period_b,
+        is_transfer=False,
+        coa_code="9999",
+    )
+    TransactionRepo.bulk_insert([txn])
+    return delta

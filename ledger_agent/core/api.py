@@ -62,6 +62,9 @@ class Form1065:
     dividend_income: Decimal = Decimal("0")
     interest_income: Decimal = Decimal("0")
     partner_ids: List[str] = field(default_factory=list)
+    cost_of_goods_sold: Decimal = Decimal("0")
+    gross_profit: Decimal = Decimal("0")
+    investment_interest_expense: Decimal = Decimal("0")  # Schedule K line 13b
 
 
 @dataclass
@@ -128,8 +131,13 @@ def _entity_and_periods(fiscal_year: int):
 
 
 def _transactions_for_year(fiscal_year: int):
-    from ledger_agent.core.database import TransactionRepo, get_conn, init_db
+    """Return transactions for fiscal_year scoped to the active entity (ARCH-30)."""
+    from ledger_agent.core.database import AccountRepo, TransactionRepo, get_conn, init_db
     init_db()
+    entity, _ = _entity_and_periods(fiscal_year)
+    accounts = AccountRepo.list_for_entity(entity.id)
+    account_ids = {a.id for a in accounts}
+
     prefix = str(fiscal_year) + "-%"
     with get_conn() as conn:
         period_rows = conn.execute(
@@ -139,7 +147,9 @@ def _transactions_for_year(fiscal_year: int):
     periods = [r[0] for r in period_rows if r[0]]
     txns: list = []
     for period in periods:
-        txns.extend(TransactionRepo.list_for_period(period))
+        for txn in TransactionRepo.list_for_period(period):
+            if txn.account_id in account_ids:
+                txns.append(txn)
     return txns
 
 
@@ -294,6 +304,8 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
 
     income = Decimal("0")
     deductions = Decimal("0")
+    cogs = Decimal("0")
+    inv_interest = Decimal("0")
     net_stcg = Decimal("0")
     dividends = Decimal("0")
     interest = Decimal("0")
@@ -302,6 +314,9 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     STCG_LOSS = {"5070"}
     DIV_CODES = {"4021"}
     INT_CODES = {"4031"}
+    COGS_CODES = {"5061"}  # Office/Shipping treated as COGS (Form 1065 line 2)
+    SCHED_K_INTEREST = {"5030"}  # Margin interest → Schedule K line 13b (not a deduction)
+    EQUITY_DRAW_CODES = {"5050"}  # Federal tax payments → partner draws (3040), not deductions
 
     for t in txns:
         if t.is_transfer or not t.coa_code:
@@ -318,10 +333,24 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
             interest += amt
         elif code.startswith("4"):
             income += amt
+        elif code in COGS_CODES:
+            cogs += abs(amt)
+        elif code in SCHED_K_INTEREST:
+            inv_interest += abs(amt)
+        elif code in EQUITY_DRAW_CODES:
+            pass  # treated as equity draw, excluded from Form 1065 deductions
         elif code.startswith("5"):
             deductions += abs(amt)
 
-    ordinary = income - deductions
+    # W16: apply wash-sale disallowances if private CSV is present
+    from ledger_agent.core.accounting.wash_sale import total_disallowed
+    ws_adjustment = total_disallowed()
+    if ws_adjustment:
+        net_stcg += ws_adjustment
+        log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_adjustment)
+
+    gross_pft = income - cogs
+    ordinary = gross_pft - deductions
     net_ltcg = _compute_net_ltcg(txns)
 
     f = Form1065(
@@ -336,10 +365,13 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
         dividend_income=dividends,
         interest_income=interest,
         partner_ids=list(PARTNERS.keys()),
+        cost_of_goods_sold=cogs,
+        gross_profit=gross_pft,
+        investment_interest_expense=inv_interest,
     )
     log.info(
-        "Form1065 %d: income=%s deductions=%s ordinary=%s stcg=%s ltcg=%s",
-        fiscal_year, income, deductions, ordinary, net_stcg, net_ltcg,
+        "Form1065 %d: income=%s cogs=%s gross_pft=%s deductions=%s ordinary=%s stcg=%s ltcg=%s",
+        fiscal_year, income, cogs, gross_pft, deductions, ordinary, net_stcg, net_ltcg,
     )
     return f
 

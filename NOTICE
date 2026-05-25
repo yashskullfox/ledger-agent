@@ -1,0 +1,20 @@
+ledger-agent
+Copyright 2026 the ledger-agent contributors
+
+This software is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at:
+    https://www.apache.org/licenses/LICENSE-2.0
+
+This product includes software developed by the following third parties:
+  - pdfplumber (MIT License) — https://github.com/jsvine/pdfplumber
+  - pdfminer.six (MIT License) — https://github.com/pdfminer/pdfminer.six
+  - click (BSD-3-Clause) — https://palletsprojects.com/p/click/
+  - rich (MIT License) — https://github.com/Textualize/rich
+  - Spring Boot (Apache 2.0) — https://spring.io/projects/spring-boot
+  - Thymeleaf (Apache 2.0) — https://www.thymeleaf.org/
+
+See THIRD_PARTY_LICENSES.md for the complete list.
+
+WARNING: This software is NOT tax advice. Always consult a qualified CPA before
+filing Form 1065 or any other tax return. The authors assume no liability
+for tax calculations performed by this software.
