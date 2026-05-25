@@ -10,7 +10,7 @@ Accounting identity tested:
     TOTAL ASSETS        = gross securities holdings (sign: positive)
     TOTAL LIABILITIES   = |margin_balance|          (sign: positive)
     TOTAL EQUITY        = TOTAL ASSETS − TOTAL LIABILITIES
-    is_balanced: |((TOTAL_LIAB + TOTAL_EQUITY) − TOTAL_ASSETS)| < $0.02
+    is_balanced: |((TOTAL_LIAB + TOTAL_EQUITY) − TOTAL_ASSETS)| < 0.02 (USD)
 
 Test strategy
 -------------
@@ -66,7 +66,7 @@ def _brokerage_account(db, entity_id):
 
 
 def _brokerage_snapshot(db, account_id, period,
-                        gross="59500.00", margin="-24061.20"):
+                        gross="75000.00", margin="-25000.00"):
     """Insert an AccountSnapshot with gross_asset_value and margin_balance."""
     from ledger_agent.core.database import SnapshotRepo
     from ledger_agent.core.models import AccountSnapshot
@@ -90,23 +90,23 @@ class TestMarginLiabilityRecognised:
 
     def test_margin_appears_as_liability_not_asset_deduction(self, db):
         """
-        The gross securities value ($59,500) must equal TOTAL ASSETS.
-        The margin loan ($24,061.20) must appear under TOTAL LIABILITIES.
+        Gross securities value (75,000) must equal TOTAL ASSETS.
+        Margin loan (25,000) must appear under TOTAL LIABILITIES.
         TOTAL ASSETS must NOT be reduced by the margin.
         """
         entity = _entity(db)
         acct = _brokerage_account(db, entity.id)
         _brokerage_snapshot(db, acct.id, "2025-01",
-                            gross="59500.00", margin="-24061.20")
+                            gross="75000.00", margin="-25000.00")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
 
-        assert bs.total_assets == Decimal("59500.00"), (
-            f"TOTAL ASSETS must equal gross holdings $59,500.00, got {bs.total_assets}"
+        assert bs.total_assets == Decimal("75000.00"), (
+            f"TOTAL ASSETS must equal gross holdings 75000.00, got {bs.total_assets}"
         )
-        assert bs.total_liabilities == Decimal("24061.20"), (
-            f"TOTAL LIABILITIES must equal |margin| $24,061.20, got {bs.total_liabilities}"
+        assert bs.total_liabilities == Decimal("25000.00"), (
+            f"TOTAL LIABILITIES must equal |margin| 25000.00, got {bs.total_liabilities}"
         )
 
     def test_2010_line_present_with_correct_amount(self, db):
@@ -114,7 +114,7 @@ class TestMarginLiabilityRecognised:
         entity = _entity(db)
         acct = _brokerage_account(db, entity.id)
         _brokerage_snapshot(db, acct.id, "2025-01",
-                            gross="59500.00", margin="-24061.20")
+                            gross="75000.00", margin="-25000.00")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
@@ -123,19 +123,19 @@ class TestMarginLiabilityRecognised:
         assert len(margin_lines) == 1, (
             "Expected exactly one 2010 Margin Loan Payable line"
         )
-        assert margin_lines[0].amount == Decimal("24061.20"), (
-            f"2010 line amount must be |margin| $24,061.20, got {margin_lines[0].amount}"
+        assert margin_lines[0].amount == Decimal("25000.00"), (
+            f"2010 line amount must be |margin| 25000.00, got {margin_lines[0].amount}"
         )
 
     def test_balance_sheet_is_balanced_with_margin(self, db):
         """
-        TOTAL ASSETS == TOTAL LIABILITIES + TOTAL EQUITY must hold within $0.02.
+        TOTAL ASSETS == TOTAL LIABILITIES + TOTAL EQUITY must hold within 0.02 (USD).
         This proves the margin is not double-counted (not in assets AND liabilities).
         """
         entity = _entity(db)
         acct = _brokerage_account(db, entity.id)
         _brokerage_snapshot(db, acct.id, "2025-01",
-                            gross="59500.00", margin="-24061.20")
+                            gross="75000.00", margin="-25000.00")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
@@ -153,7 +153,7 @@ class TestMarginLiabilityRecognised:
         entity = _entity(db)
         acct = _brokerage_account(db, entity.id)
         _brokerage_snapshot(db, acct.id, "2025-01",
-                            gross="59500.00", margin="0.00")
+                            gross="75000.00", margin="0.00")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
@@ -193,16 +193,16 @@ class TestMarginCarryForward:
 
     def test_dec_closing_margin_equals_jan_opening(self, db):
         """
-        The 2024-12 closing margin ($24,061.20 debt) and the 2025-01
+        The 2024-12 closing margin (25,000 debt) and the 2025-01
         snapshot use the same margin_balance, so TOTAL LIABILITIES is
         identical in both periods.
         """
         entity = _entity(db)
         acct = _brokerage_account(db, entity.id)
         _brokerage_snapshot(db, acct.id, "2024-12",
-                            gross="59500.00", margin="-24061.20")
+                            gross="75000.00", margin="-25000.00")
         _brokerage_snapshot(db, acct.id, "2025-01",
-                            gross="62000.00", margin="-24061.20")
+                            gross="80000.00", margin="-25000.00")
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs_dec = BalanceSheetBuilder(entity.id, "2024-12").build()
@@ -222,9 +222,9 @@ class TestMarginCarryForward:
         entity = _entity(db)
         acct = _brokerage_account(db, entity.id)
         _brokerage_snapshot(db, acct.id, "2024-12",
-                            gross="59500.00", margin="-24061.20")
+                            gross="75000.00", margin="-25000.00")
         _brokerage_snapshot(db, acct.id, "2025-01",
-                            gross="62000.00", margin="-12000.00")  # partial paydown
+                            gross="80000.00", margin="-10000.00")  # partial paydown
 
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs_dec = BalanceSheetBuilder(entity.id, "2024-12").build()
@@ -233,6 +233,6 @@ class TestMarginCarryForward:
         assert bs_jan.total_liabilities < bs_dec.total_liabilities, (
             "Partial paydown of margin must reduce TOTAL LIABILITIES in the next period"
         )
-        assert bs_jan.total_liabilities == Decimal("12000.00"), (
-            f"Expected $12,000 liability after partial paydown, got {bs_jan.total_liabilities}"
+        assert bs_jan.total_liabilities == Decimal("10000.00"), (
+            f"Expected 10000 liability after partial paydown, got {bs_jan.total_liabilities}"
         )
