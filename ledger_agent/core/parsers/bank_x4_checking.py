@@ -68,7 +68,10 @@ class BankX4CheckingParser(BaseStatementParser):
         entity_name = self._extract_entity_name(lines)
         prev_bal, new_bal = self._extract_balances(full_text)
 
-        credits = self._parse_section(lines, year, period, is_debit=False)
+        credits = (
+            self._parse_section(lines, year, period, is_debit=False)
+            + self._parse_customer_deposits(lines, year, period)
+        )
         debits = self._parse_section(lines, year, period, is_debit=True)
 
         snapshot = AccountSnapshot(
@@ -149,6 +152,13 @@ class BankX4CheckingParser(BaseStatementParser):
         re.IGNORECASE,
     )
 
+    _CUST_DEP_RE = re.compile(
+        r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*(\d{1,2})"
+        r"\d{10}"                    # fixed 10-digit ref (USB ACH deposits)
+        r"([\d,]+\.\d{2})\s*$",     # amount, no dollar sign
+        re.IGNORECASE,
+    )
+
     def _parse_section(self, lines: List[str], year: int, period: str,
                        is_debit: bool) -> List[Transaction]:
         if is_debit:
@@ -189,6 +199,42 @@ class BankX4CheckingParser(BaseStatementParser):
                 is_transfer=(txn_type in (
                     TransactionType.TRANSFER_IN, TransactionType.TRANSFER_OUT,
                 )),
+            ))
+        return txns
+
+    def _parse_customer_deposits(self, lines: List[str], year: int,
+                                 period: str) -> List[Transaction]:
+        """Parse the 'Customer Deposits' section — ACH deposits without descriptions.
+
+        USB Business Checking statements use this section for direct ACH deposits.
+        The line format is: MmmDD<10-digit-ref><amount> (no $ sign, no description).
+        """
+        section = _slice_section(lines, r"^Customer Deposits\s*$",
+                                 r"^Total Customer Deposits")
+        txns: List[Transaction] = []
+        for line in section:
+            m = self._CUST_DEP_RE.match(line)
+            if not m:
+                continue
+            month_int = _MONTH_MAP.get(m.group(1).lower()[:3], 1)
+            day = int(m.group(2))
+            amt_str = m.group(3)
+            try:
+                txn_date = date(year, month_int, day)
+            except ValueError:
+                continue
+            amt = self.parse_amount(amt_str)
+            if amt is None:
+                continue
+            txns.append(Transaction(
+                account_id="",
+                date=txn_date,
+                description="Customer Deposit",
+                raw_description=line.strip(),
+                amount=abs(amt),
+                transaction_type=TransactionType.CREDIT,
+                statement_period=period,
+                is_transfer=False,
             ))
         return txns
 

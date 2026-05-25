@@ -41,6 +41,39 @@
       margin-bottom: 1.5rem;
     }
     .card h2 { margin-top: 0; font-size: 1rem; color: #1a1f36; }
+
+    /* Summary cards (W29) */
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .summary-card {
+      background: #fff; border-radius: 12px; padding: 1.25rem 1.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    }
+    .summary-card .label { font-size: .75rem; color: #888; text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: .3rem; }
+    .summary-card .value { font-size: 1.25rem; font-weight: 700; color: #1a1f36; }
+    .summary-card .sub   { font-size: .8rem; color: #555; margin-top: .2rem; }
+    .pill {
+      display: inline-block; border-radius: 999px; padding: .2rem .75rem;
+      font-size: .78rem; font-weight: 600; margin: .15rem .1rem;
+    }
+    .pill.green  { background: #d3f9d8; color: #1c7c2b; }
+    .pill.red    { background: #ffe3e3; color: #c92a2a; }
+    .pill.yellow { background: #fff9db; color: #7c5a00; }
+    .pill.blue   { background: #e7f5ff; color: #1864ab; }
+    .flags-card { background: #fff; border-radius: 12px; padding: 1.25rem 1.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.07); margin-bottom: 1.5rem; }
+    .flags-card h3 { margin: 0 0 .75rem; font-size: .9rem; color: #1a1f36; }
+    .actions-list { list-style: none; padding: 0; margin: 0; }
+    .actions-list li { padding: .35rem 0; font-size: .88rem; color: #333; }
+    .actions-list li::before { content: "→ "; color: #4c6ef5; font-weight: 700; }
+
+    details summary { cursor: pointer; font-weight: 600; font-size: .88rem;
+      color: #495057; padding: .5rem 0; }
+    details[open] summary { color: #1a1f36; }
+
     pre {
       background: #f1f3f5; border-radius: 8px; padding: 1rem;
       overflow: auto; font-size: .85rem; line-height: 1.6;
@@ -95,10 +128,68 @@
   <!-- Error detail -->
   <div th:unless="${success}" class="error-detail" th:text="${errorMessage}"></div>
 
-  <!-- JSON result -->
+  <!-- Customer summary cards (W29) — shown when report=customer_summary -->
+  <div th:if="${success and summary != null}">
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="label">Profit / Loss</div>
+        <div class="value"
+             th:classappend="${summary.profit_or_loss.signal == 'positive'} ? 'green' : (${summary.profit_or_loss.signal == 'negative'} ? 'red' : 'yellow')"
+             th:style="${summary.profit_or_loss.signal == 'positive'} ? 'color:#1c7c2b' : (${summary.profit_or_loss.signal == 'negative'} ? 'color:#c92a2a' : 'color:#7c5a00')"
+             th:text="${#strings.toUpperCase(summary.profit_or_loss.status)}">—</div>
+        <div class="sub" th:text="'OBI: ' + summary.profit_or_loss.ordinary_business_income">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Growth Signal</div>
+        <div class="value" th:text="${#strings.toUpperCase(summary.growth_signal.status)}">—</div>
+        <div class="sub" th:text="${summary.growth_signal.note}">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Balance Sheet Health</div>
+        <div class="value"
+             th:style="${summary.balance_sheet_health.status == 'healthy'} ? 'color:#1c7c2b' : 'color:#7c5a00'"
+             th:text="${#strings.toUpperCase(summary.balance_sheet_health.status)}">—</div>
+        <div class="sub">
+          Assets: <span th:text="${summary.balance_sheet_health.total_assets}">—</span>
+          &nbsp;|&nbsp;Equity: <span th:text="${summary.balance_sheet_health.total_equity}">—</span>
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="label">PTE Due</div>
+        <div class="value"
+             th:style="${summary.pte_due_signal.status == 'likely_due'} ? 'color:#7c5a00' : 'color:#1c7c2b'"
+             th:text="${#strings.toUpperCase(#strings.replace(summary.pte_due_signal.status,'_',' '))}">—</div>
+        <div class="sub">
+          Est: <span th:text="${summary.pte_due_signal.annual_estimate}">—</span>
+          &nbsp;|&nbsp;Due: <span th:text="${summary.pte_due_signal.next_due}">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confidence flags -->
+    <div class="flags-card">
+      <h3>Confidence flags</h3>
+      <span th:each="flag : ${summary.confidence_flags}"
+            th:text="${flag}"
+            th:classappend="${#strings.startsWith(flag,'NOT_')} ? 'red' : 'green'"
+            class="pill">flag</span>
+    </div>
+
+    <!-- Next actions -->
+    <div class="flags-card">
+      <h3>Next actions</h3>
+      <ul class="actions-list">
+        <li th:each="action : ${summary.next_actions}" th:text="${action}">action</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Raw JSON result (collapsed when summary cards shown) -->
   <div th:if="${success and resultJson != null}" class="card">
-    <h2>Raw Result (JSON)</h2>
-    <pre th:text="${resultJson}"></pre>
+    <details th:open="${summary == null}">
+      <summary>Raw Result (JSON)</summary>
+      <pre th:text="${resultJson}"></pre>
+    </details>
   </div>
 
   <a class="back-btn" href="/">← Run another report</a>
