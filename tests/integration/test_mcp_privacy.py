@@ -147,17 +147,17 @@ class TestRedactResponse:
 
 class TestMcpDispatchPrivacy:
 
-    def test_tools_list_has_six_tools(self):
-        """tools/list must return exactly 6 tool definitions (ARCH-06 accept)."""
+    def test_tools_list_has_seven_tools(self):
+        """tools/list must return exactly 7 tool definitions (6 core + customer_summary W30)."""
         from ledger_agent.mcp.server import _dispatch
         msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
         response = _dispatch(msg)
         assert response is not None
         tools = response["result"]["tools"]
-        assert len(tools) == 6
+        assert len(tools) == 7
 
     def test_tools_list_names(self):
-        """All six canonical tool names must be present."""
+        """All canonical tool names must be present (6 core + customer_summary W30)."""
         from ledger_agent.mcp.server import _dispatch
         msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
         response = _dispatch(msg)
@@ -169,6 +169,7 @@ class TestMcpDispatchPrivacy:
             "generate_k1",
             "pte_estimate",
             "reconcile_year",
+            "customer_summary",
         }
         assert names == expected
 

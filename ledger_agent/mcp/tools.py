@@ -165,6 +165,27 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "customer_summary",
+        "description": (
+            "Return a concise customer-readable outcome summary for the fiscal year. "
+            "Includes profit/loss status, balance-sheet health, PTE due signal, "
+            "confidence flags, and next actions. "
+            "Follows the W27 CustomerSummary contract (docs/customer-summary-contract.md). "
+            "Always check confidence_flags — any NOT_CLOSE_READY_* flag means the answer "
+            "is directional only, not CPA-ready."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "fiscal_year": {
+                    "type": "integer",
+                    "description": "Four-digit fiscal year (e.g. 2026).",
+                },
+            },
+            "required": ["fiscal_year"],
+        },
+    },
+    {
         "name": "reconcile_year",
         "description": (
             "Run inter-account transfer reconciliation for the fiscal year. "
@@ -215,6 +236,11 @@ def call_tool(name: str, arguments: dict, *, allow_pii: bool = False) -> str:
         year = int(arguments["fiscal_year"])
         est = api.pte_estimate(year)
         return _ok(est, allow_pii=allow_pii)
+
+    if name == "customer_summary":
+        year = int(arguments["fiscal_year"])
+        summary = api.build_customer_summary(year)
+        return _ok(summary, allow_pii=allow_pii)
 
     if name == "reconcile_year":
         year = int(arguments["fiscal_year"])

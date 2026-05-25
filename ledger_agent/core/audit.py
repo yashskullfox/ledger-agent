@@ -115,13 +115,14 @@ def _ensure_initialised() -> None:
         # on normal process exit, not just when callers remember to call it.
         import atexit as _atexit
         _atexit.register(shutdown_audit)
-        # First-line marker proves the file came from a clean boot.
-        _write_raw({
-            "event": "audit.session.start",
-            "run_id": _run_id,
-            "retention_days": _RETENTION_DAYS,
-            "audit_dir": str(_AUDIT_DIR),
-        })
+    # First-line marker written OUTSIDE _lock to avoid re-entrant deadlock:
+    # _write_raw() also acquires _lock; threading.Lock is not reentrant.
+    _write_raw({
+        "event": "audit.session.start",
+        "run_id": _run_id,
+        "retention_days": _RETENTION_DAYS,
+        "audit_dir": str(_AUDIT_DIR),
+    })
 
 
 def _write_raw(obj: Dict[str, Any]) -> None:
