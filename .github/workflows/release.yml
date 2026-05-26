@@ -42,7 +42,7 @@ jobs:
       version: ${{ steps.semver.outputs.version }}
       epoch: ${{ steps.epoch.outputs.epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0          # full history for semver calculation
 
@@ -65,9 +65,9 @@ jobs:
       VERSION: ${{ needs.compute-version.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -124,9 +124,9 @@ jobs:
       VERSION: ${{ needs.compute-version.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -176,9 +176,9 @@ jobs:
       VERSION: ${{ needs.compute-version.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -231,9 +231,9 @@ jobs:
       VERSION: ${{ needs.compute-version.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JDK_DISTRO }}
           java-version: ${{ env.JDK_VERSION }}
@@ -285,9 +285,9 @@ jobs:
       VERSION: ${{ needs.compute-version.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JDK_DISTRO }}
           java-version: ${{ env.JDK_VERSION }}
@@ -329,9 +329,9 @@ jobs:
       VERSION: ${{ needs.compute-version.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.compute-version.outputs.epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JDK_DISTRO }}
           java-version: ${{ env.JDK_VERSION }}
@@ -378,9 +378,9 @@ jobs:
     needs: [build-core, build-cli, build-mcp]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -463,9 +463,9 @@ jobs:
     needs: [build-core, build-cli, build-mcp]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -498,12 +498,12 @@ jobs:
       VERSION: ${{ needs.compute-version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
