@@ -31,25 +31,23 @@ from ledger_agent.core.intelligence.memory import get_memory
 
 log = get_logger(__name__)
 
-# Sentinel for "user skipped classification"
 UNCLASSIFIED_CODE = "9999"
 UNCLASSIFIED_NAME = "Unclassified – Review Required"
 
-# R-66 / ARCH-27: classifier version stamped on every classification write.
-# Increment when the keyword list, AI backend, or memory logic changes in a
-# way that could produce different COA codes for the same description.
-CLASSIFIER_VERSION = "1.0"
+CLASSIFIER_VERSION = "1.1"
 
 
 def _keyword_match(description: str,
-                   coa_entries: List[COAEntry]) -> Optional[COAEntry]:
-    """
-    Return the single best COA entry whose keywords appear in `description`.
-    If multiple entries match, return None (ambiguous → prompt user).
-    """
+                   coa_entries: List[COAEntry],
+                   amount: float = 0.0) -> Optional[COAEntry]:
     desc_up = description.upper()
     matches = []
     for entry in coa_entries:
+        # Sign guard: debits cannot be revenue; credits cannot be expenses
+        if amount < 0 and entry.coa_type == "revenue":
+            continue
+        if amount > 0 and entry.coa_type == "expense":
+            continue
         for kw in entry.keywords:
             if kw.upper() in desc_up:
                 matches.append(entry)
@@ -64,17 +62,32 @@ def classify_transaction(
         coa_entries: List[COAEntry],
         prompt_fn: Optional[Callable[[Transaction, List[COAEntry]], Optional[Tuple[str, str, bool]]]] = None,
 ) -> Transaction:
-    """
-    Classify a single transaction in-place (mutates coa_code / coa_name).
-    Returns the (possibly updated) transaction.
-    """
-    # 1. Already classified by parser
     if txn.coa_code and txn.coa_code != UNCLASSIFIED_CODE:
         return txn
 
     memory = get_memory()
 
-    # 2. Memory lookup
+    desc_up = txn.description.upper()
+    amt = float(txn.amount)
+
+    if "PAYROLL" in desc_up and amt < 0:
+        if "TAX" in desc_up:
+            txn.coa_code, txn.coa_name = "5040", "Payroll Tax Expense"
+        else:
+            txn.coa_code, txn.coa_name = "5021", "Payroll & Wages"
+        memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
+        return txn
+
+    if "USPSPO" in desc_up and amt < -500:
+        txn.coa_code, txn.coa_name = "3040", "Members Distributions / Owner Draws"
+        memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
+        return txn
+
+    if "USATAXPYMT" in desc_up and amt < 0:
+        txn.coa_code, txn.coa_name = "5040", "Payroll Tax Expense"
+        memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
+        return txn
+
     result = memory.lookup(txn.description)
     if result:
         code, name, is_xfer, score = result
@@ -83,9 +96,7 @@ def classify_transaction(
             txn.coa_name = name
             txn.is_transfer = is_xfer
             return txn
-        # Medium confidence: note it but still check keyword scan
 
-    # 3. AI backend suggestion
     try:
         from ledger_agent.core.intelligence.ai_backend import get_backend
         backend = get_backend()
@@ -114,15 +125,13 @@ def classify_transaction(
     except Exception as exc:
         log.debug("AI backend skipped", extra={"error": str(exc)})
 
-    # 4. COA keyword scan
-    kw_match = _keyword_match(txn.description, coa_entries)
+    kw_match = _keyword_match(txn.description, coa_entries, amt)
     if kw_match:
         txn.coa_code = kw_match.code
         txn.coa_name = kw_match.name
         memory.remember(txn.description, kw_match.code, kw_match.name)
         return txn
 
-    # 5. Interactive prompt
     if prompt_fn:
         user_result = prompt_fn(txn, coa_entries)
         if user_result:
@@ -131,7 +140,6 @@ def classify_transaction(
             txn.coa_name = name
             txn.is_transfer = is_xfer
             memory.remember(txn.description, code, name, is_xfer)
-            # Signal the AI backend to learn from this confirmation
             try:
                 from ledger_agent.core.intelligence.ai_backend import get_backend
                 get_backend().on_user_confirmed(txn.description, code, name, is_xfer)
@@ -139,7 +147,6 @@ def classify_transaction(
                 pass
             return txn
 
-    # 6. Fallback: unclassified
     txn.coa_code = UNCLASSIFIED_CODE
     txn.coa_name = UNCLASSIFIED_NAME
     return txn
@@ -150,13 +157,6 @@ def classify_batch(
         prompt_fn: Optional[Callable] = None,
         confidence: float = 0.0,
 ) -> Tuple[List[Transaction], int, int]:
-    """
-    Classify a list of transactions.
-
-    Returns:
-        (classified_txns, auto_count, prompted_count)
-    """
-    # R-66 / ARCH-27: audit helper
     try:
         from ledger_agent.core.audit import audit as _audit
     except Exception:
@@ -208,20 +208,11 @@ def classify_batch(
 
 
 def coa_choices_for_prompt(coa_entries: List[COAEntry]) -> List[Tuple[str, str]]:
-    """
-    Return a list of (display_label, code) for presenting to the user.
-    Leaf entries only (those with a parent_code) – easier to navigate.
-    """
     leaves = [e for e in coa_entries if e.parent_code is not None]
     return [(f"{e.code}  {e.name}", e.code) for e in leaves]
 
 
 def suggest_classification(description: str, amount: float = 0.0) -> dict:
-    """
-    Return a classification suggestion dict for a single description string.
-    Used by the MCP server and any non-interactive caller that needs a COA suggestion.
-    Returns {"coa_code": str, "coa_name": str, "confidence": float, "source": str}
-    """
     memory = get_memory()
     result = memory.lookup(description)
     if result:
@@ -246,7 +237,7 @@ def suggest_classification(description: str, amount: float = 0.0) -> dict:
     except Exception:
         pass
     coa_entries = COARepo.list_all()
-    kw_match = _keyword_match(description, coa_entries)
+    kw_match = _keyword_match(description, coa_entries, amount)
     if kw_match:
         return {
             "coa_code": kw_match.code,
@@ -263,9 +254,6 @@ def suggest_classification(description: str, amount: float = 0.0) -> dict:
 
 
 def summarise_classifications(transactions: List[Transaction]) -> dict:
-    """
-    Return {coa_code: {"name": ..., "total": Decimal, "count": int}}
-    """
     summary: dict = {}
     for t in transactions:
         code = t.coa_code or UNCLASSIFIED_CODE

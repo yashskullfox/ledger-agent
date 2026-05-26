@@ -334,13 +334,13 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
         elif code.startswith("4"):
             income += amt
         elif code in COGS_CODES:
-            cogs += abs(amt)
+            cogs -= amt  # amt is negative for expenses; refunds (positive) reduce COGS
         elif code in SCHED_K_INTEREST:
-            inv_interest += abs(amt)
+            inv_interest -= amt
         elif code in EQUITY_DRAW_CODES:
             pass  # treated as equity draw, excluded from Form 1065 deductions
         elif code.startswith("5"):
-            deductions += abs(amt)
+            deductions -= amt  # expenses are negative; refunds (positive) reduce deductions
 
     # W16: apply wash-sale disallowances if private CSV is present
     from ledger_agent.core.accounting.wash_sale import total_disallowed
@@ -446,6 +446,17 @@ class CustomerSummary:
     tax_due_signal: Dict
     confidence_flags: List[str]
     next_actions: List[str]
+
+
+def _wash_sale_csv_present() -> bool:
+    """Return True if a wash-sale adjustment CSV is reachable (env-var or default path)."""
+    import os
+    from pathlib import Path
+    env_path = os.environ.get("FI_WASH_SALE_CSV", "").strip()
+    if env_path and Path(env_path).exists():
+        return True
+    default = Path(__file__).resolve().parents[2] / "private" / "wash_sale_adjustments.csv"
+    return default.exists()
 
 
 def _best_snapshot_period(fiscal_year: int) -> Optional[str]:
@@ -561,9 +572,14 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
     # W15: COGS structural gap — always warn if there are deductions
     if f1065.total_deductions > 0:
         flags.append("NOT_CLOSE_READY_W15")
-    # W16: wash-sale — warn if there are capital gains/losses
+    # W16: wash-sale — warn if there are capital gains/losses.
+    # Also flag when the wash-sale CSV is absent and gains/losses are non-zero
+    # (mid-year runs without a 1099-B cannot apply wash-sale adjustments).
+    _wash_csv_present = _wash_sale_csv_present()
     if f1065.net_short_term_capital_gain != 0 or f1065.net_long_term_capital_gain != 0:
         flags.append("NOT_CLOSE_READY_W16")
+        if not _wash_csv_present:
+            flags.append("wash_sale_not_applied")
     # W17: snapshot completeness — warn if any accounts skipped
     if skipped:
         flags.append("NOT_CLOSE_READY_W17")
@@ -579,9 +595,16 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
             "Resolve W15: COGS structural gap in generate_form_1065 before CPA submission"
         )
     if "NOT_CLOSE_READY_W16" in flags:
-        next_actions.append(
-            "Resolve W16: provide private/wash_sale_adjustments.csv to adjust capital gains"
-        )
+        if "wash_sale_not_applied" in flags:
+            next_actions.append(
+                "Resolve W16: wash-sale CSV absent — capital gain/loss figures are estimates "
+                "only (mid-year runs without a 1099-B cannot apply wash-sale adjustments). "
+                "Provide private/wash_sale_adjustments.csv before CPA submission."
+            )
+        else:
+            next_actions.append(
+                "Resolve W16: provide private/wash_sale_adjustments.csv to adjust capital gains"
+            )
     if "NOT_CLOSE_READY_W17" in flags:
         next_actions.append(
             f"Resolve W17: {len(skipped)} account(s) missing snapshots — "
