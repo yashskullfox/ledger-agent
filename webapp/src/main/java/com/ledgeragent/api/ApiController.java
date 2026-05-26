@@ -8,6 +8,7 @@ import com.ledgeragent.service.RunService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -49,7 +50,7 @@ public class ApiController {
     }
 
     @PostMapping("/run")
-    public ResponseEntity<JsonNode> run(@RequestBody RunRequest req) throws BridgeException {
+    public ResponseEntity<String> run(@RequestBody RunRequest req) throws BridgeException {
         if (!bridge.ping()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .build();
@@ -62,7 +63,11 @@ public class ApiController {
                 req.folder(),
                 req.effectiveAllowPii());
 
-        return ResponseEntity.ok(result);
+        // Keep the bridge payload byte-for-byte JSON, independent of Jackson bean serialization behavior.
+        return ResponseEntity
+                .ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(result.toString());
     }
 
     @GetMapping("/healthz")
