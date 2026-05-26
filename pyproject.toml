@@ -36,7 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 openai = [
-    "openai>=1.30.0",
+    "openai>=1.109.1",
     "tenacity>=8.3.0",
 ]
 gemini = [
@@ -44,7 +44,7 @@ gemini = [
     "tenacity>=8.3.0",
 ]
 ai = [
-    "openai>=1.30.0",
+    "openai>=1.109.1",
     "google-generativeai>=0.7.0",
     "tenacity>=8.3.0",
 ]
@@ -60,7 +60,7 @@ dev = [
     "python-dotenv>=1.0.0",
 ]
 all = [
-    "openai>=1.30.0",
+    "openai>=1.109.1",
     "google-generativeai>=0.7.0",
     "tenacity>=8.3.0",
     "python-dotenv>=1.0.0",
