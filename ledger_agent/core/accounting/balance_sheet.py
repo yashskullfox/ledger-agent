@@ -295,9 +295,12 @@ class BalanceSheetBuilder:
         exp_total = Decimal("0")
 
         # Revenue / Expense from classified transactions — aggregate across all pl_periods
+        account_ids = {a.id for a in accounts}
         _pl_txns: list = []
         for _p in self.pl_periods:
-            _pl_txns.extend(TransactionRepo.list_for_period(_p))
+            for _txn in TransactionRepo.list_for_period(_p):
+                if _txn.account_id in account_ids:
+                    _pl_txns.append(_txn)
         rev_by_code: Dict[str, Decimal] = defaultdict(Decimal)
         exp_by_code: Dict[str, Decimal] = defaultdict(Decimal)
 

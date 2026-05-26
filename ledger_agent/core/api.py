@@ -118,14 +118,37 @@ def _entity_and_periods(fiscal_year: int):
     entities = EntityRepo.list_all()
     if not entities:
         raise ValueError("No entities found in database — run import_statements() first.")
-    entity = entities[0]
+
     prefix = str(fiscal_year) + "-%"
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT statement_period FROM transactions "
-            "WHERE statement_period LIKE ? ORDER BY statement_period",
+        # Pick the entity that actually has data for this fiscal year.
+        # If multiple entities do, prefer the one with the highest txn count.
+        row = conn.execute(
+            "SELECT a.entity_id, COUNT(*) AS n "
+            "FROM transactions t "
+            "JOIN accounts a ON a.id = t.account_id "
+            "WHERE t.statement_period LIKE ? "
+            "GROUP BY a.entity_id "
+            "ORDER BY n DESC, a.entity_id ASC "
+            "LIMIT 1",
             (prefix,),
+        ).fetchone()
+
+        if row:
+            target_entity_id = row[0]
+            entity = next((e for e in entities if e.id == target_entity_id), entities[0])
+        else:
+            entity = entities[0]
+
+        rows = conn.execute(
+            "SELECT DISTINCT t.statement_period "
+            "FROM transactions t "
+            "JOIN accounts a ON a.id = t.account_id "
+            "WHERE a.entity_id = ? AND t.statement_period LIKE ? "
+            "ORDER BY t.statement_period",
+            (entity.id, prefix),
         ).fetchall()
+
     periods = [r[0] for r in rows if r[0]]
     return entity, periods
 
@@ -271,6 +294,7 @@ def import_statements(
 
 def generate_balance_sheet(fiscal_year: int):
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.exceptions import AggregationGap
     from ledger_agent.core.database import init_db
 
     init_db()
@@ -279,7 +303,16 @@ def generate_balance_sheet(fiscal_year: int):
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
 
     last_period = periods[-1]
-    return BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
+    bs = BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
+    skipped = bs.coverage.get("skipped_snapshots", [])
+    if skipped:
+        first = skipped[0]
+        raise AggregationGap(
+            last_period,
+            first.get("account_id", "unknown"),
+            first.get("reason", "account snapshot missing"),
+        )
+    return bs
 
 
 def _compute_net_ltcg(txns) -> Decimal:
