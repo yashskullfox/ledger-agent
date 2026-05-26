@@ -1,0 +1,46 @@
+name: pip-audit (Dependency Vulnerability Scan)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'requirements*.txt'
+      - 'requirements.lock'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'requirements*.txt'
+      - 'requirements.lock'
+  schedule:
+    - cron: '0 6 * * 1'   # weekly on Monday
+
+jobs:
+  pip-audit:
+    name: Audit dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit on requirements.txt
+        run: pip-audit -r requirements.txt --no-deps
+
+      - name: Run pip-audit on requirements-dev.txt
+        run: pip-audit -r requirements-dev.txt --no-deps
+
+      - name: Run pip-audit on lockfile (advisory only)
+        run: |
+          # Parse lockfile to plain requirements for audit
+          grep -v '^#' requirements.lock | grep -v '^--' | grep -v '^\s*$' \
+            | sed 's/ \\//' | sed 's/\s*--hash=.*//' > lock_pkgs_audit.txt
+          pip-audit -r lock_pkgs_audit.txt --no-deps || echo "::warning::Lock file advisory found — check output above"
+          rm -f lock_pkgs_audit.txt
+        continue-on-error: true

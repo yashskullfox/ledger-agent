@@ -243,9 +243,9 @@ class TestForm1065Parity:
 
     @pytest.mark.xfail(
         reason=(
-            "W9 — OBI cascades from total_deductions divergence (~2549 over). "
-            "Engine lacks COGS separation and includes 5030/5050 in deductions. "
-            "See docs/w9-deductions-diagnostic.md"
+                "W9/W17 — Structural COGS fix applied (W15). Residual OBI divergence (~2080) "
+                "due to missing payroll/salary transactions in 2024 DB — W17 data-completeness "
+                "fix required. See docs/w9-deductions-diagnostic.md"
         ),
         strict=False,
     )
@@ -262,11 +262,9 @@ class TestForm1065Parity:
 
     @pytest.mark.xfail(
         reason=(
-            "W9 — Engine total_deductions over CPA ref by ~2549. "
-            "Engine lacks COGS separation (Form 1065 line 2) and includes "
-            "Schedule-K-only items (5030 margin interest, 5050 federal tax) "
-            "in operating deductions. Structural api.py fix required. "
-            "See docs/w9-deductions-diagnostic.md"
+                "W9/W17 — Structural COGS fix applied (W15): 5061→COGS, 5030→ScheduleK, 5050→equity. "
+                "Residual divergence (~2100) due to missing 2024 payroll transactions — "
+                "W17 data-completeness fix required. See docs/w9-deductions-diagnostic.md"
         ),
         strict=False,
     )
@@ -278,11 +276,10 @@ class TestForm1065Parity:
 
     @pytest.mark.xfail(
         reason=(
-            "W9 — Engine net_stcg under CPA ref by ~2342. "
-            "Pattern consistent with wash-sale disallowances: CPA 1099-B "
-            "adjusts broker-reported losses (5070) that engine sums raw. "
-            "Not fixable without private 1099-B data. "
-            "See docs/w9-deductions-diagnostic.md"
+                "W16 — Wash-sale framework implemented. Adjustment loaded from "
+                "private/wash_sale_adjustments.csv (gitignored). Place CSV with 1099-B "
+                "disallowances to make this test pass locally. Xfail in public CI (no private CSV). "
+                "See docs/wash-sale.md"
         ),
         strict=False,
     )
@@ -313,9 +310,8 @@ class TestScheduleK1Parity:
 
     @pytest.mark.xfail(
         reason=(
-            "W9 — Cascades from ordinary_business_income divergence. "
-            "partner_1 gets 100% of OBI; OBI is wrong until W9 structural "
-            "fix lands. See docs/w9-deductions-diagnostic.md"
+                "W9/W17 — Cascades from ordinary_business_income. COGS structural fix (W15) applied; "
+                "residual gap from missing 2024 payroll data (W17). See docs/w9-deductions-diagnostic.md"
         ),
         strict=False,
     )

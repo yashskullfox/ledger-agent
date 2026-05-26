@@ -62,6 +62,9 @@ class Form1065:
     dividend_income: Decimal = Decimal("0")
     interest_income: Decimal = Decimal("0")
     partner_ids: List[str] = field(default_factory=list)
+    cost_of_goods_sold: Decimal = Decimal("0")
+    gross_profit: Decimal = Decimal("0")
+    investment_interest_expense: Decimal = Decimal("0")  # Schedule K line 13b
 
 
 @dataclass
@@ -115,21 +118,49 @@ def _entity_and_periods(fiscal_year: int):
     entities = EntityRepo.list_all()
     if not entities:
         raise ValueError("No entities found in database — run import_statements() first.")
-    entity = entities[0]
+
     prefix = str(fiscal_year) + "-%"
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT statement_period FROM transactions "
-            "WHERE statement_period LIKE ? ORDER BY statement_period",
+        # Pick the entity that actually has data for this fiscal year.
+        # If multiple entities do, prefer the one with the highest txn count.
+        row = conn.execute(
+            "SELECT a.entity_id, COUNT(*) AS n "
+            "FROM transactions t "
+            "JOIN accounts a ON a.id = t.account_id "
+            "WHERE t.statement_period LIKE ? "
+            "GROUP BY a.entity_id "
+            "ORDER BY n DESC, a.entity_id ASC "
+            "LIMIT 1",
             (prefix,),
+        ).fetchone()
+
+        if row:
+            target_entity_id = row[0]
+            entity = next((e for e in entities if e.id == target_entity_id), entities[0])
+        else:
+            entity = entities[0]
+
+        rows = conn.execute(
+            "SELECT DISTINCT t.statement_period "
+            "FROM transactions t "
+            "JOIN accounts a ON a.id = t.account_id "
+            "WHERE a.entity_id = ? AND t.statement_period LIKE ? "
+            "ORDER BY t.statement_period",
+            (entity.id, prefix),
         ).fetchall()
+
     periods = [r[0] for r in rows if r[0]]
     return entity, periods
 
 
 def _transactions_for_year(fiscal_year: int):
-    from ledger_agent.core.database import TransactionRepo, get_conn, init_db
+    """Return transactions for fiscal_year scoped to the active entity (ARCH-30)."""
+    from ledger_agent.core.database import AccountRepo, TransactionRepo, get_conn, init_db
     init_db()
+    entity, _ = _entity_and_periods(fiscal_year)
+    accounts = AccountRepo.list_for_entity(entity.id)
+    account_ids = {a.id for a in accounts}
+
     prefix = str(fiscal_year) + "-%"
     with get_conn() as conn:
         period_rows = conn.execute(
@@ -139,7 +170,9 @@ def _transactions_for_year(fiscal_year: int):
     periods = [r[0] for r in period_rows if r[0]]
     txns: list = []
     for period in periods:
-        txns.extend(TransactionRepo.list_for_period(period))
+        for txn in TransactionRepo.list_for_period(period):
+            if txn.account_id in account_ids:
+                txns.append(txn)
     return txns
 
 
@@ -261,6 +294,7 @@ def import_statements(
 
 def generate_balance_sheet(fiscal_year: int):
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.exceptions import AggregationGap
     from ledger_agent.core.database import init_db
 
     init_db()
@@ -269,7 +303,16 @@ def generate_balance_sheet(fiscal_year: int):
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
 
     last_period = periods[-1]
-    return BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
+    bs = BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
+    skipped = bs.coverage.get("skipped_snapshots", [])
+    if skipped:
+        first = skipped[0]
+        raise AggregationGap(
+            last_period,
+            first.get("account_id", "unknown"),
+            first.get("reason", "account snapshot missing"),
+        )
+    return bs
 
 
 def _compute_net_ltcg(txns) -> Decimal:
@@ -294,6 +337,8 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
 
     income = Decimal("0")
     deductions = Decimal("0")
+    cogs = Decimal("0")
+    inv_interest = Decimal("0")
     net_stcg = Decimal("0")
     dividends = Decimal("0")
     interest = Decimal("0")
@@ -302,6 +347,9 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     STCG_LOSS = {"5070"}
     DIV_CODES = {"4021"}
     INT_CODES = {"4031"}
+    COGS_CODES = {"5061"}  # Office/Shipping treated as COGS (Form 1065 line 2)
+    SCHED_K_INTEREST = {"5030"}  # Margin interest → Schedule K line 13b (not a deduction)
+    EQUITY_DRAW_CODES = {"5050"}  # Federal tax payments → partner draws (3040), not deductions
 
     for t in txns:
         if t.is_transfer or not t.coa_code:
@@ -318,10 +366,24 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
             interest += amt
         elif code.startswith("4"):
             income += amt
+        elif code in COGS_CODES:
+            cogs -= amt  # amt is negative for expenses; refunds (positive) reduce COGS
+        elif code in SCHED_K_INTEREST:
+            inv_interest -= amt
+        elif code in EQUITY_DRAW_CODES:
+            pass  # treated as equity draw, excluded from Form 1065 deductions
         elif code.startswith("5"):
-            deductions += abs(amt)
+            deductions -= amt  # expenses are negative; refunds (positive) reduce deductions
 
-    ordinary = income - deductions
+    # W16: apply wash-sale disallowances if private CSV is present
+    from ledger_agent.core.accounting.wash_sale import total_disallowed
+    ws_adjustment = total_disallowed()
+    if ws_adjustment:
+        net_stcg += ws_adjustment
+        log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_adjustment)
+
+    gross_pft = income - cogs
+    ordinary = gross_pft - deductions
     net_ltcg = _compute_net_ltcg(txns)
 
     f = Form1065(
@@ -336,10 +398,13 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
         dividend_income=dividends,
         interest_income=interest,
         partner_ids=list(PARTNERS.keys()),
+        cost_of_goods_sold=cogs,
+        gross_profit=gross_pft,
+        investment_interest_expense=inv_interest,
     )
     log.info(
-        "Form1065 %d: income=%s deductions=%s ordinary=%s stcg=%s ltcg=%s",
-        fiscal_year, income, deductions, ordinary, net_stcg, net_ltcg,
+        "Form1065 %d: income=%s cogs=%s gross_pft=%s deductions=%s ordinary=%s stcg=%s ltcg=%s",
+        fiscal_year, income, cogs, gross_pft, deductions, ordinary, net_stcg, net_ltcg,
     )
     return f
 
@@ -414,6 +479,17 @@ class CustomerSummary:
     tax_due_signal: Dict
     confidence_flags: List[str]
     next_actions: List[str]
+
+
+def _wash_sale_csv_present() -> bool:
+    """Return True if a wash-sale adjustment CSV is reachable (env-var or default path)."""
+    import os
+    from pathlib import Path
+    env_path = os.environ.get("FI_WASH_SALE_CSV", "").strip()
+    if env_path and Path(env_path).exists():
+        return True
+    default = Path(__file__).resolve().parents[2] / "private" / "wash_sale_adjustments.csv"
+    return default.exists()
 
 
 def _best_snapshot_period(fiscal_year: int) -> Optional[str]:
@@ -529,9 +605,14 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
     # W15: COGS structural gap — always warn if there are deductions
     if f1065.total_deductions > 0:
         flags.append("NOT_CLOSE_READY_W15")
-    # W16: wash-sale — warn if there are capital gains/losses
+    # W16: wash-sale — warn if there are capital gains/losses.
+    # Also flag when the wash-sale CSV is absent and gains/losses are non-zero
+    # (mid-year runs without a 1099-B cannot apply wash-sale adjustments).
+    _wash_csv_present = _wash_sale_csv_present()
     if f1065.net_short_term_capital_gain != 0 or f1065.net_long_term_capital_gain != 0:
         flags.append("NOT_CLOSE_READY_W16")
+        if not _wash_csv_present:
+            flags.append("wash_sale_not_applied")
     # W17: snapshot completeness — warn if any accounts skipped
     if skipped:
         flags.append("NOT_CLOSE_READY_W17")
@@ -547,9 +628,16 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
             "Resolve W15: COGS structural gap in generate_form_1065 before CPA submission"
         )
     if "NOT_CLOSE_READY_W16" in flags:
-        next_actions.append(
-            "Resolve W16: provide private/wash_sale_adjustments.csv to adjust capital gains"
-        )
+        if "wash_sale_not_applied" in flags:
+            next_actions.append(
+                "Resolve W16: wash-sale CSV absent — capital gain/loss figures are estimates "
+                "only (mid-year runs without a 1099-B cannot apply wash-sale adjustments). "
+                "Provide private/wash_sale_adjustments.csv before CPA submission."
+            )
+        else:
+            next_actions.append(
+                "Resolve W16: provide private/wash_sale_adjustments.csv to adjust capital gains"
+            )
     if "NOT_CLOSE_READY_W17" in flags:
         next_actions.append(
             f"Resolve W17: {len(skipped)} account(s) missing snapshots — "

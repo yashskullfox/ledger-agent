@@ -382,18 +382,15 @@ _DEFAULT_COA: list[tuple] = [
     # ── Equity ──────────────────────────────────────────────────────────────
     ("3000", "Members Equity", "equity", None, "", '[]'),
     ("3010", "Members Capital Contributions", "equity", "3000", "", '["intra_bank_xfer","transfer","zelle","wire"]'),
-    # V7 fix: ENTITY_A is a pass-through — federal/state estimated tax payments
-    # made from the LLC account are partner draws, not entity-level tax expense.
-    # Book them here (contra-equity) so they do NOT inflate Form 1065 deductions.
     ("3040", "Members Distributions / Owner Draws", "equity", "3000", "",
-     '["irs","usataxpymt","estimated tax","owner draw","distribution","member draw"]'),
+     '["estimated tax","owner draw","distribution","member draw","uspspo"]'),
     ("3020", "Retained Earnings", "equity", "3000", "", '[]'),
     ("3030", "Current Period Net Income", "equity", "3000", "", '[]'),
     # ── Revenue ─────────────────────────────────────────────────────────────
     ("4000", "Revenue", "revenue", None, "", '[]'),
     ("4010", "Realised Trading Gains", "revenue", "4000", "", '["gain","sold","proceeds","realized gain"]'),
     ("4011", "Long-Term Capital Gain", "revenue", "4000", "", '["long-term gain","ltcg gain","ltcg"]'),
-    ("4020", "Service Revenue", "revenue", "4000", "", '["intuit","invoice"]'),
+    ("4020", "Service Revenue", "revenue", "4000", "", '["intuit invoice","invoice"]'),
     ("4021", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
     ("4030", "Other Income", "revenue", "4000", "", '[]'),
     ("4031", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
@@ -407,8 +404,9 @@ _DEFAULT_COA: list[tuple] = [
     ("5030", "Margin Interest Expense", "expense", "5000", "", '["margin interest","interest paid"]'),
     ("5031", "Advertising & Marketing", "expense", "5000", "",
      '["meta ads","facebook ads","twitter ads","instagram ads","google ads"]'),
-    ("5040", "Payroll Tax Expense", "expense", "5000", "", '["payroll tax","941","940"]'),
-    ("5050", "Federal Income Tax Expense", "expense", "5000", "", '["irs","usataxpymt","federal tax"]'),
+    ("5040", "Payroll Tax Expense", "expense", "5000", "",
+     '["payroll tax","941","940","usataxpymt","eftps"]'),
+    ("5050", "Federal Income Tax Expense", "expense", "5000", "", '["federal income tax","federal tax"]'),
     ("5055", "State & Local Taxes", "expense", "5000", "", '["state tax","dept of rev","dept of revenue"]'),
     ("5060", "Investment Transaction Costs", "expense", "5000", "", '["transaction cost","commission"]'),
     ("5061", "Office & Shipping Supplies", "expense", "5000", "",
@@ -534,21 +532,7 @@ class AccountRepo:
 class TransactionRepo:
     @staticmethod
     def bulk_insert(txns: List[Transaction], db_path: Optional[Path] = None) -> int:
-        """
-        Insert new transactions, skipping true duplicates.
-
-        Dedup strategy: (account_id, date, description, amount, occurrence_index).
-        `occurrence_index` counts how many times the same (account_id, date,
-        description, amount) tuple already exists in the DB before this call,
-        so a second *identical* line in a bank statement (e.g. two payroll ACH
-        debits for exactly the same amount on the same day) can still be inserted
-        on first import, while a re-import of the same PDF will correctly skip it.
-
-        Within a single call the seen-counter tracks same-tuple repetitions in
-        the incoming list, ensuring they are matched to the correct occurrence.
-        """
         inserted = 0
-        # Track how many times each (acct,date,desc,amt) tuple appears in this batch
         seen_in_batch: dict = {}
         with get_conn(db_path) as conn:
             for t in txns:
