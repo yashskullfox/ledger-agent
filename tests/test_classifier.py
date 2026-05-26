@@ -42,6 +42,30 @@ class TestKeywordMatch:
         result = _keyword_match("XYZZY UNKNOWN VENDOR", coa_entries)
         assert result is None
 
+    def test_debit_does_not_match_revenue(self, coa_entries):
+        # ARCH-29: "invoice" keyword is on 4020 (revenue). A debit payment
+        # with "invoice" in description must NOT classify as revenue.
+        from ledger_agent.core.intelligence.classifier import _keyword_match
+        result = _keyword_match("VENDOR INVOICE PAYMENT", coa_entries, amount=-250.00)
+        assert result is None or result.coa_type != "revenue", (
+            "Debit transaction must not be classified as revenue"
+        )
+
+    def test_credit_does_not_match_expense(self, coa_entries):
+        # A positive (credit) amount with a keyword that appears on an expense
+        # code must not classify as expense.
+        from ledger_agent.core.intelligence.classifier import _keyword_match
+        result = _keyword_match("QUICKBOOKS ONLINE REFUND", coa_entries, amount=30.00)
+        assert result is None or result.coa_type != "expense", (
+            "Credit transaction must not be classified as expense"
+        )
+
+    def test_zero_amount_no_sign_filter(self, coa_entries):
+        # amount=0 (default) applies no sign guard — quickbooks still matches
+        from ledger_agent.core.intelligence.classifier import _keyword_match
+        result = _keyword_match("QUICKBOOKS ONLINE", coa_entries, amount=0.0)
+        assert result is not None and result.code == "5010"
+
 
 class TestClassifyTransaction:
     def test_already_classified_skipped(self, sample_txn, coa_entries):
@@ -99,6 +123,82 @@ class TestClassifyBatch:
         assert classified == []
         assert auto == 0
         assert prompted == 0
+
+
+class TestPriorityRules:
+    """ARCH-29: description-priority rules for payroll and USPS transactions."""
+
+    def _make_txn(self, description: str, amount: str):
+        from ledger_agent.core.models import Transaction, TransactionType
+        return Transaction(
+            account_id="test",
+            date=date(2025, 1, 15),
+            description=description,
+            raw_description=description,
+            amount=Decimal(amount),
+            transaction_type=TransactionType.DEBIT if Decimal(amount) < 0 else TransactionType.CREDIT,
+            statement_period="2025-01",
+        )
+
+    def test_payroll_salary_classified_5021(self, coa_entries, db):
+        """PAYROLL debit without TAX → employee salary → 5021."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn("ACHCORPDEBITPAYROLL INTUIT35986178 SYNCED", "-720.33")
+        result = classify_transaction(txn, coa_entries)
+        assert result.coa_code == "5021", (
+            f"Payroll salary debit must be 5021 Payroll & Wages, got {result.coa_code}"
+        )
+
+    def test_payroll_tax_classified_5040(self, coa_entries, db):
+        """PAYROLL TAX debit → payroll tax remittance → 5040."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn("DEBITTAX PAYROLL INTUIT35986178 SYNCED", "-210.45")
+        result = classify_transaction(txn, coa_entries)
+        assert result.coa_code == "5040", (
+            f"Payroll tax debit must be 5040 Payroll Tax Expense, got {result.coa_code}"
+        )
+
+    def test_large_uspspo_classified_3040(self, coa_entries, db):
+        """Large USPSPO debit (≥$500) → money-order tax payment → 3040 owner draw."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn("DEBITCARDPURCHASE USPSPO 5700345 MONEY ORDER", "-1000.00")
+        result = classify_transaction(txn, coa_entries)
+        assert result.coa_code == "3040", (
+            f"Large USPSPO debit must be 3040 Owner Draws, got {result.coa_code}"
+        )
+
+    def test_small_usps_kiosk_classified_5061(self, coa_entries, db):
+        """Small USPS kiosk shipping charge → 5061 Office & Shipping Supplies."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn("DEBITCARDPURCHASE USPS KIOSK SHIPPING LABEL", "-18.50")
+        result = classify_transaction(txn, coa_entries)
+        # Small USPS (< $500, no USPSPO) → keyword scan matches 5061
+        assert result.coa_code == "5061", (
+            f"Small USPS shipping must be 5061 Shipping Supplies, got {result.coa_code}"
+        )
+
+    def test_irs_usataxpymt_classified_5040(self, coa_entries, db):
+        """IRS EFTPS USATAXPYMT = Form 941 quarterly payroll tax → 5040, not 3040/5050."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn(
+            "ACH CORP DEBIT USATAXPYMT IRS SYNCED LLCCUSTOMER ID 227470566006960",
+            "-238.68",
+        )
+        result = classify_transaction(txn, coa_entries)
+        assert result.coa_code == "5040", (
+            f"IRS USATAXPYMT from LLC account must be 5040 Payroll Tax, got {result.coa_code} — "
+            "pass-through LLC has no entity income tax; EFTPS deposits are Form 941 payroll tax"
+        )
+
+    def test_payroll_credit_not_triggered(self, coa_entries, db):
+        """A positive (credit) that contains 'payroll' is not a salary deduction."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn("PAYROLL REVERSAL CREDIT", "720.33")
+        result = classify_transaction(txn, coa_entries)
+        # Priority rule only fires on debit (amount < 0) — credit falls through normally
+        assert result.coa_code != "5021", (
+            "Payroll rule must not fire on credits — only debits are salary"
+        )
 
 
 class TestLocalBackend:
