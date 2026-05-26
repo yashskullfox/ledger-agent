@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -28,24 +28,24 @@ dependencies = [
     "questionary>=2.0.1",
     "tabulate>=0.9.0",
     "colorama>=0.4.6",
-    "pandas>=2.2.0",
+    "pandas>=2.3.3",
     "openpyxl>=3.1.2",
     "python-dateutil>=2.9.0",
-    "rapidfuzz>=3.6.0",
+    "rapidfuzz>=3.14.5",
 ]
 
 [project.optional-dependencies]
 openai = [
-    "openai>=1.30.0",
+    "openai>=1.109.1",
     "tenacity>=8.3.0",
 ]
 gemini = [
-    "google-generativeai>=0.7.0",
+    "google-generativeai>=0.8.6",
     "tenacity>=8.3.0",
 ]
 ai = [
-    "openai>=1.30.0",
-    "google-generativeai>=0.7.0",
+    "openai>=1.109.1",
+    "google-generativeai>=0.8.6",
     "tenacity>=8.3.0",
 ]
 dotenv = [
@@ -60,8 +60,8 @@ dev = [
     "python-dotenv>=1.0.0",
 ]
 all = [
-    "openai>=1.30.0",
-    "google-generativeai>=0.7.0",
+    "openai>=1.109.1",
+    "google-generativeai>=0.8.6",
     "tenacity>=8.3.0",
     "python-dotenv>=1.0.0",
     "pytest>=8.0.0",
