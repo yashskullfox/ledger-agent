@@ -492,8 +492,31 @@ def _wash_sale_csv_present() -> bool:
     return default.exists()
 
 
+def _is_year_end_period(period: str, fiscal_year: int) -> bool:
+    return period == f"{fiscal_year}-12"
+
+
+def _has_material_snapshot_gap(skipped: List[Dict], period: str) -> bool:
+    if not skipped:
+        return False
+    from ledger_agent.core.database import get_conn
+
+    account_ids = [s.get("account_id") for s in skipped if s.get("account_id")]
+    if not account_ids:
+        return False
+
+    qmarks = ",".join("?" * len(account_ids))
+    params = [period, *account_ids]
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM transactions "
+            f"WHERE statement_period = ? AND account_id IN ({qmarks})",
+            params,
+        ).fetchone()
+    return bool(row and row[0] > 0)
+
+
 def _best_snapshot_period(fiscal_year: int) -> Optional[str]:
-    """Return the period with the most account snapshot rows for the year."""
     from ledger_agent.core.database import get_conn, init_db
     init_db()
     prefix = f"{fiscal_year}-%"
@@ -508,11 +531,6 @@ def _best_snapshot_period(fiscal_year: int) -> Optional[str]:
 
 
 def build_customer_summary(fiscal_year: int) -> CustomerSummary:
-    """Build the canonical customer outcome summary (W27/W28/W29/W30).
-
-    Picks the best-covered snapshot period, runs balance sheet + form 1065 +
-    PTE estimate, and assembles confidence flags based on known open lanes.
-    """
     from ledger_agent.core.database import init_db
 
     init_db()
@@ -520,17 +538,15 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
     if not periods:
         raise ValueError(f"No statement data for fiscal year {fiscal_year}.")
 
-    # ── Pick best period for balance sheet ───────────────────────────────────
-    best_period = _best_snapshot_period(fiscal_year) or periods[-1]
+    latest_period = periods[-1]
+    best_period = _best_snapshot_period(fiscal_year) or latest_period
 
-    # ── Core computations ────────────────────────────────────────────────────
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
 
     bs = BalanceSheetBuilder(entity.id, best_period, pl_periods=periods).build()
     f1065 = generate_form_1065(fiscal_year)
     pte = pte_estimate(fiscal_year)
 
-    # ── Profit / Loss ────────────────────────────────────────────────────────
     obi = f1065.ordinary_business_income
     if obi > 0:
         pl_status, pl_signal = "profit", "positive"
@@ -545,7 +561,6 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         "ordinary_business_income": str(obi.quantize(Decimal("0.01"))),
     }
 
-    # ── Growth signal (equity direction) ─────────────────────────────────────
     if bs.net_income > 0:
         growth_status = "growing"
     elif bs.net_income < 0:
@@ -562,7 +577,6 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         ),
     }
 
-    # ── Balance sheet health ─────────────────────────────────────────────────
     skipped = bs.coverage.get("skipped_snapshots", [])
     bs_status = "healthy" if bs.is_balanced and not skipped else "review_needed"
     balance_sheet_health = {
@@ -575,7 +589,6 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         "skipped_accounts": len(skipped),
     }
 
-    # ── PTE due signal ───────────────────────────────────────────────────────
     if pte.total_annual_tax > 0:
         pte_status = "likely_due"
         next_due = pte.quarterly_payments[0]["due_date"] if pte.quarterly_payments else "N/A"
@@ -589,44 +602,36 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         "next_due": next_due,
     }
 
-    # ── Tax due signal ───────────────────────────────────────────────────────
     tax_status = "likely_due" if pte.total_annual_tax > 0 else "not_due"
     tax_due_signal = {
         "status": tax_status,
         "basis": "pte_estimate",
         "note": (
             f"PTE annual estimate: {float(pte.total_annual_tax):,.2f}; "
-            f"effective rate: {float(pte.effective_rate * 100):.1f}%"
+            f"effective rate: {float(pte.effective_rate):.1f}%"
         ),
     }
 
-    # ── Confidence flags ─────────────────────────────────────────────────────
     flags: List[str] = []
-    # W15: COGS structural gap — always warn if there are deductions
-    if f1065.total_deductions > 0:
-        flags.append("NOT_CLOSE_READY_W15")
-    # W16: wash-sale — warn if there are capital gains/losses.
-    # Also flag when the wash-sale CSV is absent and gains/losses are non-zero
-    # (mid-year runs without a 1099-B cannot apply wash-sale adjustments).
     _wash_csv_present = _wash_sale_csv_present()
     if f1065.net_short_term_capital_gain != 0 or f1065.net_long_term_capital_gain != 0:
-        flags.append("NOT_CLOSE_READY_W16")
-        if not _wash_csv_present:
+        if not _wash_csv_present and not _is_year_end_period(latest_period, fiscal_year):
+            flags.append("PROVISIONAL_W16_MIDYEAR")
             flags.append("wash_sale_not_applied")
-    # W17: snapshot completeness — warn if any accounts skipped
+        else:
+            flags.append("NOT_CLOSE_READY_W16")
+            if not _wash_csv_present:
+                flags.append("wash_sale_not_applied")
     if skipped:
-        flags.append("NOT_CLOSE_READY_W17")
-    # W26: regression fix confirmed (ARCH-28 tests green)
+        if _has_material_snapshot_gap(skipped, best_period):
+            flags.append("NOT_CLOSE_READY_W17")
+        else:
+            flags.append("PROVISIONAL_W17_STALE_ACCOUNT")
     flags.append("CLOSE_READY_W26")
     if not flags or all(f.startswith("CLOSE_READY") for f in flags):
         flags.append("CLOSE_READY")
 
-    # ── Next actions ─────────────────────────────────────────────────────────
     next_actions: List[str] = []
-    if "NOT_CLOSE_READY_W15" in flags:
-        next_actions.append(
-            "Resolve W15: COGS structural gap in generate_form_1065 before CPA submission"
-        )
     if "NOT_CLOSE_READY_W16" in flags:
         if "wash_sale_not_applied" in flags:
             next_actions.append(
@@ -638,10 +643,18 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
             next_actions.append(
                 "Resolve W16: provide private/wash_sale_adjustments.csv to adjust capital gains"
             )
+    if "PROVISIONAL_W16_MIDYEAR" in flags:
+        next_actions.append(
+            "Mid-year run: capital gains are provisional until year-end wash-sale details are available."
+        )
     if "NOT_CLOSE_READY_W17" in flags:
         next_actions.append(
             f"Resolve W17: {len(skipped)} account(s) missing snapshots — "
             "run import with complete statements"
+        )
+    if "PROVISIONAL_W17_STALE_ACCOUNT" in flags:
+        next_actions.append(
+            f"Balance sheet uses available snapshots; {len(skipped)} stale account(s) had no activity in {best_period}."
         )
     if pte_status == "likely_due":
         next_actions.append(
@@ -652,7 +665,7 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
 
     return CustomerSummary(
         fiscal_year=fiscal_year,
-        period_covered=f"{fiscal_year}-01..{best_period}",
+        period_covered=f"{fiscal_year}-01..{latest_period}",
         profit_or_loss=profit_or_loss,
         growth_signal=growth_signal,
         balance_sheet_health=balance_sheet_health,
