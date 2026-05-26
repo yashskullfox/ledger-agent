@@ -161,7 +161,10 @@ class TestPriorityRules:
     def test_large_uspspo_classified_3040(self, coa_entries, db):
         """Large USPSPO debit (≥$500) → money-order tax payment → 3040 owner draw."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
-        txn = self._make_txn("DEBITCARDPURCHASE USPSPO 5700345 MONEY ORDER", "-1000.00")
+        txn = self._make_txn(
+            "DEBITCARDPURCHASE USPSPO 5700345 MONEY ORDER",  # redaction: allow
+            "-1000.00",
+        )
         result = classify_transaction(txn, coa_entries)
         assert result.coa_code == "3040", (
             f"Large USPSPO debit must be 3040 Owner Draws, got {result.coa_code}"
@@ -170,7 +173,10 @@ class TestPriorityRules:
     def test_small_usps_kiosk_classified_5061(self, coa_entries, db):
         """Small USPS kiosk shipping charge → 5061 Office & Shipping Supplies."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
-        txn = self._make_txn("DEBITCARDPURCHASE USPS KIOSK SHIPPING LABEL", "-18.50")
+        txn = self._make_txn(
+            "DEBITCARDPURCHASE USPS KIOSK SHIPPING LABEL",  # redaction: allow
+            "-18.50",
+        )
         result = classify_transaction(txn, coa_entries)
         # Small USPS (< $500, no USPSPO) → keyword scan matches 5061
         assert result.coa_code == "5061", (
@@ -181,7 +187,7 @@ class TestPriorityRules:
         """IRS EFTPS USATAXPYMT = Form 941 quarterly payroll tax → 5040, not 3040/5050."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
         txn = self._make_txn(
-            "ACH CORP DEBIT USATAXPYMT IRS SYNCED LLCCUSTOMER ID 227470566006960",
+            "ACH CORP DEBIT USATAXPYMT IRS SYNCED LLCCUSTOMER ID acct_****1234",
             "-238.68",
         )
         result = classify_transaction(txn, coa_entries)
