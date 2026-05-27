@@ -78,14 +78,41 @@ def classify_transaction(
         memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
         return txn
 
-    if "USPSPO" in desc_up and amt < -500:
+    if "USATAXPYMT" in desc_up and amt < 0:
+        txn.coa_code, txn.coa_name = "5040", "Payroll Tax Expense"
+        memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
+        return txn
+
+    estimated_tax_terms = (
+        "MO-PTE",
+        "MO PTE",
+        "ESTIMATED TAX",
+        "QUARTERLY TAX",
+        "IRS TREAS",
+        "FEDERAL TAX",
+        "STATE TAX",
+        "DEPT OF REV",
+        "DEPT OF REVENUE",
+        "MO DOR",
+    )
+    if amt < 0 and any(term in desc_up for term in estimated_tax_terms):
         txn.coa_code, txn.coa_name = "3040", "Members Distributions / Owner Draws"
         memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
         return txn
 
-    if "USATAXPYMT" in desc_up and amt < 0:
-        txn.coa_code, txn.coa_name = "5040", "Payroll Tax Expense"
-        memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
+    transfer_terms = (
+        "INTERNET PAYMENT ACH TRANSF",
+        "ACH CORP DEBIT TRANSFER",
+        "BKG SVC LLC Z",
+        "PAYMENTTO CREDIT CARD",
+        "PAYMENT TO CREDIT CARD",
+        "TRANSFER *",
+        "ZELLE BUSINESS PAYMENT",
+    )
+    if any(term in desc_up for term in transfer_terms):
+        txn.coa_code, txn.coa_name = "9000", "Inter-Account Transfer"
+        txn.is_transfer = True
+        memory.remember(txn.description, txn.coa_code, txn.coa_name, True)
         return txn
 
     result = memory.lookup(txn.description)

@@ -375,9 +375,10 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
         elif code.startswith("5"):
             deductions -= amt  # expenses are negative; refunds (positive) reduce deductions
 
-    # W16: apply wash-sale disallowances if private CSV is present
+    # W16: apply wash-sale disallowances — auto-detects from realised_trades DB,
+    # falls back to private/wash_sale_adjustments.csv if present (1099-B override).
     from ledger_agent.core.accounting.wash_sale import total_disallowed
-    ws_adjustment = total_disallowed()
+    ws_adjustment = total_disallowed(fiscal_year=fiscal_year)
     if ws_adjustment:
         net_stcg += ws_adjustment
         log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_adjustment)
@@ -613,6 +614,11 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
     }
 
     flags: List[str] = []
+
+    # W15: COGS structural gap — always flag when cogs is non-zero (owner spec required)
+    if f1065.cost_of_goods_sold != 0:
+        flags.append("NOT_CLOSE_READY_W15")
+
     _wash_csv_present = _wash_sale_csv_present()
     if f1065.net_short_term_capital_gain != 0 or f1065.net_long_term_capital_gain != 0:
         if not _wash_csv_present and not _is_year_end_period(latest_period, fiscal_year):
@@ -632,6 +638,11 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         flags.append("CLOSE_READY")
 
     next_actions: List[str] = []
+    if "NOT_CLOSE_READY_W15" in flags:
+        next_actions.append(
+            "Resolve W15: COGS structural fix required before CPA submission — "
+            "provide owner spec to separate Cost of Goods Sold from operating deductions."
+        )
     if "NOT_CLOSE_READY_W16" in flags:
         if "wash_sale_not_applied" in flags:
             next_actions.append(
