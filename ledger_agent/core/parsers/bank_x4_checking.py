@@ -56,7 +56,11 @@ class BankX4CheckingParser(BaseStatementParser):
         upper = text.upper()
         has_inst = all(tok in upper for tok in _CFG["detect"])
         has_checking = "CHECKING" in upper or "BUSINESS ESSENTIALS" in upper
-        not_card = "TRIPLE CASH" not in upper and "CREDIT CARD" not in upper
+        not_card = (
+            "TRIPLE CASH" not in upper
+            and "CENTRAL BILL" not in upper
+            and "CARDMEMBER" not in upper
+        )
         return has_inst and has_checking and not_card
 
     def parse(self, pdf_path: Path) -> ParsedStatement:

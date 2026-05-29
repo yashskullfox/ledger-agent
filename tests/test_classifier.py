@@ -158,17 +158,42 @@ class TestPriorityRules:
             f"Payroll tax debit must be 5040 Payroll Tax Expense, got {result.coa_code}"
         )
 
-    def test_large_uspspo_classified_3040(self, coa_entries, db):
-        """Large USPSPO debit (≥$500) → money-order tax payment → 3040 owner draw."""
+    def test_large_uspspo_classified_5061(self, coa_entries, db):
+        """Generic USPSPO debit defaults to shipping/COGS unless tax language is explicit."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
         txn = self._make_txn(
             "DEBITCARDPURCHASE USPSPO 5700345 MONEY ORDER",  # redaction: allow
             "-1000.00",
         )
         result = classify_transaction(txn, coa_entries)
-        assert result.coa_code == "3040", (
-            f"Large USPSPO debit must be 3040 Owner Draws, got {result.coa_code}"
+        assert result.coa_code == "5061", (
+            f"Generic USPSPO debit must default to 5061 Shipping Supplies, got {result.coa_code}"
         )
+
+    def test_explicit_estimated_tax_classified_3040(self, coa_entries, db):
+        """Explicit MO-PTE / estimated-tax language must map to owner draw, not shipping."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn(
+            "DEBITCARDPURCHASE Q1 ESTIMATED TAX STATE PAYMENT MONEY ORDER",  # redaction: allow
+            "-1300.00",
+        )
+        result = classify_transaction(txn, coa_entries)
+        assert result.coa_code == "3040", (
+            f"Explicit estimated-tax debit must be 3040 Owner Draws, got {result.coa_code}"
+        )
+
+    def test_interactive_brok_transfer_classified_9000(self, coa_entries, db):
+        """Brokerage funding / withdrawal lines are transfers, not bank fees or expenses."""
+        from ledger_agent.core.intelligence.classifier import classify_transaction
+        txn = self._make_txn(
+            "INTERNET PAYMENT ACH TRANSF BROKERAGE REQ :507887839",
+            "-60800.00",
+        )
+        result = classify_transaction(txn, coa_entries)
+        assert result.coa_code == "9000", (
+            f"Brokerage cash movement must be 9000 Inter-Account Transfer, got {result.coa_code}"
+        )
+        assert result.is_transfer is True
 
     def test_small_usps_kiosk_classified_5061(self, coa_entries, db):
         """Small USPS kiosk shipping charge → 5061 Office & Shipping Supplies."""

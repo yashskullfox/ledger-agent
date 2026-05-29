@@ -52,11 +52,12 @@ class BankX4CreditCardParser(BaseStatementParser):
             return False
         upper = text.upper()
         has_inst = all(tok in upper for tok in _CFG["detect"])
+        not_checking = "BUSINESS ESSENTIALS CHECKING" not in upper and "CHECKING" not in upper
         has_card = (
             "TRIPLE CASH" in upper or "CREDIT CARD" in upper
             or "CENTRAL BILL" in upper or "CARDMEMBER" in upper
         )
-        return has_inst and has_card
+        return has_inst and has_card and not_checking
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         lines = _extract_lines_by_y(pdf_path)
