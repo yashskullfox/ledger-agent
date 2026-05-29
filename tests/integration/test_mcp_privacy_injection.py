@@ -96,7 +96,6 @@ class TestPartnerNameInjection:
             "fiscal_year": 2024,
         }
         result = _redact(payload)
-        serialised = json.dumps(result)
         # partner_1 / partner_2 are corpus pseudonyms and should be redacted
         # OR replaced — either way they must not leak as-is if privacy is on.
         # The test asserts the redact pipeline runs without error and returns a dict.
