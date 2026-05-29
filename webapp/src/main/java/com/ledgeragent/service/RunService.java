@@ -61,6 +61,7 @@ public class RunService {
             case K1_PARTNER_2  -> bridge.generateK1(fiscalYear, "partner_2", allowPii);
             case TAX_ESTIMATE  -> bridge.pteEstimate(fiscalYear, allowPii);
             case RECONCILE     -> bridge.reconcileYear(fiscalYear, allowPii);
+            case CUSTOMER_SUMMARY -> bridge.customerSummary(fiscalYear, allowPii);
             case IMPORT        -> bridge.importStatements(
                                       folder != null ? folder : "", false, allowPii);
         };
