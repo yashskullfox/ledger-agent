@@ -160,6 +160,16 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
         return call("reconcile_year", params, allowPii);
     }
 
+    public JsonNode customerSummary(int fiscalYear) throws BridgeException {
+        return customerSummary(fiscalYear, false);
+    }
+
+    public JsonNode customerSummary(int fiscalYear, boolean allowPii) throws BridgeException {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("fiscal_year", fiscalYear);
+        return call("customer_summary", params, allowPii);
+    }
+
     public JsonNode importStatements(String folder, boolean allowPartial) throws BridgeException {
         return importStatements(folder, allowPartial, false);
     }

@@ -1,6 +1,7 @@
 package com.ledgeragent.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ledgeragent.bridge.BridgeException;
 import com.ledgeragent.bridge.PythonBridge;
 import com.ledgeragent.service.ReportType;
@@ -13,10 +14,14 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @Controller
 public class RunController {
 
     private static final Logger log = LoggerFactory.getLogger(RunController.class);
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final PythonBridge bridge;
     private final RunService runService;
@@ -68,6 +73,17 @@ public class RunController {
             model.addAttribute("resultJson", result != null ? result.toPrettyString() : "{}");
             model.addAttribute("success", true);
             model.addAttribute("nextStep", suggestNextStep(report, result));
+
+            // Populate summary cards (W29) when the report is customer_summary
+            if (reportType == ReportType.CUSTOMER_SUMMARY && result != null) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> summaryMap = MAPPER.convertValue(result, Map.class);
+                    model.addAttribute("summary", summaryMap);
+                } catch (Exception ex) {
+                    log.warn("Could not convert customer_summary result to map: {}", ex.getMessage());
+                }
+            }
         } catch (IllegalArgumentException e) {
             model.addAttribute("success", false);
             model.addAttribute("errorMessage", e.getMessage());
@@ -130,6 +146,7 @@ public class RunController {
                 yield clean ? "Reconciliation clean — year-end reporting is complete."
                             : "Issues found. Review the 'issues' list above before filing.";
             }
+            case "customer_summary" -> "Review confidence flags. Address any NOT_CLOSE_READY items before filing.";
             default -> "";
         };
     }

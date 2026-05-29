@@ -17,7 +17,8 @@ public enum ReportType {
     K1_PARTNER_2("k1_partner_2"),
     TAX_ESTIMATE("tax_estimate"),
     RECONCILE("reconcile"),
-    IMPORT("import");
+    IMPORT("import"),
+    CUSTOMER_SUMMARY("customer_summary");
 
     private final String wire;
 
