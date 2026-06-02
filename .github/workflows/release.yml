@@ -108,7 +108,7 @@ jobs:
       - name: Checksum
         run: .github/scripts/sha256sums.sh dist-core
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifact-core
           path: dist-core/
@@ -160,7 +160,7 @@ jobs:
       - name: Checksum
         run: .github/scripts/sha256sums.sh dist-cli
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifact-cli
           path: dist-cli/
@@ -215,7 +215,7 @@ jobs:
       - name: Checksum
         run: .github/scripts/sha256sums.sh dist-mcp
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifact-mcp
           path: dist-mcp/
@@ -269,7 +269,7 @@ jobs:
       - name: Checksum
         run: .github/scripts/sha256sums.sh dist-webapp
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifact-webapp-linux
           path: dist-webapp/
@@ -313,7 +313,7 @@ jobs:
           cp target/*.jar \
              "../dist-webapp-macos/ledger-agent-webapp-v${VER}-darwin-aarch64.jar"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifact-webapp-macos
           path: dist-webapp-macos/
@@ -357,7 +357,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path ..\dist-webapp-windows
           Get-ChildItem target\*.jar | Copy-Item -Destination "..\dist-webapp-windows\ledger-agent-webapp-v$ver-windows-x86_64.jar"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifact-webapp-windows
           path: dist-webapp-windows/
