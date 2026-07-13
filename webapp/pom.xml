@@ -27,7 +27,7 @@
          Value of 0 here is a sentinel; local builds are reproducible but
          epoch-anchored rather than commit-anchored. -->
     <project.build.outputTimestamp>0</project.build.outputTimestamp>
-    <jackson.version>2.21.3</jackson.version>
+    <jackson.version>2.22.1</jackson.version>
   </properties>
 
   <dependencies>
