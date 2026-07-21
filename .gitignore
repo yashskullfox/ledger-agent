@@ -152,3 +152,4 @@ tests/fixtures/private/
 # ── Plan files (Wibey AI planning artifacts) ──────────────────────────────────
 *.plan.md
 .wibey/
+results.md
