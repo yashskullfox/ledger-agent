@@ -78,6 +78,29 @@ def classify_transaction(
         memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
         return txn
 
+    # Modern payroll providers — bank descriptions typically include the
+    # provider name but not the literal word "PAYROLL". Extends the rule
+    # above so those outflows still route to L9 salaries / L18 payroll tax.
+    _PAYROLL_PROVIDERS = (
+        "ADP",               # ADP payroll
+        "GUSTO",             # Gusto payroll
+        "PAYCHEX",           # Paychex
+        "JUSTWORKS",         # Justworks PEO
+        "RIPPLING",          # Rippling
+        "TRINET",            # TriNet
+        "INTUIT PAYROLL",
+        "QUICKBOOKS PAYROLL",
+        "SQUARE PAYROLL",
+        "WAVE PAYROLL",
+    )
+    if amt < 0 and any(p in desc_up for p in _PAYROLL_PROVIDERS):
+        if "TAX" in desc_up or "WITHHOLDING" in desc_up:
+            txn.coa_code, txn.coa_name = "5040", "Payroll Tax Expense"
+        else:
+            txn.coa_code, txn.coa_name = "5021", "Payroll & Wages"
+        memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
+        return txn
+
     if "USATAXPYMT" in desc_up and amt < 0:
         txn.coa_code, txn.coa_name = "5040", "Payroll Tax Expense"
         memory.remember(txn.description, txn.coa_code, txn.coa_name, False)
