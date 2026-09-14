@@ -121,11 +121,25 @@ class BrokerZParser(BaseStatementParser):
     def _extract_entity_name(self, text: str) -> str:
         for line in text.splitlines():
             stripped = line.strip()
-            if re.match(r"^[A-Z][A-Z &,]+(?:LLC|INC|CORP|CO|LTD)$", stripped):
+            if re.match(r"^[A-Z][A-Z0-9 _&,.-]+?(?:LLC|INC|CORP|CO|LTD)$", stripped):
                 return stripped
-        m = re.search(r"Name:\s*(.+)", text, re.IGNORECASE)
+            m_line = re.match(
+                r"^Name:?\s+([A-Z0-9\s&,._-]+?(?:LLC|INC|CORP|CO|LTD))\b",
+                stripped,
+                re.IGNORECASE,
+            )
+            if m_line:
+                return m_line.group(1).strip()
+        m = re.search(
+            r"Name:?\s+([A-Z0-9\s&,._-]+?(?:LLC|INC|CORP|CO|LTD))\b",
+            text,
+            re.IGNORECASE,
+        )
         if m:
             return m.group(1).strip()
+        m_gen = re.search(r"Name:\s*(.+)", text, re.IGNORECASE)
+        if m_gen:
+            return m_gen.group(1).strip()
         return "UNKNOWN ENTITY"
 
     def _parse_cash_report(self, text: str, period: str) -> AccountSnapshot:
@@ -143,15 +157,14 @@ class BrokerZParser(BaseStatementParser):
         beginning = _find(r"Starting Cash\s+([-\d,.]+)")
         deposits = _find(r"Deposits\s+([\d,.]+)")
         withdrawals = _find(r"Withdrawals\s+([\d,.]+)")
+        margin_bal = _find(r"Margin balance\s+[-–]?([-\d,.]+)")
         gross_nav = _find(r"Net Asset Value\s+([\d,.]+)")
-        margin_bal = _find(r"Net Liquidation Value\s+([-\d,.]+)")
 
         try:
             from ledger_agent.core.audit import audit as _audit
         except Exception:
             _audit = None
 
-        _absent = []
         if ending is None:
             if _audit:
                 _audit("parser.field_absent",
@@ -159,27 +172,18 @@ class BrokerZParser(BaseStatementParser):
                        statement_period=period,
                        field="ending_balance",
                        reason="Ending Cash pattern not found")
-            _absent.append("ending_balance")
-
-        if "ending_balance" in _absent:
-            if _audit:
-                _audit("parser.gap",
-                       institution=self.INSTITUTION,
-                       statement_period=period,
-                       missing_fields=_absent)
             raise ParserGap(
                 institution=self.INSTITUTION,
                 statement_period=period,
-                missing_fields=_absent,
+                missing_fields=["ending_balance"],
             )
 
-        if gross_nav is None:
-            if _audit:
-                _audit("parser.field_absent",
-                       institution=self.INSTITUTION,
-                       statement_period=period,
-                       field="gross_asset_value",
-                       reason="Net Asset Value pattern not found")
+        if gross_nav is None and _audit:
+            _audit("parser.field_absent",
+                   institution=self.INSTITUTION,
+                   statement_period=period,
+                   field="gross_asset_value",
+                   reason="Net Asset Value pattern not found")
 
         return AccountSnapshot(
             account_id="",
@@ -193,7 +197,7 @@ class BrokerZParser(BaseStatementParser):
         )
 
     _TRADE_RE = re.compile(
-        r"^([A-Z]{1,5})\s+"
+        r"^([A-Z0-9_]{1,12})\s+"
         r"(\d{4}-\d{2}-\d{2})[\s,\d:]+?"
         r"([-\d,.]+)\s+"
         r"([-\d,.]+)\s+"
@@ -201,35 +205,135 @@ class BrokerZParser(BaseStatementParser):
         re.MULTILINE,
     )
 
+    _TRADE_DETAIL_RE = re.compile(
+        r"^([A-Z0-9_]{1,12})\s+"
+        r"([-\d,.]+)\s+"
+        r"([\d,.]+)\s+"
+        r"([\d,.]+)\s+"
+        r"([-\d,.]+)\s+"
+        r"([-\d,.]+)\s+"
+        r"([-\d,.]+)\s+"
+        r"([-\d,.]+)\s+"
+        r"([-\d,.]+)"
+        r"(?:\s+([A-Z;]+))?$"
+    )
+
+    _OPTION_TRADE_TOTAL_RE = re.compile(
+        r"^Total\s+"
+        r"(?P<symbol>[A-Z0-9_]{1,12}\s+\d{1,2}[A-Z]{3}\d{2}\s+[\d.]+\s+[CP])\s+"
+        r"(?P<quantity>[-\d,.]+|--)\s+"
+        r"(?P<proceeds>[-\d,.]+|--)\s+"
+        r"(?P<comm_fee>[-\d,.]+|--)\s+"
+        r"(?P<basis>[-\d,.]+|--)\s+"
+        r"(?P<realized_pl>[-\d,.]+|--)\s+"
+        r"(?P<mtm_pl>[-\d,.]+|--)\s*$"
+    )
+
     def _parse_trades(self, text: str, period: str, year: int) -> List[RealisedTrade]:
-        section = _extract_text_section(text, r"Trades", r"^(?:Dividends|Fees|Cash Report|Open Positions)")
+        section = _extract_text_section(
+            text,
+            r"Trades\s*$\s*Symbol Date/Time",
+            r"^(?:Dividends|Fees|Cash Report|Open Positions|Financial Instrument)",
+        )
+        if not section:
+            section = _extract_text_section(
+                text,
+                r"Trades",
+                r"^(?:Dividends|Fees|Cash Report|Open Positions|Financial Instrument)",
+            )
+
         trades: List[RealisedTrade] = []
-        for m in self._TRADE_RE.finditer(section):
-            symbol = m.group(1)
-            trade_date = self.parse_date(m.group(2))
-            try:
-                realized_pl = Decimal(m.group(5).replace(",", ""))
-            except Exception:
+        current_date: Optional[date] = None
+        date_re = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+
+        for line in section.splitlines():
+            stripped = line.strip()
+            dm = date_re.match(stripped)
+            if dm:
+                current_date = self.parse_date(dm.group(1))
                 continue
-            if realized_pl == 0:
+            tm = self._TRADE_DETAIL_RE.match(stripped)
+            if tm:
+                symbol = tm.group(1)
+                try:
+                    realized_pl = Decimal(tm.group(8).replace(",", ""))
+                except Exception:
+                    continue
+                if realized_pl == 0:
+                    continue
+                trades.append(RealisedTrade(
+                    account_id="",
+                    statement_period=period,
+                    symbol=symbol,
+                    description=symbol,
+                    gain_loss=realized_pl,
+                    term="short",
+                    settlement_date=current_date or date(year, int(period[5:7]), 1),
+                ))
                 continue
-            trades.append(RealisedTrade(
-                account_id="",
-                statement_period=period,
-                symbol=symbol,
-                description=symbol,
-                gain_loss=realized_pl,
-                term="short",
-                settlement_date=trade_date,
-            ))
+
+            om = self._OPTION_TRADE_TOTAL_RE.match(stripped)
+            if om:
+                symbol = om.group("symbol")
+                try:
+                    realized_pl = Decimal(
+                        om.group("realized_pl").replace(",", "").replace("--", "0")
+                    )
+                except Exception:
+                    continue
+                if realized_pl == 0:
+                    continue
+                trades.append(RealisedTrade(
+                    account_id="",
+                    statement_period=period,
+                    symbol=symbol,
+                    description=symbol,
+                    gain_loss=realized_pl,
+                    term="short",
+                    settlement_date=current_date or date(year, int(period[5:7]), 1),
+                ))
+
+        if not trades:
+            for m in self._TRADE_RE.finditer(section):
+                symbol = m.group(1)
+                trade_date = self.parse_date(m.group(2))
+                try:
+                    realized_pl = Decimal(m.group(5).replace(",", ""))
+                except Exception:
+                    continue
+                if realized_pl == 0:
+                    continue
+                trades.append(RealisedTrade(
+                    account_id="",
+                    statement_period=period,
+                    symbol=symbol,
+                    description=symbol,
+                    gain_loss=realized_pl,
+                    term="short",
+                    settlement_date=trade_date,
+                ))
+
         return trades
 
     _POSITION_RE = re.compile(
-        r"^([A-Z][A-Z0-9]{0,5})\s+"
-        r"([A-Z][A-Z0-9 &,.-]+?)\s+"
+        r"^([A-Z][A-Z0-9_]{0,11})\s+"
+        r"([A-Z][A-Z0-9_ &,.-]+?)\s+"
         r"([-\d,.]+)\s+"
         r"([\d,.]+)\s+"
         r"([\d,.]+)\s*$",
+        re.MULTILINE,
+    )
+
+    _POSITION_DETAIL_RE = re.compile(
+        r"^(?P<symbol>[A-Z0-9_]{1,12}(?:\s+\d{1,2}[A-Z]{3}\d{2}\s+[\d.]+\s+[CP])?)\s+"
+        r"(?P<qty>[-\d,.]+)\s+"
+        r"(?P<mult>\d+)\s+"
+        r"(?P<cost_price>[\d,.]+)\s+"
+        r"(?P<cost_basis>[-\d,.]+)\s+"
+        r"(?P<close_price>[\d,.]+)\s+"
+        r"(?P<val>[-\d,.]+)\s+"
+        r"(?P<upl>[-\d,.]+)"
+        r"(?:\s+(?P<code>[A-Z;]+))?$",
         re.MULTILINE,
     )
 
@@ -239,8 +343,52 @@ class BrokerZParser(BaseStatementParser):
         except Exception:
             _audit = None
 
-        section = _extract_text_section(text, r"Open Positions", r"^(?:Realized|Trades|Dividends|Cash Report)")
+        section = _extract_text_section(
+            text,
+            r"Open Positions",
+            r"^(?:Realized|Trades|Dividends|Cash Report|Net Stock Position Summary|Forex Balances)",
+        )
         positions: List[Position] = []
+
+        # Try detailed multi-column format first
+        detailed_matches = list(self._POSITION_DETAIL_RE.finditer(section))
+        if detailed_matches:
+            for m in detailed_matches:
+                symbol = m.group("symbol").strip()
+                try:
+                    qty = Decimal(m.group("qty").replace(",", ""))
+                    price = Decimal(m.group("close_price").replace(",", ""))
+                    market_val = Decimal(m.group("val").replace(",", ""))
+                except Exception:
+                    continue
+                if qty == 0 or market_val == 0:
+                    continue
+                is_opt = (" C" in symbol or " P" in symbol or bool(re.search(r"\d", symbol)))
+                pos_type = PositionType.OPTION if is_opt else PositionType.EQUITY
+                pos = Position(
+                    account_id="",
+                    symbol=symbol,
+                    name=symbol,
+                    quantity=abs(qty),
+                    price_per_unit=price,
+                    market_value=market_val,
+                    statement_period=period,
+                    as_of_date=date(year, int(period[5:7]), 28),
+                    position_type=pos_type,
+                )
+                if _audit:
+                    _audit(
+                        "parser.position_emitted",
+                        institution=self.INSTITUTION,
+                        statement_period=period,
+                        symbol=symbol,
+                        market_value=str(market_val),
+                        position_type=pos_type.value,
+                    )
+                positions.append(pos)
+            return positions
+
+        # Fallback to legacy 5-column format
         for m in self._POSITION_RE.finditer(section):
             symbol = m.group(1)
             name = m.group(2).strip()
@@ -284,9 +432,88 @@ class BrokerZParser(BaseStatementParser):
     )
 
     def _parse_cash_transactions(self, text: str, period: str, year: int) -> List[Transaction]:
-        section = _extract_text_section(text, r"Deposits & Withdrawals|Cash Transactions",
-                                        r"^(?:Trades|Open Positions)")
-        txns: List[Transaction] = []
+        # Look for Deposits & Withdrawals section
+        idx = text.find("Deposits & Withdrawals")
+        header_idx = -1
+        while idx != -1:
+            if "Date Description Amount" in text[idx:idx + 100]:
+                header_idx = idx
+                break
+            idx = text.find("Deposits & Withdrawals", idx + 1)
+
+        if header_idx != -1:
+            start = header_idx
+            end_m = re.search(
+                r"^\s*(?:Total\s+[-\d,.]+|Trades|Open Positions|Financial Instrument)",
+                text[start:],
+                re.MULTILINE,
+            )
+            sec = text[start:start + end_m.start()] if end_m else text[start:start + 2000]
+            txns: List[Transaction] = []
+            line_re = re.compile(
+                r"(?:^|.*?)(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<desc>.+?)\s+(?P<amt>[-\d,]+\.\d{2})\s*$"
+            )
+            for line in sec.splitlines():
+                m = line_re.match(line.strip())
+                if not m:
+                    continue
+                d = self.parse_date(m.group("date"))
+                desc = m.group("desc").strip()
+                try:
+                    amt = Decimal(m.group("amt").replace(",", ""))
+                except Exception:
+                    continue
+                if d is None or amt == 0:
+                    continue
+                desc_lower = desc.lower()
+                if "disbursement" in desc_lower or "withdrawal" in desc_lower:
+                    txn_type = TransactionType.TRANSFER_OUT
+                    is_xfer = True
+                    coa_code = "9000"
+                    coa_name = "Inter-Account Transfer"
+                elif "deposit" in desc_lower or "electronic fund transfer" in desc_lower:
+                    txn_type = TransactionType.TRANSFER_IN if amt > 0 else TransactionType.TRANSFER_OUT
+                    is_xfer = True
+                    coa_code = "9000"
+                    coa_name = "Inter-Account Transfer"
+                elif "dividend" in desc_lower:
+                    txn_type = TransactionType.CREDIT
+                    is_xfer = False
+                    coa_code = "4030"
+                    coa_name = "Dividend Income"
+                elif "commission" in desc_lower or "fee" in desc_lower:
+                    txn_type = TransactionType.FEE
+                    is_xfer = False
+                    coa_code = "5080"
+                    coa_name = "Bank & Broker Fees"
+                else:
+                    txn_type = TransactionType.CREDIT if amt > 0 else TransactionType.DEBIT
+                    is_xfer = False
+                    coa_code = "4090" if amt > 0 else "5090"
+                    coa_name = "Other Income" if amt > 0 else "Other Expense"
+
+                txns.append(Transaction(
+                    account_id="",
+                    date=d,
+                    description=desc,
+                    raw_description=line.strip(),
+                    amount=amt,
+                    transaction_type=txn_type,
+                    statement_period=period,
+                    is_transfer=is_xfer,
+                    coa_code=coa_code,
+                    coa_name=coa_name,
+                ))
+            if txns:
+                return txns
+
+        # Fallback to legacy _CASH_TX_RE
+        section = _extract_text_section(
+            text,
+            r"Deposits & Withdrawals|Cash Transactions",
+            r"^(?:Trades|Open Positions)",
+        )
+        legacy_txns: List[Transaction] = []
         for m in self._CASH_TX_RE.finditer(section):
             txn_date = self.parse_date(m.group(1))
             txn_kind = m.group(2).lower()
@@ -308,7 +535,7 @@ class BrokerZParser(BaseStatementParser):
             else:
                 txn_type = TransactionType.CREDIT if amt > 0 else TransactionType.DEBIT
 
-            txns.append(Transaction(
+            legacy_txns.append(Transaction(
                 account_id="",
                 date=txn_date,
                 description=m.group(2).title(),
@@ -318,7 +545,7 @@ class BrokerZParser(BaseStatementParser):
                 statement_period=period,
                 is_transfer=("deposit" in txn_kind or "withdrawal" in txn_kind),
             ))
-        return txns
+        return legacy_txns
 
 
 def _extract_text_section(text: str, start_pattern: str, end_pattern: str) -> str:

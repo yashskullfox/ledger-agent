@@ -37,10 +37,9 @@ PYTHON_MIN="3.10"
 
 # ── 1. Locate Python ──────────────────────────────────────────────────────────
 _find_python() {
-    for py in python3.12 python3.11 python3.10 python3 python; do
+    for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3 python; do
         if command -v "$py" &>/dev/null; then
-            ver=$("$py" -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>/dev/null)
-            if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" 2>/dev/null; then
+            if "$py" -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" 2>/dev/null; then
                 echo "$py"; return
             fi
         fi
@@ -48,7 +47,9 @@ _find_python() {
     echo >&2 "ERROR: Python >= $PYTHON_MIN not found. Install it and retry."
     exit 1
 }
-PYTHON=$(_find_python)
+if [ ! -f "$VENV_DIR/bin/python" ]; then
+    PYTHON=$(_find_python)
+fi
 
 # ── 2. Create venv if absent ──────────────────────────────────────────────────
 if [ ! -f "$VENV_DIR/bin/python" ]; then
@@ -94,11 +95,11 @@ CMD="${1:-}"
 
 case "$CMD" in
     # New ledger CLI commands (Form B via ledger_agent.cli.main)
-    scan|s|balance|b|tax|t|form1065|f1|k1|k|reconcile|r)
+    scan|s|balance|b|tax|t|form1065|f1|k1|k|reconcile|r|summary)
         exec "$VENV_PYTHON" -m ledger_agent.cli.main "$@"
         ;;
     # Legacy pass-through to main.py
-    ""|menu|mcp|context|classify|memory|summary|setup|import|transactions|onboard|o)
+    ""|menu|mcp|context|classify|memory|setup|import|transactions|onboard|o)
         exec "$VENV_PYTHON" main.py "$@"
         ;;
     --version|-v)
