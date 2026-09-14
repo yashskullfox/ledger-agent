@@ -284,6 +284,8 @@ def _clean_bank_x4_desc(raw: str) -> str:
 
 def _classify(desc: str, is_debit: bool) -> TransactionType:
     up = desc.upper()
+    if "EXT TFR DEPOSIT" in up or "EXTERNAL TFR" in up or "EXT TFR" in up:
+        return TransactionType.CREDIT
     if any(kw in up for kw in ("TRANSFER", "TFR", "CREDIT CARD", "INTERNET BANKING PAYMENT")):
         return TransactionType.TRANSFER_OUT if is_debit else TransactionType.TRANSFER_IN
     if "IRS" in up or "TAX" in up:

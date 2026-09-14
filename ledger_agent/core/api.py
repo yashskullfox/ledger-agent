@@ -292,7 +292,7 @@ def import_statements(
     return report
 
 
-def generate_balance_sheet(fiscal_year: int):
+def generate_balance_sheet(fiscal_year: int, period: Optional[str] = None):
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
     from ledger_agent.core.exceptions import AggregationGap
     from ledger_agent.core.database import init_db, get_conn
@@ -302,7 +302,7 @@ def generate_balance_sheet(fiscal_year: int):
     if not periods:
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
 
-    last_period = periods[-1]
+    last_period = period or _best_snapshot_period(fiscal_year) or periods[-1]
     bs = BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
     skipped = bs.coverage.get("skipped_snapshots", [])
 
@@ -370,7 +370,9 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     from ledger_agent.core.database import init_db
 
     init_db()
-    entity, _ = _entity_and_periods(fiscal_year)
+    entity, periods = _entity_and_periods(fiscal_year)
+    if not periods:
+        raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
     txns = _transactions_for_year(fiscal_year)
 
     income = Decimal("0")
