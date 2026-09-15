@@ -136,6 +136,7 @@ explore_*.py
 # These live in statements/ but contain real Form 1065 / K-1 aggregates.
 # Populated locally or from the FI_CPA_CORPUS_2024 GitHub secret.
 statements/
+Synced-Accounts/
 
 # ── Private local config (gitignored) — institution match strings, pseudonym map ──
 private/
@@ -152,3 +153,5 @@ tests/fixtures/private/
 # ── Plan files (Wibey AI planning artifacts) ──────────────────────────────────
 *.plan.md
 .wibey/
+results.md
+docs/no-commits/*

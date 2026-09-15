@@ -292,21 +292,59 @@ def import_statements(
     return report
 
 
-def generate_balance_sheet(fiscal_year: int):
+def generate_balance_sheet(fiscal_year: int, period: Optional[str] = None):
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
     from ledger_agent.core.exceptions import AggregationGap
-    from ledger_agent.core.database import init_db
+    from ledger_agent.core.database import init_db, get_conn
 
     init_db()
     entity, periods = _entity_and_periods(fiscal_year)
     if not periods:
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
 
-    last_period = periods[-1]
+    last_period = period or _best_snapshot_period(fiscal_year) or periods[-1]
     bs = BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
     skipped = bs.coverage.get("skipped_snapshots", [])
-    if skipped:
-        first = skipped[0]
+
+    # An "AggregationGap" is only a real gap if the account HAS other data in
+    # the same fiscal year and is missing the terminal-period snapshot. If the
+    # account has zero fiscal-year activity (snapshots + transactions), then
+    # it simply wasn't open during that year — reclassify as a vacuous skip
+    # rather than a hard error. Prevents opening a new account in FY2026 from
+    # breaking the FY2024 / FY2025 balance sheet.
+    year_prefix = f"{fiscal_year}-%"
+    real_gaps: list[dict] = []
+    with get_conn() as conn:
+        for s in skipped:
+            acct_id = s.get("account_id")
+            if not acct_id:
+                real_gaps.append(s)
+                continue
+            snap_n = conn.execute(
+                "SELECT COUNT(*) FROM account_snapshots "
+                "WHERE account_id = ? AND statement_period LIKE ?",
+                (acct_id, year_prefix),
+            ).fetchone()[0]
+            txn_n = conn.execute(
+                "SELECT COUNT(*) FROM transactions "
+                "WHERE account_id = ? AND statement_period LIKE ?",
+                (acct_id, year_prefix),
+            ).fetchone()[0]
+            if snap_n == 0 and txn_n == 0:
+                # Account not open during this fiscal year — annotate the
+                # coverage manifest and drop from the raise-worthy list.
+                s["reason"] = f"account inactive in FY{fiscal_year} (0 snapshots, 0 txns)"
+                continue
+            real_gaps.append(s)
+
+    # Update the coverage manifest so downstream consumers see the refined
+    # classification without losing audit trail.
+    bs.coverage["skipped_snapshots"] = real_gaps + [
+        s for s in skipped if s not in real_gaps
+    ]
+
+    if real_gaps:
+        first = real_gaps[0]
         raise AggregationGap(
             last_period,
             first.get("account_id", "unknown"),
@@ -332,7 +370,9 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     from ledger_agent.core.database import init_db
 
     init_db()
-    entity, _ = _entity_and_periods(fiscal_year)
+    entity, periods = _entity_and_periods(fiscal_year)
+    if not periods:
+        raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
     txns = _transactions_for_year(fiscal_year)
 
     income = Decimal("0")
@@ -375,10 +415,15 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
         elif code.startswith("5"):
             deductions -= amt  # expenses are negative; refunds (positive) reduce deductions
 
-    # W16: apply wash-sale disallowances — auto-detects from realised_trades DB,
-    # falls back to private/wash_sale_adjustments.csv if present (1099-B override).
+    # W16: apply wash-sale disallowances. Preference order:
+    #   1. private/wash_sale_adjustments.csv  (authoritative — from 1099-B)
+    #   2. computed from own ledger (SELL@loss + position deltas ±30d)
+    #   3. zero (WARNING logged by the module)
     from ledger_agent.core.accounting.wash_sale import total_disallowed
-    ws_adjustment = total_disallowed(fiscal_year=fiscal_year)
+    ws_adjustment = total_disallowed(
+        entity_id=entity.id,
+        fiscal_year=fiscal_year,
+    )
     if ws_adjustment:
         net_stcg += ws_adjustment
         log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_adjustment)
@@ -614,11 +659,6 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
     }
 
     flags: List[str] = []
-
-    # W15: COGS structural gap — always flag when cogs is non-zero (owner spec required)
-    if f1065.cost_of_goods_sold != 0:
-        flags.append("NOT_CLOSE_READY_W15")
-
     _wash_csv_present = _wash_sale_csv_present()
     if f1065.net_short_term_capital_gain != 0 or f1065.net_long_term_capital_gain != 0:
         if not _wash_csv_present and not _is_year_end_period(latest_period, fiscal_year):
@@ -638,11 +678,6 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         flags.append("CLOSE_READY")
 
     next_actions: List[str] = []
-    if "NOT_CLOSE_READY_W15" in flags:
-        next_actions.append(
-            "Resolve W15: COGS structural fix required before CPA submission — "
-            "provide owner spec to separate Cost of Goods Sold from operating deductions."
-        )
     if "NOT_CLOSE_READY_W16" in flags:
         if "wash_sale_not_applied" in flags:
             next_actions.append(

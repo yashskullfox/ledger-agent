@@ -32,10 +32,14 @@ if str(ROOT) not in sys.path:
 @pytest.fixture
 def iso_db(tmp_path):
     """Isolated SQLite database; sets FI_DB_PATH for the duration of the test."""
+    prev = os.environ.get("FI_DB_PATH")
     db = tmp_path / "test.db"
     os.environ["FI_DB_PATH"] = str(db)
     yield db
-    del os.environ["FI_DB_PATH"]
+    if prev is not None:
+        os.environ["FI_DB_PATH"] = prev
+    else:
+        os.environ.pop("FI_DB_PATH", None)
 
 
 def _seed_2024(db_path: Path) -> None:

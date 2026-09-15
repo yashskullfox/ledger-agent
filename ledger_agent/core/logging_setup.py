@@ -79,12 +79,14 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
         root.removeHandler(h)
 
     if fmt == "json":
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(_JsonFormatter())
     elif fmt == "rich":
         try:
+            from rich.console import Console
             from rich.logging import RichHandler
             handler = RichHandler(
+                console=Console(stderr=True),
                 rich_tracebacks=True,
                 show_time=True,
                 show_path=False,
