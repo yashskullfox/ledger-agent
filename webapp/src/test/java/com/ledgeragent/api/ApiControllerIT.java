@@ -56,11 +56,11 @@ class ApiControllerIT {
     // ── GET /api/v1/reports ───────────────────────────────────────────────────
 
     @Test
-    @DisplayName("GET /api/v1/reports returns all 7 wire names")
+    @DisplayName("GET /api/v1/reports returns all 8 wire names")
     void getReports() throws Exception {
         mvc.perform(get("/api/v1/reports"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(7))
+                .andExpect(jsonPath("$.length()").value(8))
                 .andExpect(jsonPath("$[0]").value("balance_sheet"));
     }
 
