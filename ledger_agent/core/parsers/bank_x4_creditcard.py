@@ -135,7 +135,7 @@ class BankX4CreditCardParser(BaseStatementParser):
         return self.parse_amount(m.group(1)) if m else None
 
     _TX_RE = re.compile(
-        r"^(\d{2}/\d{2})(\d{2}/\d{2})\d{4}(.+?)\$([\d,]+\.\d{2})\s*$"
+        r"^(\d{2}/\d{2})(?:(\d{2}/\d{2}))?(?:\d{4}|[A-Z0-9]{3,4})?(.+?)\$([\d,]+\.\d{2})\s*$"
     )
 
     def _parse_transactions(
@@ -199,16 +199,29 @@ class BankX4CreditCardParser(BaseStatementParser):
             desc = _clean_cc_desc(desc_raw)
 
             if mode == "charge":
-                txn = Transaction(
-                    account_id="",
-                    date=post_date,
-                    description=desc,
-                    raw_description=desc_raw,
-                    amount=-abs(amt),
-                    transaction_type=TransactionType.DEBIT,
-                    statement_period=period,
-                )
-                charges.append(txn)
+                if "payment" in desc.lower() or "thank you" in desc.lower():
+                    txn = Transaction(
+                        account_id="",
+                        date=post_date,
+                        description=desc,
+                        raw_description=desc_raw,
+                        amount=abs(amt),
+                        transaction_type=TransactionType.TRANSFER_IN,
+                        statement_period=period,
+                        is_transfer=True,
+                    )
+                    payments.append(txn)
+                else:
+                    txn = Transaction(
+                        account_id="",
+                        date=post_date,
+                        description=desc,
+                        raw_description=desc_raw,
+                        amount=-abs(amt),
+                        transaction_type=TransactionType.DEBIT,
+                        statement_period=period,
+                    )
+                    charges.append(txn)
             elif mode == "credit":
                 txn = Transaction(
                     account_id="",
@@ -272,4 +285,5 @@ def _parse_mmdd(raw: str, year: int) -> Optional[date]:
 def _clean_cc_desc(raw: str) -> str:
     cleaned = re.sub(r"\s{2,}", " ", raw).strip()
     cleaned = re.sub(r"\s+[A-Z]{2}$", "", cleaned)
+    cleaned = re.sub(r"^[A-Z0-9]*PAYMENT", "PAYMENT", cleaned)
     return cleaned

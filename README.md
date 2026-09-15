@@ -212,7 +212,7 @@ Semver is computed automatically from conventional commits since the last tag.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).
 
 > This software is for personal financial organization only. It is not a substitute for
 > professional accounting, tax, or investment advice. Always consult a qualified CPA.

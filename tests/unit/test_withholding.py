@@ -11,9 +11,13 @@ import pytest
 
 @pytest.fixture
 def iso_db(tmp_path):
+    prev = os.environ.get("FI_DB_PATH")
     os.environ["FI_DB_PATH"] = str(tmp_path / "test.db")
     yield tmp_path / "test.db"
-    del os.environ["FI_DB_PATH"]
+    if prev is not None:
+        os.environ["FI_DB_PATH"] = prev
+    else:
+        os.environ.pop("FI_DB_PATH", None)
 
 
 def _seed(db_path):

@@ -100,11 +100,12 @@ def cmd_balance(args: list[str]) -> int:
     """Generate and display balance sheet."""
     year_arg = next((a for a in args if a.isdigit()), None)
     year = int(year_arg) if year_arg else 2024
+    period = next((a for a in args if len(a) == 7 and a[:4].isdigit() and a[4] == "-" and a[5:].isdigit()), None)
 
     api = _import_api()
     from ledger_agent.core.reports.renderer import render_balance_sheet
     try:
-        bs = api.generate_balance_sheet(year)
+        bs = api.generate_balance_sheet(year, period=period)
         render_balance_sheet(bs)
         return 0
     except ValueError as e:

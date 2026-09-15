@@ -48,7 +48,8 @@ class BrokerYBrokerageParser(BaseStatementParser):
 
         snapshot = self._parse_summary(raw_text, period)
         positions = self._parse_holdings(raw_text, period, year)
-        txns = self._parse_withdrawals(raw_text, period, year)
+        txns = self._parse_deposits(raw_text, period, year)
+        txns += self._parse_withdrawals(raw_text, period, year)
         txns += self._parse_margin_interest(raw_text, period, year)
         txns += self._parse_dividends(raw_text, period, year)
         trades = self._parse_trades(raw_text, period, year)
@@ -134,7 +135,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
         )
         withdrawals = _find(r"Withdrawals\s+[-–]?\$?([\d,]+\.\d{2})")
         margin_bal = _find(r"Margin balance\s+[-–]?\$?([\d,]+\.\d{2})")
-        gross_market = _find(r"Market Value of Holdings\s+\$?([\d,]+\.\d{2})")
+        gross_market = _find(r"Market Value of Holdings\s+\$?([\d,]+\.\d{2})") or ending_nav
         realised = _find(r"Net\s+(?:Short-term\s+)?Gain[/\\]Loss\s+\$?([\d,]+\.\d{2})")
 
         try:
@@ -314,6 +315,53 @@ class BrokerYBrokerageParser(BaseStatementParser):
 
         return trades
 
+    def _parse_deposits(self, text: str, period: str, year: int) -> List[Transaction]:
+        def _extract_sec(txt: str, start_pat: str, end_pat: str) -> str:
+            sm = re.search(start_pat, txt, re.IGNORECASE | re.MULTILINE)
+            if not sm:
+                return ""
+            start = sm.end()
+            em = re.search(end_pat, txt[start:], re.IGNORECASE | re.MULTILINE)
+            end = start + em.start() if em else len(txt)
+            return txt[start:end]
+
+        txns = []
+        line_re = re.compile(
+            r"^(\d{2}/\d{2})\s+(.+?)\s+[-–\s]*\$?([\d,]+\.\d{2})\s*$",
+            re.MULTILINE,
+        )
+
+        sec_dep = _extract_sec(text, r"Deposits\s*\n\s*(?:Date|Reference)", r"Total Deposits")
+        sec_ex = _extract_sec(text, r"Exchanges In\s*\n.*?Date Security Name", r"Total Exchanges In")
+        if not sec_ex:
+            sec_ex = _extract_sec(text, r"Exchanges In\s*\n\s*Symbol/", r"Total Exchanges In")
+
+        for sec in [sec_dep, sec_ex]:
+            if not sec:
+                continue
+            for m in line_re.finditer(sec):
+                d = self.parse_date(m.group(1), year)
+                desc = m.group(2).strip()
+                amt = self.parse_amount(m.group(3))
+                if not d or not amt or amt == 0:
+                    continue
+                is_xfer = bool(
+                    re.search(r"\b(?:Eft|Transfer|Transferred|Money Line|Wire)\b", desc, re.IGNORECASE)
+                )
+                txns.append(Transaction(
+                    account_id="",
+                    date=d,
+                    description=desc,
+                    raw_description=m.group(0).strip(),
+                    amount=abs(amt),
+                    transaction_type=TransactionType.TRANSFER_IN if is_xfer else TransactionType.CREDIT,
+                    statement_period=period,
+                    is_transfer=is_xfer,
+                    coa_code="9000" if is_xfer else "4090",
+                    coa_name="Inter-Account Transfer" if is_xfer else "Other Income",
+                ))
+        return txns
+
     @classmethod
     def _build_withdrawal_re(cls) -> Optional[re.Pattern]:
         """
@@ -328,32 +376,76 @@ class BrokerYBrokerageParser(BaseStatementParser):
         # Join tokens with whitespace tolerance to form the bank-name segment.
         bank_name_pat = r"\s+".join(re.escape(t) for t in tokens)
         return re.compile(
-            r"(\d{2}/\d{2})\s+Money Line Paid\s+EFT FUNDS PAID\s+\S+\s+/WEB\s+"
-            + bank_name_pat
-            + r"[^-\d]*-([\d,]+\.\d{2})",
+            r"(\d{2}/\d{2})\s+Money Line Paid\s+EFT FUNDS PAID\s+\S+\s+/WEB"
+            r"(?:\s+" + bank_name_pat + r"[^-\d]*-([\d,]+\.\d{2})|[^-\d]*-([\d,]+\.\d{2})\s+" + bank_name_pat + r")",
             re.IGNORECASE,
         )
 
     def _parse_withdrawals(self, text: str, period: str, year: int) -> List[Transaction]:
-        regex = self._build_withdrawal_re()
-        if regex is None:
-            return []
+        def _extract_sec(txt: str, start_pat: str, end_pat: str) -> str:
+            sm = re.search(start_pat, txt, re.IGNORECASE | re.MULTILINE)
+            if not sm:
+                return ""
+            start = sm.end()
+            em = re.search(end_pat, txt[start:], re.IGNORECASE | re.MULTILINE)
+            end = start + em.start() if em else len(txt)
+            return txt[start:end]
+
         txns = []
-        for m in regex.finditer(text):
-            d = self.parse_date(m.group(1), year)
-            amt = self.parse_amount(m.group(2))
-            if d and amt:
+        regex = self._build_withdrawal_re()
+        if regex:
+            for m in regex.finditer(text):
+                d = self.parse_date(m.group(1), year)
+                amt_str = m.group(2) or m.group(3)
+                amt = self.parse_amount(amt_str) if amt_str else None
+                if d and amt:
+                    txns.append(Transaction(
+                        account_id="",
+                        date=d,
+                        description="Transfer Out – Bank X",
+                        raw_description=m.group(0).strip(),
+                        amount=-abs(amt),
+                        transaction_type=TransactionType.TRANSFER_OUT,
+                        statement_period=period,
+                        is_transfer=True,
+                        coa_code="9000",
+                        coa_name="Inter-Account Transfer",
+                    ))
+        if txns:
+            return txns
+
+        line_re = re.compile(
+            r"^(\d{2}/\d{2})\s+(.+?)\s+[-–\s]*-\$?([\d,]+\.\d{2})\s*$",
+            re.MULTILINE,
+        )
+        sec_w = _extract_sec(text, r"Withdrawals\s*\n\s*(?:Date|Reference)", r"Total Withdrawals")
+        sec_ex = _extract_sec(text, r"Exchanges Out\s*\n.*?Date Security Name", r"Total Exchanges Out")
+        if not sec_ex:
+            sec_ex = _extract_sec(text, r"Exchanges Out\s*\n\s*Symbol/", r"Total Exchanges Out")
+
+        for sec in [sec_w, sec_ex]:
+            if not sec:
+                continue
+            for m in line_re.finditer(sec):
+                d = self.parse_date(m.group(1), year)
+                desc = m.group(2).strip()
+                amt = self.parse_amount(m.group(3))
+                if not d or not amt or amt == 0:
+                    continue
+                is_xfer = bool(
+                    re.search(r"\b(?:Eft|Transfer|Transferred|Money Line|Wire)\b", desc, re.IGNORECASE)
+                )
                 txns.append(Transaction(
                     account_id="",
                     date=d,
-                    description="Transfer Out – Bank X",
-                    raw_description=m.group(0),
+                    description=desc,
+                    raw_description=m.group(0).strip(),
                     amount=-abs(amt),
-                    transaction_type=TransactionType.TRANSFER_OUT,
+                    transaction_type=TransactionType.TRANSFER_OUT if is_xfer else TransactionType.DEBIT,
                     statement_period=period,
-                    is_transfer=True,
-                    coa_code="9000",
-                    coa_name="Inter-Account Transfer",
+                    is_transfer=is_xfer,
+                    coa_code="9000" if is_xfer else "5080",
+                    coa_name="Inter-Account Transfer" if is_xfer else "Bank & Broker Fees",
                 ))
         return txns
 

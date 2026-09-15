@@ -24,7 +24,7 @@ class ReconciliationMatch(NamedTuple):
 
 def reconcile(
         all_transactions: List[Transaction],
-        tolerance_days: int = 3,
+        tolerance_days: int = 7,
 ) -> Tuple[List[ReconciliationMatch], List[Transaction]]:
     """
     Match TRANSFER_OUT ↔ TRANSFER_IN pairs across accounts.

@@ -118,7 +118,7 @@ ledger-agent/
 │       └── pyproject.toml    ledger-agent-mcp wheel
 │
 ├── webapp/                   Form D — Spring Boot 3 mini-webapp (ARCH-08/09/10)
-│   ├── pom.xml               Maven 3.9.8, Spring Boot 3.3, JDK 21
+│   ├── pom.xml               Maven 3.9.16, Spring Boot 3.3, JDK 21
 │   ├── .mvn/wrapper/         Pinned maven-wrapper.properties
 │   └── src/main/
 │       ├── java/com/ledgeragent/
