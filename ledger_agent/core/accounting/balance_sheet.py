@@ -295,12 +295,8 @@ class BalanceSheetBuilder:
         exp_total = Decimal("0")
 
         # Revenue / Expense from classified transactions — aggregate across all pl_periods
-        account_ids = {a.id for a in accounts}
-        _pl_txns: list = []
-        for _p in self.pl_periods:
-            for _txn in TransactionRepo.list_for_period(_p):
-                if _txn.account_id in account_ids:
-                    _pl_txns.append(_txn)
+        account_ids = [a.id for a in accounts]
+        _pl_txns = TransactionRepo.list_for_periods(self.pl_periods, account_ids=account_ids)
         rev_by_code: Dict[str, Decimal] = defaultdict(Decimal)
         exp_by_code: Dict[str, Decimal] = defaultdict(Decimal)
 
@@ -342,9 +338,6 @@ class BalanceSheetBuilder:
         #
         # For simplicity we aggregate all 3010 transactions ever recorded (not just
         # this period) as "capital contributed", which is accurate for single-year
-        # and also correct for multi-year because retained earnings accumulate.
-        all_txns_ever = TransactionRepo.list_for_period(self.period)
-
         # Pull ALL transactions (across all periods) for capital / retained earnings
         # by querying the DB directly with no period filter.
         from ledger_agent.core.database import get_conn
@@ -357,11 +350,9 @@ class BalanceSheetBuilder:
             ).fetchall()
 
         capital_net = Decimal("0")  # net of all 3010 credits/debits (contributions – distributions)
-        prior_ret_earnings = Decimal("0")  # net income from ALL periods ≠ current period
         for row in _all_rows:
-            code = row["amount"] and row[0]  # coa_code
+            code = row[0]  # coa_code
             amt = Decimal(str(row["amount"]))  # amount
-            code = row[0]
             # Capital contributions / distributions
             if code == "3010":
                 capital_net += amt  # credits positive, debits negative

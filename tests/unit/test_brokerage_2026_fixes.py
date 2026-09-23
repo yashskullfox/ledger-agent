@@ -139,6 +139,48 @@ Net Stock Position Summary
         assert option_positions[0].symbol == "OPT1 17JUL26 30 C"
         assert option_positions[0].market_value == Decimal("3500.00")
 
+    def test_parse_interest_credit_and_debit(self):
+        """Verify Broker Z interest extraction for credit (4040) and debit/margin (5030)."""
+        parser = BrokerZParser()
+        text = (
+            "Interest\n"
+            "Date Description Amount\n"
+            "USD\n"
+            "2026-01-06 USD Credit Interest 3.28\n"
+            "2026-01-07 USD Debit Interest -1.05\n"
+            "Total 2.23\n"
+        )
+        txns = parser._parse_interest(text, "2026-01", 2026)
+        assert len(txns) == 2
+
+        credit_txn = next(t for t in txns if t.coa_code == "4040")
+        assert credit_txn.date == date(2026, 1, 6)
+        assert credit_txn.amount == Decimal("3.28")
+        assert credit_txn.transaction_type == TransactionType.CREDIT
+        assert credit_txn.coa_name == "Interest Income"
+
+        debit_txn = next(t for t in txns if t.coa_code == "5030")
+        assert debit_txn.date == date(2026, 1, 7)
+        assert debit_txn.amount == Decimal("-1.05")
+        assert debit_txn.transaction_type == TransactionType.DEBIT
+        assert debit_txn.coa_name == "Margin Interest"
+
+    def test_nav_fallback_from_total_line(self):
+        """Verify Broker Z NAV fallback extracts the 4th decimal on the last Total line."""
+        parser = BrokerZParser()
+        text = (
+            "Ending Cash 1,000.00\n"
+            "Starting Cash 500.00\n"
+            "Net Asset Value\n"
+            "December 31, 2025 January 31, 2026\n"
+            "Total Long Short Total Change Change in NAV Total\n"
+            "Total 234,563.12 334,771.95 -32,950.12 301,821.83 67,258.71\n"
+            "Time Weighted Rate of Return 8.73%\n"  # redaction: allow
+        )
+        snap = parser._parse_cash_report(text, "2026-01")
+        assert snap.ending_balance == Decimal("1000.00")
+        assert snap.gross_asset_value == Decimal("301821.83")
+
 
 class TestBrokerY2026Fixes:
     """Verify Broker Y parser enhancements."""

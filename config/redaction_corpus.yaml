@@ -44,6 +44,7 @@ exempt_files:
   - docs/history-audit.md
   - docs/parity-divergence.md
   - docs/w9-deductions-diagnostic.md
+  - docs/requirement-and-review-feedback.md
   - requirement-and-review-feedback.md
   # pseudonymised PDF-extract fixtures — adding `# redaction: allow` would
   # corrupt the test data. All institution strings have been replaced;

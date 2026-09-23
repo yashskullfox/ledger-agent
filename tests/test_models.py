@@ -88,3 +88,16 @@ class TestCOAEntry:
         coa = COAEntry(code="5010", name="Software", coa_type=COAType.EXPENSE,
                        parent_code="5000")
         assert coa.parent_code == "5010" or coa.parent_code == "5000"
+
+
+class TestCOASeeding:
+    def test_seed_coa_populates_default_chart_of_accounts(self, tmp_path):
+        from ledger_agent.core.database import _DEFAULT_COA, COARepo, _seed_coa, init_db
+        test_db = tmp_path / "test_coa.db"
+        init_db(test_db)
+        entries = COARepo.list_all(test_db)
+        assert len(entries) == len(_DEFAULT_COA)
+        # Calling _seed_coa again should be idempotent
+        _seed_coa(test_db)
+        entries_after = COARepo.list_all(test_db)
+        assert len(entries_after) == len(_DEFAULT_COA)
