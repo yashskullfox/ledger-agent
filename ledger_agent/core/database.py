@@ -394,6 +394,7 @@ _DEFAULT_COA: list[tuple] = [
     ("4021", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
     ("4030", "Other Income", "revenue", "4000", "", '[]'),
     ("4031", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
+    ("4040", "Interest Income", "revenue", "4000", "", '["credit interest","interest income"]'),
     # ── Expenses ────────────────────────────────────────────────────────────
     ("5000", "Operating Expenses", "expense", None, "", '[]'),
     ("5010", "Software & Subscriptions", "expense", "5000", "",
