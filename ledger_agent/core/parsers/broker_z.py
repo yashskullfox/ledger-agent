@@ -101,7 +101,6 @@ class BrokerZParser(BaseStatementParser):
             text, re.IGNORECASE,
         )
         if m3:
-            year = int(m3.group(1))
             from dateutil import parser as _dp
             try:
                 d = _dp.parse(m3.group(0)).date()
