@@ -459,7 +459,6 @@ def _poll_for_drop(
 
         for new_pdf in sorted(new_files):
             # Remove stale cache entry so fresh probe runs
-            stale_key = f"{new_pdf}|"
             for ck in list(cache.keys()):
                 if ck.startswith(str(new_pdf)):
                     del cache[ck]

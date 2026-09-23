@@ -48,6 +48,7 @@ class BrokerZParser(BaseStatementParser):
         positions = self._parse_positions(raw_text, period, year)
         trades = self._parse_trades(raw_text, period, year)
         txns = self._parse_cash_transactions(raw_text, period, year)
+        txns.extend(self._parse_interest(raw_text, period, year))
 
         for trade in trades:
             txns.append(Transaction(
@@ -100,7 +101,6 @@ class BrokerZParser(BaseStatementParser):
             text, re.IGNORECASE,
         )
         if m3:
-            year = int(m3.group(1))
             from dateutil import parser as _dp
             try:
                 d = _dp.parse(m3.group(0)).date()
@@ -159,6 +159,39 @@ class BrokerZParser(BaseStatementParser):
         withdrawals = _find(r"Withdrawals\s+([\d,.]+)")
         margin_bal = _find(r"Margin balance\s+[-–]?([-\d,.]+)")
         gross_nav = _find(r"Net Asset Value\s+([\d,.]+)")
+
+        if gross_nav is None:
+            # Fallback: search for the last Total line in the NAV section.
+            # In Broker Z statements, the 4th decimal number is ending NAV.
+            nav_sec = _extract_text_section(
+                text,
+                r"Net Asset Value",
+                r"^(?:Mark-to-Market|Time Weighted|Trades|Open Positions|Financial Instrument)",
+            )
+            if not nav_sec:
+                idx = text.find("Net Asset Value")
+                if idx != -1:
+                    nav_sec = text[idx:idx + 2000]
+            if nav_sec:
+                total_lines = [
+                    line.strip() for line in nav_sec.splitlines()
+                    if line.strip().startswith("Total")
+                ]
+                if total_lines:
+                    last_total = total_lines[-1]
+                    nums = re.findall(r"[-–\d,]+\.\d{2}", last_total)
+                    if len(nums) >= 4:
+                        try:
+                            clean_num = nums[3].replace(",", "").replace("–", "-")
+                            gross_nav = Decimal(clean_num)
+                        except Exception:
+                            pass
+                    elif nums:
+                        try:
+                            clean_num = nums[-1].replace(",", "").replace("–", "-")
+                            gross_nav = Decimal(clean_num)
+                        except Exception:
+                            pass
 
         try:
             from ledger_agent.core.audit import audit as _audit
@@ -546,6 +579,72 @@ class BrokerZParser(BaseStatementParser):
                 is_transfer=("deposit" in txn_kind or "withdrawal" in txn_kind),
             ))
         return legacy_txns
+
+    _INTEREST_LINE_RE = re.compile(
+        r"(?:^|.*?)\b(?P<date>\d{4}-\d{2}-\d{2})\s+"
+        r"(?:USD\s+)?"
+        r"(?P<desc>(?:USD\s+)?(?:Credit Interest|Debit Interest|[A-Za-z0-9_]+\s+Managed Securities|.*?Interest).*?)"
+        r"\s+(?P<amt>[-\d,]+\.\d{2})\s*$",
+        re.IGNORECASE,
+    )
+
+    def _parse_interest(self, text: str, period: str, year: int) -> List[Transaction]:
+        sec = _extract_text_section(
+            text,
+            r"(?:Interest Accruals\s+)?Interest\s*\n\s*(?:Base Currency Summary\s+)?Date Description Amount",
+            r"^(?:Deposits & Withdrawals|Financial Instrument|Stock Yield Enhancement|Net Asset Value|Trades|Open Positions)",
+        )
+        if not sec:
+            sec = _extract_text_section(
+                text,
+                r"^\s*Interest\s*$",
+                r"^(?:Deposits & Withdrawals|Financial Instrument|Stock Yield Enhancement|Net Asset Value|Trades|Open Positions)",
+            )
+
+        txns: List[Transaction] = []
+        search_text = sec if sec else text
+        for line in search_text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("Total "):
+                continue
+            m = self._INTEREST_LINE_RE.match(stripped)
+            if not m:
+                continue
+            d = self.parse_date(m.group("date"))
+            if d is None:
+                continue
+            desc = m.group("desc").strip()
+            try:
+                raw_amt = Decimal(m.group("amt").replace(",", ""))
+            except Exception:
+                continue
+            if raw_amt == 0:
+                continue
+
+            is_debit = raw_amt < 0 or "debit" in desc.lower()
+            if is_debit:
+                amt = -abs(raw_amt)
+                txn_type = TransactionType.DEBIT
+                coa_code = "5030"
+                coa_name = "Margin Interest"
+            else:
+                amt = abs(raw_amt)
+                txn_type = TransactionType.CREDIT
+                coa_code = "4040"
+                coa_name = "Interest Income"
+
+            txns.append(Transaction(
+                account_id="",
+                date=d,
+                description=desc,
+                raw_description=stripped,
+                amount=amt,
+                transaction_type=txn_type,
+                statement_period=period,
+                coa_code=coa_code,
+                coa_name=coa_name,
+            ))
+        return txns
 
 
 def _extract_text_section(text: str, start_pattern: str, end_pattern: str) -> str:
