@@ -158,7 +158,6 @@ def _render_bs_plain(bs: BalanceSheet, show_income: bool) -> None:
             indent = "  " * line.indent
             label = f"{indent}{line.label}"
             amt = _fmt(line.amount)
-            sep = "─" * 3 if line.is_subtotal else " "
             print(f"  {label:<50}  {amt:>14}")
     print("\n" + "=" * w)
     bal_label = "✓ BALANCED" if bs.is_balanced else "⚠ OUT OF BALANCE"

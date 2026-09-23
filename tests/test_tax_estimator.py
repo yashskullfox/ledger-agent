@@ -92,5 +92,32 @@ class TestRenderTaxEstimate:
         est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
             Decimal("60000.00")
         )
-        # Should not raise; rich or plain output
         render_tax_estimate(est)
+        out = capsys.readouterr().out
+        assert "TEST LLC" in out
+        assert "Net Income" in out
+        assert "TOTAL ESTIMATED TAX" in out
+
+    def test_renders_plain_text_fallback_on_import_error(self, monkeypatch, capsys):
+        import builtins
+
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
+
+        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
+            Decimal("60000.00")
+        )
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("rich"):
+                raise ImportError("No module named 'rich'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+
+        render_tax_estimate(est)
+        out = capsys.readouterr().out
+        assert "=== Tax Estimate – TEST LLC (2025) ===" in out
+        assert "Net Income (annual):" in out
+        assert "60,000.00" in out
