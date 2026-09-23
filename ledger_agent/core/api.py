@@ -386,7 +386,7 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     STCG_GAIN = {"4010"}
     STCG_LOSS = {"5070"}
     DIV_CODES = {"4021"}
-    INT_CODES = {"4031"}
+    INT_CODES = {"4031", "4040"}
     COGS_CODES = {"5061"}  # Office/Shipping treated as COGS (Form 1065 line 2)
     SCHED_K_INTEREST = {"5030"}  # Margin interest → Schedule K line 13b (not a deduction)
     EQUITY_DRAW_CODES = {"5050"}  # Federal tax payments → partner draws (3040), not deductions
