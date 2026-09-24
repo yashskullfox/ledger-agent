@@ -168,12 +168,9 @@ def _transactions_for_year(fiscal_year: int):
             (prefix,),
         ).fetchall()
     periods = [r[0] for r in period_rows if r[0]]
-    txns: list = []
-    for period in periods:
-        for txn in TransactionRepo.list_for_period(period):
-            if txn.account_id in account_ids:
-                txns.append(txn)
-    return txns
+    if not periods or not account_ids:
+        return []
+    return TransactionRepo.list_for_periods(periods, account_ids=list(account_ids))
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -314,28 +311,41 @@ def generate_balance_sheet(fiscal_year: int, period: Optional[str] = None):
     # breaking the FY2024 / FY2025 balance sheet.
     year_prefix = f"{fiscal_year}-%"
     real_gaps: list[dict] = []
-    with get_conn() as conn:
-        for s in skipped:
-            acct_id = s.get("account_id")
-            if not acct_id:
-                real_gaps.append(s)
-                continue
-            snap_n = conn.execute(
-                "SELECT COUNT(*) FROM account_snapshots "
-                "WHERE account_id = ? AND statement_period LIKE ?",
-                (acct_id, year_prefix),
-            ).fetchone()[0]
-            txn_n = conn.execute(
-                "SELECT COUNT(*) FROM transactions "
-                "WHERE account_id = ? AND statement_period LIKE ?",
-                (acct_id, year_prefix),
-            ).fetchone()[0]
-            if snap_n == 0 and txn_n == 0:
-                # Account not open during this fiscal year — annotate the
-                # coverage manifest and drop from the raise-worthy list.
-                s["reason"] = f"account inactive in FY{fiscal_year} (0 snapshots, 0 txns)"
-                continue
+    acct_ids = list({s.get("account_id") for s in skipped if s.get("account_id")})
+    snap_counts: dict[str, int] = {}
+    txn_counts: dict[str, int] = {}
+    if acct_ids:
+        placeholders = ",".join("?" for _ in acct_ids)
+        with get_conn() as conn:
+            snap_rows = conn.execute(
+                f"SELECT account_id, COUNT(*) FROM account_snapshots "
+                f"WHERE account_id IN ({placeholders}) AND statement_period LIKE ? "
+                f"GROUP BY account_id",
+                (*acct_ids, year_prefix),
+            ).fetchall()
+            snap_counts = {r[0]: r[1] for r in snap_rows}
+
+            txn_rows = conn.execute(
+                f"SELECT account_id, COUNT(*) FROM transactions "
+                f"WHERE account_id IN ({placeholders}) AND statement_period LIKE ? "
+                f"GROUP BY account_id",
+                (*acct_ids, year_prefix),
+            ).fetchall()
+            txn_counts = {r[0]: r[1] for r in txn_rows}
+
+    for s in skipped:
+        acct_id = s.get("account_id")
+        if not acct_id:
             real_gaps.append(s)
+            continue
+        snap_n = snap_counts.get(acct_id, 0)
+        txn_n = txn_counts.get(acct_id, 0)
+        if snap_n == 0 and txn_n == 0:
+            # Account not open during this fiscal year — annotate the
+            # coverage manifest and drop from the raise-worthy list.
+            s["reason"] = f"account inactive in FY{fiscal_year} (0 snapshots, 0 txns)"
+            continue
+        real_gaps.append(s)
 
     # Update the coverage manifest so downstream consumers see the refined
     # classification without losing audit trail.
@@ -386,7 +396,7 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     STCG_GAIN = {"4010"}
     STCG_LOSS = {"5070"}
     DIV_CODES = {"4021"}
-    INT_CODES = {"4031"}
+    INT_CODES = {"4031", "4040"}
     COGS_CODES = {"5061"}  # Office/Shipping treated as COGS (Form 1065 line 2)
     SCHED_K_INTEREST = {"5030"}  # Margin interest → Schedule K line 13b (not a deduction)
     EQUITY_DRAW_CODES = {"5050"}  # Federal tax payments → partner draws (3040), not deductions

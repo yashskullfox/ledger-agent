@@ -12,7 +12,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Generator, List, Optional
+from collections import defaultdict
+from typing import Generator, List, Optional, Sequence
 
 import os
 
@@ -394,6 +395,7 @@ _DEFAULT_COA: list[tuple] = [
     ("4021", "Dividend Income", "revenue", "4000", "", '["dividend","div reinv"]'),
     ("4030", "Other Income", "revenue", "4000", "", '[]'),
     ("4031", "Interest Income", "revenue", "4000", "", '["interest earned","interest credit"]'),
+    ("4040", "Interest Income", "revenue", "4000", "", '["credit interest","interest income"]'),
     # ── Expenses ────────────────────────────────────────────────────────────
     ("5000", "Operating Expenses", "expense", None, "", '[]'),
     ("5010", "Software & Subscriptions", "expense", "5000", "",
@@ -532,20 +534,31 @@ class AccountRepo:
 class TransactionRepo:
     @staticmethod
     def bulk_insert(txns: List[Transaction], db_path: Optional[Path] = None) -> int:
+        if not txns:
+            return 0
         inserted = 0
         seen_in_batch: dict = {}
         with get_conn(db_path) as conn:
+            acct_ids = list({t.account_id for t in txns})
+            min_date = min(t.date for t in txns).isoformat()
+            max_date = max(t.date for t in txns).isoformat()
+            acct_placeholders = ",".join("?" for _ in acct_ids)
+            existing_counts: dict = defaultdict(int)
+            rows = conn.execute(
+                f"SELECT account_id, date, description, amount, COUNT(*) FROM transactions "
+                f"WHERE account_id IN ({acct_placeholders}) AND date >= ? AND date <= ? "
+                f"GROUP BY account_id, date, description, amount",
+                (*acct_ids, min_date, max_date),
+            ).fetchall()
+            for r in rows:
+                existing_counts[(r[0], r[1], r[2], str(r[3]))] = r[4]
+
             for t in txns:
                 key = (t.account_id, t.date.isoformat(), t.description, str(t.amount))
                 batch_idx = seen_in_batch.get(key, 0)
                 seen_in_batch[key] = batch_idx + 1
 
-                # Count how many of this exact tuple already exist in the DB
-                existing_count = conn.execute(
-                    "SELECT COUNT(*) FROM transactions WHERE account_id=? AND date=?"
-                    " AND description=? AND amount=?",
-                    key,
-                ).fetchone()[0]
+                existing_count = existing_counts.get(key, 0)
 
                 # Skip only if the DB already has at least (batch_idx + 1) copies
                 if existing_count > batch_idx:
@@ -618,6 +631,28 @@ class TransactionRepo:
                     "SELECT * FROM transactions WHERE statement_period=? ORDER BY date",
                     (statement_period,),
                 ).fetchall()
+        return [TransactionRepo._row_to_model(r) for r in rows]
+
+    @staticmethod
+    def list_for_periods(
+        statement_periods: Sequence[str],
+        account_ids: Optional[Sequence[str]] = None,
+        db_path: Optional[Path] = None,
+    ) -> List[Transaction]:
+        if not statement_periods:
+            return []
+        p_placeholders = ",".join("?" for _ in statement_periods)
+        params: list = list(statement_periods)
+        query = f"SELECT * FROM transactions WHERE statement_period IN ({p_placeholders})"
+        if account_ids is not None:
+            if not account_ids:
+                return []
+            a_placeholders = ",".join("?" for _ in account_ids)
+            query += f" AND account_id IN ({a_placeholders})"
+            params.extend(account_ids)
+        query += " ORDER BY date"
+        with get_conn(db_path) as conn:
+            rows = conn.execute(query, params).fetchall()
         return [TransactionRepo._row_to_model(r) for r in rows]
 
     @staticmethod
