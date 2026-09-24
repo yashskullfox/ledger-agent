@@ -24,8 +24,8 @@ classifiers = [
 dependencies = [
     "pdfplumber>=0.11.0",
     "pdfminer.six>=20221105",
-    "rich>=13.7.0",
-    "questionary>=2.0.1",
+    "rich>=13.9.4",
+    "questionary>=2.1.1",
     "tabulate>=0.10.0",
     "colorama>=0.4.6",
     "pandas>=2.3.3",
@@ -49,21 +49,21 @@ ai = [
     "tenacity>=8.3.0",
 ]
 dotenv = [
-    "python-dotenv>=1.2.2",
+    "python-dotenv>=1.2.3",
 ]
 dev = [
     "pytest>=8.4.2",
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.12.0",
-    "ruff>=0.15.15",
+    "ruff>=0.16.8",
     "mypy>=1.10.0",
-    "python-dotenv>=1.2.2",
+    "python-dotenv>=1.2.3",
 ]
 all = [
     "openai>=1.109.1",
     "google-generativeai>=0.8.6",
     "tenacity>=8.3.0",
-    "python-dotenv>=1.2.2",
+    "python-dotenv>=1.2.3",
     "pytest>=8.4.2",
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.12.0",
