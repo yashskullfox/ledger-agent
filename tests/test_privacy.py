@@ -38,6 +38,7 @@ from ledger_agent.core.privacy import (
     PrivacyLeakError,
     RedactionMap,
     _aba_valid,
+    _detect_credit_cards,
     _luhn_valid,
     _reset_session,
     audit_egress,
@@ -109,6 +110,37 @@ class TestChecksums:
     def test_aba_wrong_length(self):
         assert not _aba_valid("12345678")   # 8 digits
         assert not _aba_valid("1234567890")  # 10 digits  # redaction: allow
+
+
+class TestCreditCardDetection:
+    def test_detect_valid_visa_hyphenated(self):
+        hits = _detect_credit_cards("Paid with card 4532-0151-1283-0366 for supplies")  # redaction: allow
+        assert len(hits) == 1
+        raw, token = hits[0]
+        assert raw == "4532-0151-1283-0366"  # redaction: allow
+        assert token.startswith("<CARD_")
+
+    def test_detect_valid_spaced(self):
+        hits = _detect_credit_cards("Transaction 4532 0151 1283 0366 approved")  # redaction: allow
+        assert len(hits) == 1
+        raw, token = hits[0]
+        assert raw == "4532 0151 1283 0366"  # redaction: allow
+        assert token.startswith("<CARD_")
+
+    def test_detect_valid_unformatted(self):
+        hits = _detect_credit_cards("Account 4532015112830366 charged")  # redaction: allow
+        assert len(hits) == 1
+        raw, token = hits[0]
+        assert raw == "4532015112830366"  # redaction: allow
+        assert token.startswith("<CARD_")
+
+    def test_detect_invalid_luhn_ignored(self):
+        hits = _detect_credit_cards("Reference 1234-5678-9012-3456 completed")  # redaction: allow
+        assert len(hits) == 0
+
+    def test_detect_short_digits_ignored(self):
+        hits = _detect_credit_cards("Ref 1234-5678-9012 completed")  # redaction: allow
+        assert len(hits) == 0
 
 
 # ── Detector category 1: SSN ──────────────────────────────────────────────────
@@ -251,6 +283,19 @@ class TestDetectorEmail:
         assert "b@y.com" not in out
         # Both tokens in map
         assert len([k for k in m if "<EMAIL_" in k]) == 2
+
+    def test_email_edge_cases(self):
+        # Email with plus tag, subdomains, and punctuation
+        out, _ = redact("Send updates to user+tag@mail.sub.example.com; or test_1-2@co.uk.")
+        assert "user+tag@mail.sub.example.com" not in out
+        assert "test_1-2@co.uk" not in out
+        assert _has_token(out, "EMAIL")
+
+    def test_invalid_email_not_redacted(self):
+        # Incomplete email addresses should not trigger email detector
+        out, _ = redact("Invalid address @domain.com and user@ and user@.com")
+        assert "@domain.com" in out
+        assert "user@" in out
 
 
 # ── Detector category 7: Phone number ────────────────────────────────────────
