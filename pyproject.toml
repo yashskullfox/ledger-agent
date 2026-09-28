@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "pdfplumber>=0.11.0",
+    "pdfplumber>=0.11.10",
     "pdfminer.six>=20221105",
     "rich>=13.9.4",
     "questionary>=2.1.1",
