@@ -20,8 +20,11 @@ import pytest
 
 # ── corpus roots ──────────────────────────────────────────────────────────────
 STMT_ROOT    = Path(__file__).parents[3] / "statements" / "2026"
-CHECKING_DIR = STMT_ROOT / "account"
-CC_DIR       = STMT_ROOT / "Credit card"
+_synced_2026 = Path(__file__).parents[3] / "Synced-Accounts" / "2026"
+_synced_dirs = list(_synced_2026.glob("*Credit*")) if _synced_2026.exists() else []
+SYNCED_ROOT  = _synced_dirs[0] if _synced_dirs else Path()
+CHECKING_DIR = STMT_ROOT / "account" if (STMT_ROOT / "account").exists() else (SYNCED_ROOT / "Account" if SYNCED_ROOT.exists() else Path())
+CC_DIR       = STMT_ROOT / "Credit card" if (STMT_ROOT / "Credit card").exists() else (SYNCED_ROOT / "Credit Card" if SYNCED_ROOT.exists() else Path())
 
 _raw_checking = sorted(CHECKING_DIR.glob("*.pdf")) if CHECKING_DIR.exists() else []
 _raw_cc       = sorted(CC_DIR.glob("*.pdf"))       if CC_DIR.exists()       else []
@@ -84,7 +87,7 @@ def test_checking_parser_snapshot_present(pdf: Path) -> None:
 def test_jan_2026_checking_has_ach_deposit() -> None:
     """Jan 2026 checking statement must contain the $600 ACH Customer Deposit."""
     from ledger_agent.core.parsers.bank_x4_checking import BankX4CheckingParser  # noqa: PLC0415
-    jan_pdfs = [p for p in CHECKING_PDFS if "01" in p.stem or "Jan" in p.stem or "01-31" in p.stem or "2026-01" in p.stem]
+    jan_pdfs = [p for p in CHECKING_PDFS if "-01-" in p.stem or "Jan" in p.stem or "01-31" in p.stem or "2026-01" in p.stem]
     if not jan_pdfs:
         # Fall back: first PDF alphabetically is Jan
         jan_pdfs = CHECKING_PDFS[:1]
@@ -100,7 +103,7 @@ def test_jan_2026_checking_has_ach_deposit() -> None:
 def test_feb_2026_checking_has_both_deposits() -> None:
     """Feb 2026 checking must contain both the $2,400 ACH deposit and the $600 Ext Tfr deposit."""
     from ledger_agent.core.parsers.bank_x4_checking import BankX4CheckingParser  # noqa: PLC0415
-    feb_pdfs = [p for p in CHECKING_PDFS if "02" in p.stem or "Feb" in p.stem or "02-28" in p.stem or "2026-02" in p.stem]
+    feb_pdfs = [p for p in CHECKING_PDFS if "-02-" in p.stem or "Feb" in p.stem or "02-28" in p.stem or "2026-02" in p.stem]
     if not feb_pdfs:
         pytest.skip("Feb 2026 checking PDF not found")
     result = BankX4CheckingParser().parse(feb_pdfs[0])
