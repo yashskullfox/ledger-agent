@@ -81,8 +81,10 @@ class TestReconcileComputedVsCsv:
             total_disallowed=Decimal("500.00"),
         )
 
-        import ledger_agent.core.accounting.wash_sale as ws_mod
-        monkeypatch.setattr(ws_mod, "compute_from_ledger", lambda eid, yr: mock_report)
+        monkeypatch.setattr(
+            "ledger_agent.core.accounting.wash_sale.compute_from_ledger",
+            lambda eid, yr: mock_report,
+        )
 
         res = reconcile_computed_vs_csv("e1", 2026, sample_csv)
         assert res["csv_present"] is True
@@ -115,8 +117,10 @@ class TestReconcileComputedVsCsv:
             total_disallowed=Decimal("0"),
         )
 
-        import ledger_agent.core.accounting.wash_sale as ws_mod
-        monkeypatch.setattr(ws_mod, "compute_from_ledger", lambda eid, yr: mock_report)
+        monkeypatch.setattr(
+            "ledger_agent.core.accounting.wash_sale.compute_from_ledger",
+            lambda eid, yr: mock_report,
+        )
 
         res = reconcile_computed_vs_csv("e1", 2026, tmp_path / "missing.csv")
         assert res["csv_present"] is False
