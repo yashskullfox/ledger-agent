@@ -185,13 +185,15 @@ class BrokerZParser(BaseStatementParser):
                             clean_num = nums[3].replace(",", "").replace("–", "-")
                             gross_nav = Decimal(clean_num)
                         except Exception:
-                            pass
+                            # Keep fallback parsing non-fatal; caller handles missing NAV.
+                            gross_nav = None
                     elif nums:
                         try:
                             clean_num = nums[-1].replace(",", "").replace("–", "-")
                             gross_nav = Decimal(clean_num)
                         except Exception:
-                            pass
+                            # Keep fallback parsing non-fatal; caller handles missing NAV.
+                            gross_nav = None
 
         try:
             from ledger_agent.core.audit import audit as _audit
