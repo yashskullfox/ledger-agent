@@ -20,10 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,18 +34,16 @@ if str(_ROOT) not in sys.path:
 from ledger_agent.core.privacy import (
     PrivacyFilter,
     PrivacyLeakError,
-    RedactionMap,
     _aba_valid,
     _detect_credit_cards,
     _luhn_valid,
     _reset_session,
     audit_egress,
+    privacy_status,
     redact,
     unredact,
     unredact_result,
-    privacy_status,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +62,7 @@ def default_egress_mode(monkeypatch):
     monkeypatch.delenv("FI_AI_EGRESS_MODE_ACK", raising=False)
     monkeypatch.delenv("FI_PRIVACY_ENTITY_NAME", raising=False)
     # Force config to re-read env (config uses module-level reads)
-    import importlib, config as _cfg
+    import config as _cfg
     _cfg.AI_EGRESS_MODE = "redact"
     _cfg.AI_EGRESS_MODE_ACK = ""
     _cfg.PRIVACY_ENTITY_NAME = ""

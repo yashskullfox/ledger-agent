@@ -289,7 +289,7 @@ class TestParserGapContract:
         assert gap.source_file == "/tmp/stmt.pdf"
 
     def test_parser_gap_is_subclass_of_parser_error(self):
-        from ledger_agent.core.exceptions import ParserGap, FinancialIntelligenceError
+        from ledger_agent.core.exceptions import FinancialIntelligenceError, ParserGap
         assert issubclass(ParserGap, FinancialIntelligenceError)
 
     def test_aggregation_gap_contract(self):

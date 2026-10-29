@@ -10,16 +10,15 @@ import json
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional
 
-from ledger_agent.core.accounting.balance_sheet import BalanceSheet
 from config import EXPORTS_DIR, REPORT_DATE_FMT
+from ledger_agent.core.accounting.balance_sheet import BalanceSheet
+from ledger_agent.core.config import NOT_TAX_ADVICE_DISCLAIMER
 from ledger_agent.core.models import COAType, Transaction
 
 try:
     from rich import box
     from rich.console import Console
-    from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
 
@@ -28,7 +27,7 @@ except ImportError:
     _RICH = False
 
 try:
-    import pandas as pd
+    import pandas as pd  # noqa: F401
 
     _PANDAS = True
 except ImportError:
@@ -99,7 +98,7 @@ def _render_bs_rich(bs: BalanceSheet, show_income: bool) -> None:
 
     for section_label, coa_type, sec_style in sections:
         tbl.add_row(Text(f" {section_label}", style=sec_style), "")
-        lines = [l for l in bs.lines if l.coa_type == coa_type]
+        lines = [line for line in bs.lines if line.coa_type == coa_type]
         for line in lines:
             indent = "  " * line.indent
             label = f"{indent}{line.label}"
@@ -132,7 +131,7 @@ def _render_bs_rich(bs: BalanceSheet, show_income: bool) -> None:
                       f"Equity ${bs.total_equity:,.2f}")
     else:
         console.print(f"  [{C_UNBAL}]⚠ OUT OF BALANCE  Difference: ${diff:,.2f}[/{C_UNBAL}]")
-    console.print()
+    console.print(f"  [dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
 
 
 def _render_bs_plain(bs: BalanceSheet, show_income: bool) -> None:
@@ -141,15 +140,15 @@ def _render_bs_plain(bs: BalanceSheet, show_income: bool) -> None:
     print(f"  {bs.entity_name}  —  Balance Sheet  —  {bs.period}")
     print("=" * w)
     sections = [
-        ("ASSETS", [l for l in bs.lines if l.coa_type == COAType.ASSET]),
-        ("LIABILITIES", [l for l in bs.lines if l.coa_type == COAType.LIABILITY]),
+        ("ASSETS", [line for line in bs.lines if line.coa_type == COAType.ASSET]),
+        ("LIABILITIES", [line for line in bs.lines if line.coa_type == COAType.LIABILITY]),
     ]
     if show_income:
         sections += [
-            ("REVENUE", [l for l in bs.lines if l.coa_type == COAType.REVENUE]),
-            ("EXPENSES", [l for l in bs.lines if l.coa_type == COAType.EXPENSE]),
+            ("REVENUE", [line for line in bs.lines if line.coa_type == COAType.REVENUE]),
+            ("EXPENSES", [line for line in bs.lines if line.coa_type == COAType.EXPENSE]),
         ]
-    sections += [("MEMBERS' EQUITY", [l for l in bs.lines if l.coa_type == COAType.EQUITY])]
+    sections += [("MEMBERS' EQUITY", [line for line in bs.lines if line.coa_type == COAType.EQUITY])]
 
     for sec_label, lines in sections:
         print(f"\n  {sec_label}")
@@ -164,11 +163,12 @@ def _render_bs_plain(bs: BalanceSheet, show_income: bool) -> None:
     print(f"  {bal_label}   Assets: ${bs.total_assets:,.2f}  =  "
           f"Liabilities: ${bs.total_liabilities:,.2f}  +  "
           f"Equity: ${bs.total_equity:,.2f}")
+    print(f"\n  ⚠️  {NOT_TAX_ADVICE_DISCLAIMER}\n")
     print("=" * w)
 
 
 def render_transactions(
-        transactions: List[Transaction],
+        transactions: list[Transaction],
         title: str = "Transactions",
         show_coa: bool = True,
 ) -> None:
@@ -228,11 +228,13 @@ def export_balance_sheet_csv(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> P
         writer.writerow(["Total Equity", str(bs.total_equity)])
         writer.writerow(["Net Income", str(bs.net_income)])
         writer.writerow(["Balanced?", "YES" if bs.is_balanced else "NO"])
+        writer.writerow([])
+        writer.writerow(["Disclaimer", NOT_TAX_ADVICE_DISCLAIMER])
     return fname
 
 
 def export_transactions_csv(
-        transactions: List[Transaction],
+        transactions: list[Transaction],
         period: str,
         out_dir: Path = EXPORTS_DIR,
 ) -> Path:
@@ -257,7 +259,7 @@ def export_transactions_csv(
 
 
 def export_balance_sheet_excel(bs: BalanceSheet,
-                               out_dir: Path = EXPORTS_DIR) -> Optional[Path]:
+                               out_dir: Path = EXPORTS_DIR) -> Path | None:
     if not _OPENPYXL:
         print("openpyxl not installed – skipping Excel export")
         return None
@@ -302,7 +304,7 @@ def export_balance_sheet_excel(bs: BalanceSheet,
     ]
     for sec_label, coa_type in sections:
         _add_header(sec_label)
-        for line in (l for l in bs.lines if l.coa_type == coa_type):
+        for line in (line_item for line_item in bs.lines if line_item.coa_type == coa_type):
             indent = "  " * line.indent
             row_n = ws.max_row + 1
             ws.cell(row_n, 1, line.coa_code)
@@ -340,16 +342,17 @@ def export_balance_sheet_json(bs: BalanceSheet,
         "total_equity": str(bs.total_equity),
         "net_income": str(bs.net_income),
         "is_balanced": bs.is_balanced,
+        "disclaimer": NOT_TAX_ADVICE_DISCLAIMER,
         "lines": [
             {
-                "code": l.coa_code,
-                "label": l.label,
-                "type": l.coa_type.value,
-                "amount": str(l.amount),
-                "is_subtotal": l.is_subtotal,
-                "indent": l.indent,
+                "code": line_entry.coa_code,
+                "label": line_entry.label,
+                "type": line_entry.coa_type.value,
+                "amount": str(line_entry.amount),
+                "is_subtotal": line_entry.is_subtotal,
+                "indent": line_entry.indent,
             }
-            for l in bs.lines
+            for line_entry in bs.lines
         ],
     }
     fname.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -376,6 +379,7 @@ def export_coverage_json(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> Path:
         "skipped_count": len(bs.coverage["skipped_snapshots"]),
         "consumed_snapshots": bs.coverage["consumed_snapshots"],
         "skipped_snapshots": bs.coverage["skipped_snapshots"],
+        "disclaimer": NOT_TAX_ADVICE_DISCLAIMER,
     }
     fname.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return fname
@@ -432,6 +436,7 @@ def render_tax_estimate(est) -> None:  # type: ignore[override]
         console.print()
         for note in est.notes:
             console.print(f"  [dim]{note}[/dim]")
+        console.print(f"\n  [dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
 
     except ImportError:
         print(f"\n=== Tax Estimate – {est.entity_name} ({est.period}) ===")
@@ -442,3 +447,4 @@ def render_tax_estimate(est) -> None:  # type: ignore[override]
             print(f"  {pmt.quarter}  {pmt.due_date}: ${pmt.amount:,.2f}")
         for note in est.notes:
             print(f"  {note}")
+        print(f"\n⚠️  {NOT_TAX_ADVICE_DISCLAIMER}\n")

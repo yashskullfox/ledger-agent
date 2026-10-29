@@ -27,6 +27,8 @@ import os
 import sys
 from pathlib import Path
 
+from config import NOT_TAX_ADVICE_DISCLAIMER
+
 # ---------------------------------------------------------------------------
 # Bootstrap sys.path so the package works when installed from source checkout
 # ---------------------------------------------------------------------------
@@ -107,6 +109,7 @@ def cmd_balance(args: list[str]) -> int:
     try:
         bs = api.generate_balance_sheet(year, period=period)
         render_balance_sheet(bs)
+        _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
         return 0
     except ValueError as e:
         _print(f"[red]{e}[/red]")
@@ -132,6 +135,7 @@ def cmd_tax(args: list[str]) -> int:
         f = api.generate_form_1065(year)
         raw = TaxEstimator(entity.name, year).estimate_from_net_income(f.ordinary_business_income)
         render_tax_estimate(raw)
+        _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
         return 0
     except ValueError as e:
         _print(f"[red]{e}[/red]")
@@ -153,6 +157,7 @@ def cmd_form1065(args: list[str]) -> int:
         _print(f"  Net Short-Term Cap. Gain:  ${f.net_short_term_capital_gain:>12,.2f}")
         _print(f"  Dividend Income:           ${f.dividend_income:>12,.2f}")
         _print(f"  Interest Income:           ${f.interest_income:>12,.2f}")
+        _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
         return 0
     except ValueError as e:
         _print(f"[red]{e}[/red]")
@@ -178,6 +183,7 @@ def cmd_k1(args: list[str]) -> int:
         _print(f"  Ordinary Income/Loss:      ${k1.ordinary_income_loss:>12,.2f}")
         _print(f"  Net Short-Term Cap. Gain:  ${k1.net_stcg:>12,.2f}")
         _print(f"  Dividend Income:           ${k1.dividend_income:>12,.2f}")
+        _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
         return 0
     except ValueError as e:
         _print(f"[red]{e}[/red]")
@@ -224,20 +230,20 @@ def cmd_summary(args: list[str]) -> int:
     _print(f"  Health:               [{bs_color}]{bs['status'].upper()}[/{bs_color}]"
            + (f" ({bs['skipped_accounts']} account(s) missing snapshots)"
               if bs["skipped_accounts"] else ""))
-    _print(f"\n[bold]PTE / Tax:[/bold]")
+    _print("\n[bold]PTE / Tax:[/bold]")
     pte_color = "yellow" if pte["status"] == "likely_due" else "green"
     _print(f"  PTE status:           [{pte_color}]{pte['status'].upper()}[/{pte_color}]"
            f"  (annual est: {float(pte['annual_estimate']):,.2f})")
     if pte["status"] == "likely_due":
         _print(f"  Next payment due:     {pte['next_due']}")
-    _print(f"\n[bold]Confidence:[/bold]")
+    _print("\n[bold]Confidence:[/bold]")
     for flag in s.confidence_flags:
         flag_color = "red" if flag.startswith("NOT_") else "green"
         _print(f"  [{flag_color}]{flag}[/{flag_color}]")
-    _print(f"\n[bold]Next actions:[/bold]")
+    _print("\n[bold]Next actions:[/bold]")
     for action in s.next_actions:
         _print(f"  • {action}")
-    _print("")
+    _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
     return 0
 
 
@@ -257,6 +263,7 @@ def cmd_reconcile(args: list[str]) -> int:
         if r.issues:
             for issue in r.issues:
                 _print(f"  ⚠  {issue}", "yellow")
+        _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
         return 0 if r.clean else 1
     except ValueError as e:
         _print(f"[red]{e}[/red]")

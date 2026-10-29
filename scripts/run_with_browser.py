@@ -54,9 +54,7 @@ import argparse
 import html
 import json
 import logging
-import os
 import re
-import socket
 import sys
 import threading
 import time
@@ -66,7 +64,7 @@ from decimal import Decimal
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 # Make sure we can import the ledger_agent package no matter where this
@@ -84,7 +82,7 @@ log = logging.getLogger("run_with_browser")
 
 # ── Pipeline orchestration ────────────────────────────────────────────────────
 
-def _default_year() -> Optional[int]:
+def _default_year() -> int | None:
     """Best-effort: pick the most recent year-shaped folder under
     data/statements/.  Returns None if no year folder is found."""
     if not DEFAULT_STATEMENTS_ROOT.is_dir():
@@ -112,7 +110,7 @@ def _coerce(value: Any) -> Any:
     return value
 
 
-def run_pipeline(statements_dir: Path, fiscal_year: int) -> Dict[str, Any]:
+def run_pipeline(statements_dir: Path, fiscal_year: int) -> dict[str, Any]:
     """Run the full pipeline and return a JSON-serialisable result dict.
 
     Uses the canonical public API:
@@ -192,7 +190,7 @@ form input[type=text], form input[type=number] {
 """
 
 
-def _form_page(error: Optional[str] = None,
+def _form_page(error: str | None = None,
                prefill_dir: str = "",
                prefill_year: str = "") -> str:
     default_year = _default_year()
@@ -228,7 +226,7 @@ def _fmt(v: Any) -> str:
     return html.escape(str(v))
 
 
-def _results_page(result: Dict[str, Any]) -> str:
+def _results_page(result: dict[str, Any]) -> str:
     bs = result["balance_sheet"]
     f = result["form_1065"]
     r = result["reconcile"]
@@ -320,7 +318,7 @@ class _RunnerHandler(BaseHTTPRequestHandler):
 
     # The server instance carries shared state (last activity, optional
     # pre-baked result for AI-agent browser mode).
-    server: "_RunnerServer"  # type: ignore[assignment]
+    server: _RunnerServer  # type: ignore[assignment]
 
     def _send_html(self, status: int, body: str) -> None:
         encoded = body.encode("utf-8")
@@ -393,11 +391,11 @@ class _RunnerHandler(BaseHTTPRequestHandler):
 class _RunnerServer(ThreadingHTTPServer):
     """ThreadingHTTPServer with idle-shutdown support."""
 
-    def __init__(self, addr: Tuple[str, int], handler):
+    def __init__(self, addr: tuple[str, int], handler):
         super().__init__(addr, handler)
-        self.preloaded_result: Optional[Dict[str, Any]] = None
+        self.preloaded_result: dict[str, Any] | None = None
         self._last_activity = time.monotonic()
-        self._shutdown_timer: Optional[threading.Timer] = None
+        self._shutdown_timer: threading.Timer | None = None
         self._lock = threading.Lock()
 
     def touch(self) -> None:
@@ -432,7 +430,7 @@ class _RunnerServer(ThreadingHTTPServer):
         t.start()
 
 
-def _make_server(preloaded: Optional[Dict[str, Any]] = None) -> _RunnerServer:
+def _make_server(preloaded: dict[str, Any] | None = None) -> _RunnerServer:
     server = _RunnerServer(("127.0.0.1", 0), _RunnerHandler)
     server.preloaded_result = preloaded
     return server
@@ -490,7 +488,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     args = _build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,

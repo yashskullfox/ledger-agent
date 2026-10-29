@@ -321,6 +321,7 @@ class TestPositionTypeContract:
 
     def test_position_defaults_to_equity(self):
         from decimal import Decimal
+
         from ledger_agent.core.models import Position, PositionType
         pos = Position(
             account_id="", symbol="TEST", name="Test Co",

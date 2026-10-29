@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ledger_agent.core.intelligence.ai_backend.base import AIBackend
 
@@ -30,12 +30,12 @@ try:
     from private.institutions import BANK_X as _BANK_X_CFG  # type: ignore[import-not-found]
 except ImportError:
     _BANK_X_CFG = {}
-_INTRA_XFER_KEYWORDS: List[str] = _BANK_X_CFG.get("intra_xfer_keywords", [])
+_INTRA_XFER_KEYWORDS: list[str] = _BANK_X_CFG.get("intra_xfer_keywords", [])
 
 # Each tuple: (regex_pattern, coa_code, coa_name, is_transfer)
 # Listed most-specific first.
 
-_RULES: List[Tuple[str, str, str, bool]] = [
+_RULES: list[tuple[str, str, str, bool]] = [
     # Codes and names match _DEFAULT_COA in core/database.py exactly.
     # Listed most-specific first so the first match wins.
 
@@ -112,7 +112,7 @@ _COMPILED_RULES = [
     for pat, code, name, xfer in _RULES
 ]
 
-_usage_counts: Dict[str, int] = {}
+_usage_counts: dict[str, int] = {}
 _COMMIT_THRESHOLDS = {3, 10, 25}
 
 
@@ -127,8 +127,8 @@ class LocalBackend(AIBackend):
             self,
             description: str,
             amount: float,
-            context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         desc_up = description.upper()
 
         # 1. Keyword rules
@@ -146,9 +146,10 @@ class LocalBackend(AIBackend):
         # 2. rapidfuzz fuzzy match against known vendor names
         try:
             from rapidfuzz import fuzz, process
+
             from config import AUTO_CLASSIFY_THRESHOLD
 
-            _VENDORS = {
+            _vendors = {
                 "INCFILE": ("5071", "Legal & Professional Fees", False),
                 "QUICKBOOKS": ("5010", "Software & Subscriptions", False),
                 "GOOGLE": ("5010", "Software & Subscriptions", False),
@@ -157,13 +158,13 @@ class LocalBackend(AIBackend):
                 "AMAZON": ("5061", "Office & Shipping Supplies", False),
             }
             best = process.extractOne(
-                desc_up, list(_VENDORS.keys()),
+                desc_up, list(_vendors.keys()),
                 scorer=fuzz.WRatio,
                 score_cutoff=AUTO_CLASSIFY_THRESHOLD,
             )
             if best:
                 vendor, score, _ = best
-                code, name, xfer = _VENDORS[vendor]
+                code, name, xfer = _vendors[vendor]
                 return {
                     "coa_code": code,
                     "coa_name": name,
@@ -196,7 +197,7 @@ class LocalBackend(AIBackend):
             pattern: str,
             coa_code: str,
             confirmed_count: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         # Generate simple variations: strip numbers, add wildcards
         cleaned = re.sub(r"\d+", "", pattern).strip()
         aliases = [cleaned] if cleaned != pattern else []

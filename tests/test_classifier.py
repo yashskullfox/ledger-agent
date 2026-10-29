@@ -75,8 +75,8 @@ class TestClassifyTransaction:
         assert result.coa_code == "5010"
 
     def test_auto_classifies_known_vendor(self, coa_entries, db):
-        from ledger_agent.core.models import Transaction, TransactionType
         from ledger_agent.core.intelligence.classifier import classify_transaction
+        from ledger_agent.core.models import Transaction, TransactionType
         txn = Transaction(
             account_id="test",
             date=date(2025, 1, 9),
@@ -91,8 +91,8 @@ class TestClassifyTransaction:
         assert result.coa_code is not None
 
     def test_unclassified_gets_sentinel(self, coa_entries, db):
-        from ledger_agent.core.models import Transaction, TransactionType
         from ledger_agent.core.intelligence.classifier import classify_transaction
+        from ledger_agent.core.models import Transaction, TransactionType
         txn = Transaction(
             account_id="test",
             date=date(2025, 1, 9),

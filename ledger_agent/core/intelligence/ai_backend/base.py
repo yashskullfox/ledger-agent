@@ -16,7 +16,7 @@ Every backend must implement three methods:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class AIBackend(ABC):
@@ -32,8 +32,8 @@ class AIBackend(ABC):
             self,
             description: str,
             amount: float,
-            context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Suggest a COA classification for a transaction.
 
@@ -59,7 +59,7 @@ class AIBackend(ABC):
             pattern: str,
             coa_code: str,
             confirmed_count: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Suggest improvements to an existing classification memory rule.
 

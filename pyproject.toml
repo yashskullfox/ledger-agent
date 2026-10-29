@@ -81,7 +81,7 @@ Issues = "https://github.com/your-org/ledger-agent/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["tests*", "data*", ".venv*"]
+exclude = ["tests*", "data*", ".venv*", ".agents*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -97,8 +97,17 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = [".agents"]
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]
-ignore = ["E501"]
+ignore = ["E501", "N818"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ledger_agent"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"

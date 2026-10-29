@@ -30,7 +30,8 @@ def _seed(db_path):
     con.execute("INSERT INTO transactions(id,account_id,date,description,amount,transaction_type,coa_code,statement_period,is_transfer,created_at) VALUES('t1','a1','2024-03-01','USATAXPYMT','-238.68','debit','5050','2024-03',0,'2024-03-01')")
     # Correctly classified: software cost coded 5010
     con.execute("INSERT INTO transactions(id,account_id,date,description,amount,transaction_type,coa_code,statement_period,is_transfer,created_at) VALUES('t2','a1','2024-03-02','GitHub subscription','-19.00','debit','5010','2024-03',0,'2024-03-02')")
-    con.commit(); con.close()
+    con.commit()
+    con.close()
 
 
 class TestFindMisclassified:

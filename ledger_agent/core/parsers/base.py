@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Optional
 
 from ledger_agent.core.models import ParsedStatement
 
@@ -52,7 +51,7 @@ class BaseStatementParser(ABC):
         return "\n".join(pages)
 
     @staticmethod
-    def parse_amount(raw: str) -> Optional[Decimal]:
+    def parse_amount(raw: str) -> Decimal | None:
         """
         Convert a raw string amount such as "~$X,XXX" or "(XXX.XX)" to Decimal.
         Parentheses denote negative values (accounting convention).
@@ -69,25 +68,27 @@ class BaseStatementParser(ABC):
             return None
 
     @staticmethod
-    def parse_date(raw: str, year: Optional[int] = None) -> Optional[date]:
+    def parse_date(raw: str, year: int | None = None) -> date | None:
         """
-        Parse common date formats: MM/DD, MM/DD/YYYY, MM/DD/YY.
+        Parse common date formats: MM/DD, MM/DD/YYYY, MM/DD/YY, YYYY-MM-DD.
         If only MM/DD is supplied, `year` is used as the year.
         """
         if not raw:
             return None
         raw = raw.strip()
-        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%m/%d", "%Y-%m-%d"):
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
             try:
-                d = date(1900, 1, 1)  # placeholder
-                import datetime as _dt
-                d = _dt.datetime.strptime(raw, fmt).date()
-                if fmt == "%m/%d" and year:
-                    d = d.replace(year=year)
-                return d
+                return datetime.strptime(raw, fmt).date()
             except ValueError:
                 continue
-        return None
+
+        target_year = year if year is not None else 2000
+        if target_year < 100:
+            target_year += 2000
+        try:
+            return datetime.strptime(f"{raw}/{target_year}", "%m/%d/%Y").date()
+        except ValueError:
+            return None
 
     @staticmethod
     def period_from_date(d: date) -> str:

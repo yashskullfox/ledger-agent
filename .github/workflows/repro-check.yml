@@ -64,6 +64,11 @@ jobs:
           pip install --require-hashes -r requirements.lock \
             || pip install -r requirements.txt
 
+      - name: Lint with Ruff
+        run: |
+          pip install "ruff>=0.16.0"
+          ruff check .
+
       - name: Set SOURCE_DATE_EPOCH to commit time
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 

@@ -8,10 +8,14 @@ from decimal import Decimal
 import pytest
 
 from tests.conftest import (
-    BANK_X_SAMPLE_TEXT, BROKER_Y_SAMPLE_TEXT,
-    BANK_X3_SAMPLE_TEXT, BANK_X2_SAMPLE_TEXT, BROKER_Z_SAMPLE_TEXT,
-    BANK_X4_CHECKING_SAMPLE_TEXT, BANK_X4_CC_SAMPLE_TEXT,
+    BANK_X2_SAMPLE_TEXT,
+    BANK_X3_SAMPLE_TEXT,
+    BANK_X4_CC_SAMPLE_TEXT,
+    BANK_X4_CHECKING_SAMPLE_TEXT,
     BANK_X_REAL_AVAILABLE,
+    BANK_X_SAMPLE_TEXT,
+    BROKER_Y_SAMPLE_TEXT,
+    BROKER_Z_SAMPLE_TEXT,
 )
 
 
@@ -80,8 +84,8 @@ class TestParserRegistry:
         assert cls is None
 
     def test_detect_or_raise_unknown_raises(self):
-        from ledger_agent.core.parsers.registry import ParserRegistry
         from ledger_agent.core.exceptions import ParserNotFoundError
+        from ledger_agent.core.parsers.registry import ParserRegistry
         with pytest.raises(ParserNotFoundError):
             ParserRegistry.detect_or_raise("Unknown bank text")
 
@@ -274,9 +278,9 @@ class TestMCPServerSmoke:
         return json.loads(line)
 
     def test_initialize(self, tmp_path):
+        import os
         import subprocess
         import sys
-        import os
 
         env = os.environ.copy()
         env["FI_DB_PATH"] = str(tmp_path / "mcp_test.db")
@@ -299,9 +303,9 @@ class TestMCPServerSmoke:
             proc.wait(timeout=5)
 
     def test_tools_list(self, tmp_path):
+        import os
         import subprocess
         import sys
-        import os
 
         env = os.environ.copy()
         env["FI_DB_PATH"] = str(tmp_path / "mcp_test.db")
@@ -331,9 +335,9 @@ class TestMCPServerSmoke:
             proc.wait(timeout=5)
 
     def test_list_periods_empty_db(self, tmp_path):
+        import os
         import subprocess
         import sys
-        import os
 
         env = os.environ.copy()
         env["FI_DB_PATH"] = str(tmp_path / "mcp_test.db")
