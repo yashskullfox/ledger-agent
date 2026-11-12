@@ -27,11 +27,12 @@ All four forms are built from this single repository and produce **identical num
 git clone https://github.com/your-org/ledger-agent.git
 cd ledger-agent
 ./run.sh scan ~/Downloads/statements/     # coverage wizard + batch import
-./run.sh balance 2024                     # year-end balance sheet
-./run.sh form1065 2024                    # Form 1065 partnership return
-./run.sh k1 2024 --partner partner_1      # Schedule K-1
-./run.sh tax 2024                         # quarterly tax estimate
-./run.sh reconcile 2024                   # inter-account reconciliation
+./run.sh balance 2025                     # year-end balance sheet
+./run.sh summary 2025                     # high-level customer summary
+./run.sh form1065 2025                    # Form 1065 partnership return
+./run.sh k1 2025 --partner partner_1      # Schedule K-1
+./run.sh tax 2025                         # quarterly tax estimate
+./run.sh reconcile 2025                   # inter-account reconciliation
 
 # Windows
 run.bat scan C:\Users\you\statements
@@ -67,18 +68,19 @@ No Python, Maven, or any other dependency needed on the user's machine.
 
 ---
 
-## Six Core Operations
+## Seven Core Operations
 
-All four forms expose the same six operations (mapped to `ledger_agent.core.api`):
+All four forms expose the same seven operations (mapped to `ledger_agent.core.api`):
 
-| Operation             | CLI         | MCP tool                 | Java bridge                     |
-|-----------------------|-------------|--------------------------|---------------------------------|
-| Import PDF statements | `scan`      | `import_statements`      | `bridge.importStatements()`     |
-| Balance sheet         | `balance`   | `generate_balance_sheet` | `bridge.generateBalanceSheet()` |
-| Form 1065             | `form1065`  | `generate_form_1065`     | `bridge.generateForm1065()`     |
-| Schedule K-1          | `k1`        | `generate_k1`            | `bridge.generateK1()`           |
-| PTE tax estimate      | `tax`       | `pte_estimate`           | `bridge.pteEstimate()`          |
-| Reconciliation        | `reconcile` | `reconcile_year`         | `bridge.reconcileYear()`        |
+| Operation              | CLI         | MCP tool                 | Java bridge                      |
+|------------------------|-------------|--------------------------|----------------------------------|
+| Import PDF statements  | `scan`      | `import_statements`      | `bridge.importStatements()`      |
+| Balance sheet          | `balance`   | `generate_balance_sheet` | `bridge.generateBalanceSheet()`  |
+| Form 1065              | `form1065`  | `generate_form_1065`     | `bridge.generateForm1065()`      |
+| Schedule K-1           | `k1`        | `generate_k1`            | `bridge.generateK1()`            |
+| PTE tax estimate       | `tax`       | `pte_estimate`           | `bridge.pteEstimate()`           |
+| Reconciliation         | `reconcile` | `reconcile_year`         | `bridge.reconcileYear()`         |
+| Customer Summary       | `summary`   | `build_customer_summary` | `bridge.buildCustomerSummary()`  |
 
 ---
 
@@ -88,11 +90,12 @@ All four forms expose the same six operations (mapped to `ledger_agent.core.api`
 ledger <command> [args] [flags]
 
 Commands
-  scan   [FOLDER]           Coverage wizard + batch PDF import
-  balance [YEAR]            Year-end balance sheet (default: 2024)
-  form1065 [YEAR]           Form 1065 partnership return summary
-  k1 [YEAR]                 Schedule K-1 (--partner partner_1|partner_2)
-  tax    [YEAR]             Quarterly PTE tax estimate
+  scan      [FOLDER]        Coverage wizard + batch PDF import
+  balance   [YEAR]          Year-end balance sheet (default: 2025)
+  summary   [YEAR]          High-level customer-readable summary
+  form1065  [YEAR]          Form 1065 partnership return summary
+  k1        [YEAR]          Schedule K-1 (--partner partner_1|partner_2)
+  tax       [YEAR]          Quarterly PTE tax estimate
   reconcile [YEAR]          Inter-account transfer reconciliation
 
 Aliases: s b f1 k t r
@@ -103,14 +106,14 @@ Flags
   --partner partner_1|partner_2      Partner for k1 command
 
 Legacy pass-through (main.py)
-  mcp  context  classify  memory  summary  setup  import  transactions
+  mcp  context  classify  memory  setup  import  transactions
 ```
 
 ---
 
 ## MCP Tools (Form C)
 
-Six tools, one per core operation. Privacy firewall (R-46) applied to every response:
+Seven tools, one per core operation. Privacy firewall (R-46) applied to every response:
 
 | Tool                     | Description                                          |
 |--------------------------|------------------------------------------------------|
@@ -120,6 +123,7 @@ Six tools, one per core operation. Privacy firewall (R-46) applied to every resp
 | `generate_k1`            | Schedule K-1 for `partner_1` or `partner_2`.           |
 | `pte_estimate`           | Quarterly estimated tax payments + due dates.        |
 | `reconcile_year`         | Inter-account transfer reconciliation.               |
+| `build_customer_summary` | High-level summary (W27 contract).                   |
 
 Pass `_meta: { allow_pii: true }` in a tool call to bypass the PII redaction filter.
 
@@ -137,6 +141,7 @@ Pass `_meta: { allow_pii: true }` in a tool call to bypass the PII redaction fil
 | `FI_GEMINI_API_KEY`             | —                       | Required if backend=gemini                        |
 | `FI_AUTO_CLASSIFY_THRESHOLD`    | `85`                    | Fuzzy match score for auto-classification         |
 | `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65`                  | Escalation threshold to remote AI                 |
+| `FI_LOG_LEVEL`                  | `INFO`                  | `DEBUG` / `INFO` / `WARNING` / `ERROR`            |
 | `FI_SE_TAX_RATE`                | `0.153`                 | Self-employment tax rate                          |
 | `FI_FED_INCOME_RATE`            | `0.22`                  | Federal income tax estimate rate                  |
 | `FI_STATE_TAX_RATE`             | `0.05`                  | Missouri PTE tax rate                             |
@@ -150,7 +155,7 @@ Pass `_meta: { allow_pii: true }` in a tool call to bypass the PII redaction fil
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Full suite (207 tests)
+# Full suite (514+ tests)
 pytest
 
 # Architecture purity (zero CLI/UI imports in core)
@@ -183,6 +188,29 @@ decorate with `@ParserRegistry.register`. The parser is auto-discovered — no o
 
 ---
 
+## Project Structure
+
+```
+ledger-agent/
+├── run.sh                    Bootstrap launcher (Unix)
+├── pyproject.toml            Root package metadata (v2.1.0)
+├── ledger_agent/
+│   ├── core/                 Form A — Pure core library
+│   │   ├── api.py            Seven public functions (single source of truth)
+│   │   ├── parsers/          PDF parser plugins
+│   │   ├── intelligence/     Classification and AI backend
+│   │   └── accounting/       GAAP building blocks
+│   ├── cli/                  Form B — Typer CLI
+│   ├── mcp/                  Form C — MCP server
+│   └── bridge/               Java↔Python JSON-RPC bridge
+├── webapp/                   Form D — Spring Boot webapp
+└── tests/                    Integration & unit tests
+```
+
+See [STRUCTURE.md](STRUCTURE.md) for the full architecture guide.
+
+---
+
 ## Security & Privacy
 
 - **R-46 PII firewall** — all MCP egress passes through `core/privacy.py`; account numbers, SSNs,
@@ -194,25 +222,9 @@ decorate with `@ParserRegistry.register`. The parser is auto-discovered — no o
 
 ---
 
-## Release Pipeline
-
-Every merge to `main` triggers `.github/workflows/release.yml` which builds all four artifacts,
-runs the CPA parity gate, and publishes a tagged GitHub Release:
-
-| Artifact                              | Form |
-|---------------------------------------|------|
-| `ledger-agent-core-vX.Y.Z.zip`        | A    |
-| `ledger-agent-cli-vX.Y.Z.tar.gz`      | B    |
-| `ledger-agent-mcp-vX.Y.Z.zip`         | C    |
-| `ledger-agent-webapp-vX.Y.Z-{os}.jar` | D    |
-
-Semver is computed automatically from conventional commits since the last tag.
-
----
-
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](LICENSE).
 
 > This software is for personal financial organization only. It is not a substitute for
 > professional accounting, tax, or investment advice. Always consult a qualified CPA.

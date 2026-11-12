@@ -24,11 +24,13 @@ import re
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ledger_agent.core.models import (
-    AccountSnapshot, ParsedStatement,
-    StatementType, Transaction, TransactionType,
+    AccountSnapshot,
+    ParsedStatement,
+    StatementType,
+    Transaction,
+    TransactionType,
 )
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
@@ -94,7 +96,7 @@ class BankX4CreditCardParser(BaseStatementParser):
             source_file=str(pdf_path),
         )
 
-    def _extract_period(self, lines: List[str]) -> Tuple[str, int]:
+    def _extract_period(self, lines: list[str]) -> tuple[str, int]:
         for line in lines:
             m = re.search(r"Closing Date[:\s]*(\d{2}/\d{2}/(\d{4}))", line, re.IGNORECASE)
             if m:
@@ -110,7 +112,7 @@ class BankX4CreditCardParser(BaseStatementParser):
                     return self.period_from_date(d), d.year
         return "0000-00", 0
 
-    def _extract_account_number(self, lines: List[str]) -> str:
+    def _extract_account_number(self, lines: list[str]) -> str:
         for line in lines:
             m = re.search(r"Account Ending in[:\s#*]+(\d{4})\s*$", line, re.IGNORECASE)
             if m:
@@ -120,7 +122,7 @@ class BankX4CreditCardParser(BaseStatementParser):
                 return m2.group(1)
         return "0000"
 
-    def _extract_entity_name(self, lines: List[str]) -> str:
+    def _extract_entity_name(self, lines: list[str]) -> str:
         for line in lines:
             stripped = line.strip()
             if re.match(r"^[A-Z][A-Z &,]+(?:LLC|INC|CORP|CO|LTD)$", stripped):
@@ -130,7 +132,7 @@ class BankX4CreditCardParser(BaseStatementParser):
                 return m.group(1).strip()
         return "UNKNOWN ENTITY"
 
-    def _extract_new_balance(self, full_text: str) -> Optional[Decimal]:
+    def _extract_new_balance(self, full_text: str) -> Decimal | None:
         m = re.search(r"New Balance[=\s]*\$?([\d,]+\.\d{2})", full_text, re.IGNORECASE)
         return self.parse_amount(m.group(1)) if m else None
 
@@ -139,19 +141,19 @@ class BankX4CreditCardParser(BaseStatementParser):
     )
 
     def _parse_transactions(
-            self, lines: List[str], year: int, period: str,
-    ) -> Tuple[List[Transaction], List[Transaction], List[Transaction]]:
+            self, lines: list[str], year: int, period: str,
+    ) -> tuple[list[Transaction], list[Transaction], list[Transaction]]:
         """
         Return (charges, credits, payments).
         Charges are expenses (negative), credits are refunds (positive),
         payments are transfer-in to the card account (positive, reduce liability).
         """
-        charges: List[Transaction] = []
-        credits: List[Transaction] = []
-        payments: List[Transaction] = []
+        charges: list[Transaction] = []
+        credits: list[Transaction] = []
+        payments: list[Transaction] = []
 
-        mode: Optional[str] = None
-        prev_txn: Optional[Transaction] = None
+        mode: str | None = None
+        prev_txn: Transaction | None = None
 
         for line in lines:
             if re.search(r"^Other Credits\s*$", line, re.IGNORECASE):
@@ -254,10 +256,10 @@ class BankX4CreditCardParser(BaseStatementParser):
         return charges, credits, payments
 
 
-def _extract_lines_by_y(pdf_path: Path) -> List[str]:
+def _extract_lines_by_y(pdf_path: Path) -> list[str]:
     """Reconstruct text lines by grouping PDF chars sharing the same vertical position."""
     import pdfplumber
-    lines: List[str] = []
+    lines: list[str] = []
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page in pdf.pages:
             rows: dict = collections.defaultdict(list)
@@ -272,7 +274,7 @@ def _extract_lines_by_y(pdf_path: Path) -> List[str]:
     return lines
 
 
-def _parse_mmdd(raw: str, year: int) -> Optional[date]:
+def _parse_mmdd(raw: str, year: int) -> date | None:
     m = re.match(r"(\d{2})/(\d{2})", raw)
     if not m:
         return None

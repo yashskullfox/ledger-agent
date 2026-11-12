@@ -46,14 +46,19 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ledger_agent.core.database import (
-    AccountRepo, COARepo, PositionRepo, SnapshotRepo, TransactionRepo,
+    AccountRepo,
+    COARepo,
+    PositionRepo,
+    SnapshotRepo,
+    TransactionRepo,
 )
 from ledger_agent.core.exceptions import AggregationGap
 from ledger_agent.core.models import (
-    BalanceSheetLine, COAType,
+    BalanceSheetLine,
+    COAType,
 )
 
 _log = logging.getLogger(__name__)
@@ -66,7 +71,7 @@ class BalanceSheet:
         self.entity_name = entity_name
         self.entity_id = ""
         self.period = period
-        self.lines: List[BalanceSheetLine] = []
+        self.lines: list[BalanceSheetLine] = []
 
         # Summary totals (set by build())
         self.total_assets = Decimal("0")
@@ -77,26 +82,26 @@ class BalanceSheet:
 
         # R-64 / ARCH-26: coverage manifest — populated by BalanceSheetBuilder
         # Each entry: {account_id, institution, name, period, reason?}
-        self.coverage: Dict[str, List[Dict[str, Any]]] = {
+        self.coverage: dict[str, list[dict[str, Any]]] = {
             "consumed_snapshots": [],
             "skipped_snapshots": [],
         }
 
     # Convenience accessors
     def asset_lines(self):
-        return [l for l in self.lines if l.coa_type == COAType.ASSET]
+        return [line for line in self.lines if line.coa_type == COAType.ASSET]
 
     def liability_lines(self):
-        return [l for l in self.lines if l.coa_type == COAType.LIABILITY]
+        return [line for line in self.lines if line.coa_type == COAType.LIABILITY]
 
     def equity_lines(self):
-        return [l for l in self.lines if l.coa_type == COAType.EQUITY]
+        return [line for line in self.lines if line.coa_type == COAType.EQUITY]
 
     def revenue_lines(self):
-        return [l for l in self.lines if l.coa_type == COAType.REVENUE]
+        return [line for line in self.lines if line.coa_type == COAType.REVENUE]
 
     def expense_lines(self):
-        return [l for l in self.lines if l.coa_type == COAType.EXPENSE]
+        return [line for line in self.lines if line.coa_type == COAType.EXPENSE]
 
 
 class BalanceSheetBuilder:
@@ -104,7 +109,7 @@ class BalanceSheetBuilder:
     Builds a BalanceSheet from the database for a given entity and period.
     """
 
-    def __init__(self, entity_id: str, period: str, pl_periods: Optional[List[str]] = None):
+    def __init__(self, entity_id: str, period: str, pl_periods: list[str] | None = None):
         self.entity_id = entity_id
         self.period = period
         self.pl_periods = pl_periods if pl_periods is not None else [period]
@@ -297,8 +302,8 @@ class BalanceSheetBuilder:
         # Revenue / Expense from classified transactions — aggregate across all pl_periods
         account_ids = [a.id for a in accounts]
         _pl_txns = TransactionRepo.list_for_periods(self.pl_periods, account_ids=account_ids)
-        rev_by_code: Dict[str, Decimal] = defaultdict(Decimal)
-        exp_by_code: Dict[str, Decimal] = defaultdict(Decimal)
+        rev_by_code: dict[str, Decimal] = defaultdict(Decimal)
+        exp_by_code: dict[str, Decimal] = defaultdict(Decimal)
 
         for t in _pl_txns:
             if t.is_transfer:
@@ -405,7 +410,7 @@ class BalanceSheetBuilder:
 
 
 def build_comparison(entity_id: str,
-                     periods: List[str]) -> Dict[str, BalanceSheet]:
+                     periods: list[str]) -> dict[str, BalanceSheet]:
     """Build balance sheets for multiple periods. Returns {period: BalanceSheet}."""
     return {
         p: BalanceSheetBuilder(entity_id, p).build()

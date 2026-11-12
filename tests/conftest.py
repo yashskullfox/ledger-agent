@@ -115,8 +115,9 @@ def make_transaction():
             amount="-30.00",
             coa_code=None,
     ):
-        from ledger_agent.core.models import Transaction, TransactionType
         from datetime import date
+
+        from ledger_agent.core.models import Transaction, TransactionType
         y, m, d = date_str.split("-")
         return Transaction(
             account_id=account_id,

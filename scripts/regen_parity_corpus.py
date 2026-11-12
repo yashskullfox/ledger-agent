@@ -176,15 +176,17 @@ def parse_corpus(text: str) -> dict:
     # corpus without hard-coding real names in committed source.
     try:
         from private.institutions import (  # type: ignore
-            PARTNER_1_CORPUS_TOKEN as _P1_TOKEN,
-            PARTNER_2_CORPUS_TOKEN as _P2_TOKEN,
+            PARTNER_1_CORPUS_TOKEN,
+            PARTNER_2_CORPUS_TOKEN,
         )
+        p1_token = PARTNER_1_CORPUS_TOKEN
+        p2_token = PARTNER_2_CORPUS_TOKEN
     except Exception:
-        _P1_TOKEN = os.environ.get("FI_PARTNER_1_CORPUS_TOKEN", "partner 1")
-        _P2_TOKEN = os.environ.get("FI_PARTNER_2_CORPUS_TOKEN", "partner 2")
+        p1_token = os.environ.get("FI_PARTNER_1_CORPUS_TOKEN", "partner 1")
+        p2_token = os.environ.get("FI_PARTNER_2_CORPUS_TOKEN", "partner 2")
 
-    p1_line = _find(lines, _P1_TOKEN, "%")
-    p2_line = _find(lines, _P2_TOKEN, "%")
+    p1_line = _find(lines, p1_token, "%")
+    p2_line = _find(lines, p2_token, "%")
 
     def _two_pcts(line: str) -> tuple[str | None, str | None]:
         """Return (first_pct, second_pct) from a line with two % values."""

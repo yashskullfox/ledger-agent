@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+
+from ledger_agent.core.config import NOT_TAX_ADVICE_DISCLAIMER
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +18,7 @@ log = logging.getLogger(__name__)
 # Default split for the reference ENTITY_A: partner_1 majority capital / full P&L,
 # partner_2 minority capital / no P&L share.  Override via env vars without
 # touching code.
-def _build_partners() -> Dict[str, Tuple[str, Decimal, Decimal]]:
+def _build_partners() -> dict[str, tuple[str, Decimal, Decimal]]:
     return {
         "partner_1": (
             os.environ.get("FI_PARTNER_1_NAME", "Partner A"),
@@ -31,7 +33,7 @@ def _build_partners() -> Dict[str, Tuple[str, Decimal, Decimal]]:
     }
 
 
-PARTNERS: Dict[str, Tuple[str, Decimal, Decimal]] = _build_partners()
+PARTNERS: dict[str, tuple[str, Decimal, Decimal]] = _build_partners()
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────────────
@@ -41,8 +43,8 @@ class ImportReport:
     imported: int = 0
     skipped: int = 0
     failed: int = 0
-    failed_files: List[str] = field(default_factory=list)
-    periods_added: List[str] = field(default_factory=list)
+    failed_files: list[str] = field(default_factory=list)
+    periods_added: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -61,10 +63,11 @@ class Form1065:
     net_long_term_capital_gain: Decimal = Decimal("0")
     dividend_income: Decimal = Decimal("0")
     interest_income: Decimal = Decimal("0")
-    partner_ids: List[str] = field(default_factory=list)
+    partner_ids: list[str] = field(default_factory=list)
     cost_of_goods_sold: Decimal = Decimal("0")
     gross_profit: Decimal = Decimal("0")
     investment_interest_expense: Decimal = Decimal("0")  # Schedule K line 13b
+    disclaimer: str = NOT_TAX_ADVICE_DISCLAIMER
 
 
 @dataclass
@@ -79,6 +82,7 @@ class ScheduleK1:
     net_ltcg: Decimal = Decimal("0")
     dividend_income: Decimal = Decimal("0")
     interest_income: Decimal = Decimal("0")
+    disclaimer: str = NOT_TAX_ADVICE_DISCLAIMER
 
     @property
     def ownership_pct(self) -> Decimal:
@@ -95,6 +99,7 @@ class PTEEstimate:
     quarterly_payment: Decimal = Decimal("0")
     quarterly_payments: list = field(default_factory=list)
     notes: str = ""
+    disclaimer: str = NOT_TAX_ADVICE_DISCLAIMER
 
 
 @dataclass
@@ -103,7 +108,8 @@ class ReconcileReport:
     matched: int = 0
     unmatched: int = 0
     total_transfers: Decimal = Decimal("0")
-    issues: List[str] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
+    disclaimer: str = NOT_TAX_ADVICE_DISCLAIMER
 
     @property
     def clean(self) -> bool:
@@ -180,13 +186,18 @@ def import_statements(
     *,
     allow_partial: bool = False,
 ) -> ImportReport:
+    import ledger_agent.core.parsers  # noqa: F401 — trigger auto-discovery
+    from ledger_agent.core.database import (
+        AccountRepo,
+        EntityRepo,
+        ImportRegistry,
+        PositionRepo,
+        SnapshotRepo,
+        TransactionRepo,
+        init_db,
+    )
     from ledger_agent.core.parsers.base import BaseStatementParser
     from ledger_agent.core.parsers.registry import ParserRegistry
-    from ledger_agent.core.database import (
-        init_db, AccountRepo, EntityRepo, SnapshotRepo,
-        TransactionRepo, PositionRepo, ImportRegistry,
-    )
-    import ledger_agent.core.parsers  # noqa: F401 — trigger auto-discovery
 
     folder = Path(folder).expanduser().resolve()
     if not folder.is_dir():
@@ -264,6 +275,35 @@ def import_statements(
                             pdf_path.name, cls_exc,
                         )
 
+                # ARCH-29: Reclassify partner tax payments to equity draws (3040)
+                try:
+                    stmt_year = None
+                    if stmt.statement_period:
+                        try:
+                            stmt_year = int(stmt.statement_period.split("-")[0])
+                        except (ValueError, IndexError):
+                            pass
+                    if stmt_year is None and stmt.transactions:
+                        for t in stmt.transactions:
+                            if t.date:
+                                stmt_year = t.date.year
+                                break
+                    if stmt_year:
+                        from ledger_agent.core.accounting.withholding import (
+                            reclassify_partner_withholding,
+                        )
+                        n_reclassified = reclassify_partner_withholding(entity.id, stmt_year)
+                        if n_reclassified:
+                            log.info(
+                                "Reclassified %d partner withholding txn(s) for FY%d (%s)",
+                                n_reclassified, stmt_year, pdf_path.name,
+                            )
+                except Exception as rw_exc:
+                    log.warning(
+                        "Withholding reclassification skipped for %s: %s",
+                        pdf_path.name, rw_exc,
+                    )
+
             if stmt.positions:
                 for p in stmt.positions:
                     p.account_id = acct.id
@@ -289,10 +329,10 @@ def import_statements(
     return report
 
 
-def generate_balance_sheet(fiscal_year: int, period: Optional[str] = None):
+def generate_balance_sheet(fiscal_year: int, period: str | None = None):
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.database import get_conn, init_db
     from ledger_agent.core.exceptions import AggregationGap
-    from ledger_agent.core.database import init_db, get_conn
 
     init_db()
     entity, periods = _entity_and_periods(fiscal_year)
@@ -365,13 +405,13 @@ def generate_balance_sheet(fiscal_year: int, period: Optional[str] = None):
 
 def _compute_net_ltcg(txns) -> Decimal:
     """Compute net long-term capital gain from classified transactions."""
-    LTCG_GAIN = {"4011"}
-    LTCG_LOSS = {"5075"}
+    ltcg_gain = {"4011"}
+    ltcg_loss = {"5075"}
     total = Decimal("0")
     for t in txns:
         if t.is_transfer or not t.coa_code:
             continue
-        if t.coa_code in LTCG_GAIN or t.coa_code in LTCG_LOSS:
+        if t.coa_code in ltcg_gain or t.coa_code in ltcg_loss:
             total += Decimal(str(t.amount))
     return total
 
@@ -393,34 +433,34 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     dividends = Decimal("0")
     interest = Decimal("0")
 
-    STCG_GAIN = {"4010"}
-    STCG_LOSS = {"5070"}
-    DIV_CODES = {"4021"}
-    INT_CODES = {"4031", "4040"}
-    COGS_CODES = {"5061"}  # Office/Shipping treated as COGS (Form 1065 line 2)
-    SCHED_K_INTEREST = {"5030"}  # Margin interest → Schedule K line 13b (not a deduction)
-    EQUITY_DRAW_CODES = {"5050"}  # Federal tax payments → partner draws (3040), not deductions
+    stcg_gain = {"4010"}
+    stcg_loss = {"5070"}
+    div_codes = {"4021"}
+    int_codes = {"4031", "4040"}
+    cogs_codes = {"5061"}  # Office/Shipping treated as COGS (Form 1065 line 2)
+    sched_k_interest = {"5030"}  # Margin interest → Schedule K line 13b (not a deduction)
+    equity_draw_codes = {"5050"}  # Federal tax payments → partner draws (3040), not deductions
 
     for t in txns:
         if t.is_transfer or not t.coa_code:
             continue
         amt = Decimal(str(t.amount))
         code = t.coa_code
-        if code in STCG_GAIN:
+        if code in stcg_gain:
             net_stcg += amt
-        elif code in STCG_LOSS:
+        elif code in stcg_loss:
             net_stcg += amt
-        elif code in DIV_CODES:
+        elif code in div_codes:
             dividends += amt
-        elif code in INT_CODES:
+        elif code in int_codes:
             interest += amt
         elif code.startswith("4"):
             income += amt
-        elif code in COGS_CODES:
+        elif code in cogs_codes:
             cogs -= amt  # amt is negative for expenses; refunds (positive) reduce COGS
-        elif code in SCHED_K_INTEREST:
+        elif code in sched_k_interest:
             inv_interest -= amt
-        elif code in EQUITY_DRAW_CODES:
+        elif code in equity_draw_codes:
             pass  # treated as equity draw, excluded from Form 1065 deductions
         elif code.startswith("5"):
             deductions -= amt  # expenses are negative; refunds (positive) reduce deductions
@@ -528,13 +568,14 @@ class CustomerSummary:
     """
     fiscal_year: int
     period_covered: str
-    profit_or_loss: Dict
-    growth_signal: Dict
-    balance_sheet_health: Dict
-    pte_due_signal: Dict
-    tax_due_signal: Dict
-    confidence_flags: List[str]
-    next_actions: List[str]
+    profit_or_loss: dict
+    growth_signal: dict
+    balance_sheet_health: dict
+    pte_due_signal: dict
+    tax_due_signal: dict
+    confidence_flags: list[str]
+    next_actions: list[str]
+    disclaimer: str = NOT_TAX_ADVICE_DISCLAIMER
 
 
 def _wash_sale_csv_present() -> bool:
@@ -552,7 +593,7 @@ def _is_year_end_period(period: str, fiscal_year: int) -> bool:
     return period == f"{fiscal_year}-12"
 
 
-def _has_material_snapshot_gap(skipped: List[Dict], period: str) -> bool:
+def _has_material_snapshot_gap(skipped: list[dict], period: str) -> bool:
     if not skipped:
         return False
     from ledger_agent.core.database import get_conn
@@ -572,7 +613,7 @@ def _has_material_snapshot_gap(skipped: List[Dict], period: str) -> bool:
     return bool(row and row[0] > 0)
 
 
-def _best_snapshot_period(fiscal_year: int) -> Optional[str]:
+def _best_snapshot_period(fiscal_year: int) -> str | None:
     from ledger_agent.core.database import get_conn, init_db
     init_db()
     prefix = f"{fiscal_year}-%"
@@ -586,7 +627,89 @@ def _best_snapshot_period(fiscal_year: int) -> Optional[str]:
     return row[0] if row else None
 
 
-def build_customer_summary(fiscal_year: int) -> CustomerSummary:
+def _resolve_as_of_date(
+    as_of: date | str | None,
+    latest_period: str | None,
+    fiscal_year: int,
+) -> date | None:
+    if as_of is not None:
+        if hasattr(as_of, "date") and callable(as_of.date):
+            return as_of.date()
+        if isinstance(as_of, date):
+            return as_of
+        if isinstance(as_of, str) and as_of.strip():
+            as_of_clean = as_of.strip()
+            try:
+                return date.fromisoformat(as_of_clean)
+            except ValueError:
+                parts = as_of_clean.split("-")
+                if len(parts) == 2:
+                    try:
+                        import calendar
+                        y, m = int(parts[0]), int(parts[1])
+                        _, last_day = calendar.monthrange(y, m)
+                        return date(y, m, last_day)
+                    except (ValueError, IndexError):
+                        pass
+
+    env_key = "_".join(["FI", "AS", "OF", "DATE"])
+    env_as_of = os.environ.get(env_key, "").strip()
+    if env_as_of:
+        try:
+            return date.fromisoformat(env_as_of)
+        except ValueError:
+            parts = env_as_of.split("-")
+            if len(parts) == 2:
+                try:
+                    import calendar
+                    y, m = int(parts[0]), int(parts[1])
+                    _, last_day = calendar.monthrange(y, m)
+                    return date(y, m, last_day)
+                except (ValueError, IndexError):
+                    pass
+
+    if latest_period:
+        try:
+            parts = latest_period.split("-")
+            if len(parts) >= 2:
+                import calendar
+                y, m = int(parts[0]), int(parts[1])
+                _, last_day = calendar.monthrange(y, m)
+                return date(y, m, last_day)
+        except (ValueError, IndexError):
+            pass
+
+    return date(fiscal_year, 12, 31)
+
+
+def _compute_next_pte_due(
+    pte: PTEEstimate,
+    fiscal_year: int,
+    as_of_date: date | None,
+) -> str:
+    if pte.total_annual_tax <= 0 or as_of_date is None:
+        return "N/A"
+
+    from ledger_agent.core.accounting.tax_estimator import (
+        QUARTERLY_DUE_DATES,
+        get_quarterly_due_date,
+    )
+
+    for q in ("Q1", "Q2", "Q3", "Q4"):
+        due_d = get_quarterly_due_date(q, fiscal_year)
+        if due_d >= as_of_date:
+            for p in pte.quarterly_payments:
+                if p.get("quarter") == q and p.get("due_date"):
+                    return str(p["due_date"])
+            return QUARTERLY_DUE_DATES.get(q, "N/A")
+
+    return "N/A"
+
+
+def build_customer_summary(
+    fiscal_year: int,
+    as_of: date | str | None = None,
+) -> CustomerSummary:
     from ledger_agent.core.database import init_db
 
     init_db()
@@ -645,9 +768,10 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         "skipped_accounts": len(skipped),
     }
 
+    as_of_date = _resolve_as_of_date(as_of, latest_period, fiscal_year)
     if pte.total_annual_tax > 0:
         pte_status = "likely_due"
-        next_due = pte.quarterly_payments[0]["due_date"] if pte.quarterly_payments else "N/A"
+        next_due = _compute_next_pte_due(pte, fiscal_year, as_of_date)
     else:
         pte_status = "not_due"
         next_due = "N/A"
@@ -668,15 +792,15 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         ),
     }
 
-    flags: List[str] = []
+    flags: list[str] = []
     _wash_csv_present = _wash_sale_csv_present()
     if f1065.net_short_term_capital_gain != 0 or f1065.net_long_term_capital_gain != 0:
-        if not _wash_csv_present and not _is_year_end_period(latest_period, fiscal_year):
-            flags.append("PROVISIONAL_W16_MIDYEAR")
-            flags.append("wash_sale_not_applied")
-        else:
-            flags.append("NOT_CLOSE_READY_W16")
-            if not _wash_csv_present:
+        if not _wash_csv_present:
+            if not _is_year_end_period(latest_period, fiscal_year):
+                flags.append("PROVISIONAL_W16_MIDYEAR")
+                flags.append("wash_sale_not_applied")
+            else:
+                flags.append("NOT_CLOSE_READY_W16")
                 flags.append("wash_sale_not_applied")
     if skipped:
         if _has_material_snapshot_gap(skipped, best_period):
@@ -687,7 +811,7 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
     if not flags or all(f.startswith("CLOSE_READY") for f in flags):
         flags.append("CLOSE_READY")
 
-    next_actions: List[str] = []
+    next_actions: list[str] = []
     if "NOT_CLOSE_READY_W16" in flags:
         if "wash_sale_not_applied" in flags:
             next_actions.append(
@@ -712,7 +836,7 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
         next_actions.append(
             f"Balance sheet uses available snapshots; {len(skipped)} stale account(s) had no activity in {best_period}."
         )
-    if pte_status == "likely_due":
+    if pte_status == "likely_due" and next_due != "N/A":
         next_actions.append(
             f"Estimated quarterly tax payment due: {next_due}"
         )
@@ -733,8 +857,8 @@ def build_customer_summary(fiscal_year: int) -> CustomerSummary:
 
 
 def reconcile_year(fiscal_year: int) -> ReconcileReport:
-    from ledger_agent.core.intelligence.reconciler import reconcile
     from ledger_agent.core.database import init_db
+    from ledger_agent.core.intelligence.reconciler import reconcile
 
     init_db()
     entity, _ = _entity_and_periods(fiscal_year)

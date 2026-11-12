@@ -15,10 +15,10 @@ Privacy (R-46):
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from ledger_agent.core.logging_setup import get_logger
 from ledger_agent.core.intelligence.ai_backend.base import AIBackend
+from ledger_agent.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -45,7 +45,7 @@ Common COA codes (canonical — use these exact codes and names):
 5999=Uncategorized Expense, 9000=Inter-Account Transfer
 """
 
-_MOCK_CLASSIFICATION: Dict[str, Any] = {
+_MOCK_CLASSIFICATION: dict[str, Any] = {
     "coa_code": "5999",
     "coa_name": "Uncategorized Expense",
     "is_transfer": False,
@@ -65,7 +65,7 @@ class OpenAIBackend(AIBackend):
             raise ImportError(
                 "openai package not installed. Run: pip install financial-intelligence[openai]"
             )
-        from config import ai_api_key, OPENAI_MODEL
+        from config import OPENAI_MODEL, ai_api_key
         self._client = openai.OpenAI(api_key=ai_api_key(), timeout=30.0)
         self._model = OPENAI_MODEL
         log.info("OpenAI backend initialised", extra={"model": self._model})
@@ -74,11 +74,17 @@ class OpenAIBackend(AIBackend):
     def backend_name(self) -> str:
         return "openai"
 
-    def _chat(self, messages: List[Dict], retries: int = 3) -> str:
+    def _chat(self, messages: list[dict], retries: int = 3) -> str:
         """Call OpenAI with exponential-backoff retries via tenacity."""
         try:
-            from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
             import openai as _openai
+            from tenacity import (
+                retry,
+                retry_if_exception_type,
+                stop_after_attempt,
+                wait_exponential,
+            )
+
             from ledger_agent.core.privacy import audit_egress
 
             # Hard pre-flight PII audit before any HTTP call
@@ -107,8 +113,8 @@ class OpenAIBackend(AIBackend):
             self,
             description: str,
             amount: float,
-            context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from config import AI_EGRESS_MODE
         from ledger_agent.core.privacy import redact, unredact_result
 
@@ -149,7 +155,7 @@ class OpenAIBackend(AIBackend):
             pattern: str,
             coa_code: str,
             confirmed_count: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         from config import AI_EGRESS_MODE
         from ledger_agent.core.privacy import redact
 

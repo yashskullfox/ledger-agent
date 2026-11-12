@@ -4,7 +4,6 @@ import json
 import logging
 import sys
 import traceback
-from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +16,7 @@ _TOOL_METHODS = frozenset({
     "generate_k1",
     "pte_estimate",
     "reconcile_year",
+    "customer_summary",
 })
 
 
@@ -53,7 +53,7 @@ def _redact_bridge_response(payload: dict, *, allow_pii: bool = False) -> dict:
 
     # API-key sweep is UNCONDITIONAL — regardless of allow_pii (BUG-M1 fix).
     try:
-        from ledger_agent.core.privacy import PrivacyLeakError, redact as _check
+        from ledger_agent.core.privacy import redact as _check
         _check(json.dumps(payload), scope="api_key_only")
     except ImportError:
         pass  # privacy module unavailable — degrade gracefully
@@ -139,7 +139,7 @@ def _dispatch(msg: dict) -> None:
                 return
             _respond(msg_id, redacted)
 
-        except Exception as exc:
+        except Exception:
             tb = traceback.format_exc()
             log.error("Bridge tool %r raised:\n%s", method, tb)
             _error(msg_id, -32603, f"Internal error: {tb}")
@@ -165,8 +165,8 @@ def _background_init() -> None:
     - If mkdir hangs forever the daemon thread is silently reaped on exit.
     """
     try:
-        from ledger_agent.core.cleanup import boot_cleanup
         from ledger_agent.core.audit import audit, current_run_id
+        from ledger_agent.core.cleanup import boot_cleanup
         boot_cleanup()
         audit("bridge.session.start", transport="jsonrpc_stdio")
         log.info("ledger-agent JSON-RPC bridge ready on stdio (run_id=%s)",

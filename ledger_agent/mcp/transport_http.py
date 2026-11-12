@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ def _build_app(dispatch_fn):
     available, falling back to a hand-rolled implementation.
     """
     try:
-        from mcp.server.sse import SseServerTransport
+        from mcp.server.sse import SseServerTransport  # noqa: F401
         _mcp_sse_available = True
     except ImportError:
         _mcp_sse_available = False

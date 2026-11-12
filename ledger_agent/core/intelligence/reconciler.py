@@ -11,7 +11,7 @@ Algorithm:
 """
 from __future__ import annotations
 
-from typing import List, NamedTuple, Tuple
+from typing import NamedTuple
 
 from ledger_agent.core.models import Transaction, TransactionType
 
@@ -23,9 +23,9 @@ class ReconciliationMatch(NamedTuple):
 
 
 def reconcile(
-        all_transactions: List[Transaction],
+        all_transactions: list[Transaction],
         tolerance_days: int = 7,
-) -> Tuple[List[ReconciliationMatch], List[Transaction]]:
+) -> tuple[list[ReconciliationMatch], list[Transaction]]:
     """
     Match TRANSFER_OUT ↔ TRANSFER_IN pairs across accounts.
 
@@ -43,11 +43,11 @@ def reconcile(
            and not t.is_reconciled
     ]
 
-    matches: List[ReconciliationMatch] = []
+    matches: list[ReconciliationMatch] = []
     matched_ids: set = set()
 
     for out in outgoing:
-        best: Tuple[int, Transaction] | None = None
+        best: tuple[int, Transaction] | None = None
         for inc in incoming:
             if inc.id in matched_ids:
                 continue
@@ -82,13 +82,13 @@ def reconcile(
 
 
 def print_reconciliation_report(
-        matches: List[ReconciliationMatch],
-        unmatched: List[Transaction],
+        matches: list[ReconciliationMatch],
+        unmatched: list[Transaction],
 ) -> str:
     """Return a text summary of reconciliation results."""
     lines = [
         f"{'=' * 60}",
-        f"  RECONCILIATION REPORT",
+        "  RECONCILIATION REPORT",
         f"{'=' * 60}",
         f"  Matched pairs  : {len(matches)}",
         f"  Unmatched items: {len(unmatched)}",

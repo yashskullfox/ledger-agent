@@ -19,7 +19,10 @@ WHAT IT SHOWS
                               private/wash_sale_adjustments.csv)
 """
 from __future__ import annotations
-import argparse, json, sys
+
+import argparse
+import json
+import sys
 from decimal import Decimal
 from pathlib import Path
 
@@ -32,15 +35,22 @@ from ledger_agent.core.database import init_db  # noqa: E402
 
 
 def _bucket(v) -> str:
-    if v is None: return "     —    "
+    if v is None:
+        return "     —    "
     v = Decimal(str(v))
     a = abs(v)
-    if a == 0:                  b = "$0"
-    elif a < 1_000:             b = "~$XXX"
-    elif a < 10_000:            b = "~$X,XXX"
-    elif a < 100_000:           b = "~$XX,XXX"
-    elif a < 1_000_000:         b = "~$XXX,XXX"
-    else:                       b = "~$X,XXX,XXX"
+    if a == 0:
+        b = "$0"
+    elif a < 1_000:
+        b = "~$XXX"
+    elif a < 10_000:
+        b = "~$X,XXX"
+    elif a < 100_000:
+        b = "~$XX,XXX"
+    elif a < 1_000_000:
+        b = "~$XXX,XXX"
+    else:
+        b = "~$X,XXX,XXX"
     sign = "-" if v < 0 else " "
     return f"{sign}{b:>10}"
 
@@ -67,8 +77,8 @@ def main() -> int:
     print()
 
     if recon["per_ticker"]:
-        print(f"  per-ticker deltas (computed − csv):")
-        print(f"    ticker    computed      csv       delta")
+        print("  per-ticker deltas (computed − csv):")
+        print("    ticker    computed      csv       delta")
         # Mask ticker to first char + hash
         for tk, row in recon["per_ticker"].items():
             masked = f"TKR_{abs(hash(tk)) % 1000:03d}"
