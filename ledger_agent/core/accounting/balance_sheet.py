@@ -290,6 +290,23 @@ class BalanceSheetBuilder:
         # so the old tax_paid sum over 5050 is no longer needed here.
         # Accrued-tax-payable liabilities will be addressed in ARCH-29.
 
+        # Credit card accounts (AccountType.CREDIT_CARD → 2030 liability)
+        for acct in accounts:
+            if acct.account_type != AccountType.CREDIT_CARD:
+                continue
+            snap = snapshots.get(acct.id)
+            if snap is None:
+                _skip(acct, f"no account_snapshots row for period {self.period}")
+                continue
+            _consume(acct, snap)
+            cc_bal = snap.ending_balance
+            if cc_bal > Decimal("0"):
+                total_liab += cc_bal
+                bs.lines.append(BalanceSheetLine(
+                    "2030", f"Credit Card Payable – {acct.institution} ({acct.name})",
+                    cc_bal, COAType.LIABILITY, indent=2,
+                ))
+
         bs.lines.append(BalanceSheetLine(
             "TOTAL_LIAB", "TOTAL LIABILITIES",
             total_liab, COAType.LIABILITY, is_subtotal=True, indent=0,
