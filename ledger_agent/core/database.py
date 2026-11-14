@@ -34,7 +34,9 @@ from ledger_agent.core.models import (
 # Increment whenever the schema changes; auto-migration runs on connect.
 # v4: positions.position_type (ARCH-25)
 # v5: transactions.classifier_version, transactions.confidence (ARCH-27)
-SCHEMA_VERSION = 6
+# v6: transactions.classification_lock_at
+# v7: pte_payments table (W31 / T7 entity-level external PTE payments)
+SCHEMA_VERSION = 7
 
 
 def _decimal(v) -> Decimal:
@@ -325,7 +327,21 @@ _DDL = """
            account_id,
            statement_period
        )
-           ); \
+           );
+
+       CREATE TABLE IF NOT EXISTS pte_payments
+       (
+           id TEXT PRIMARY KEY,
+           entity_id TEXT NOT NULL REFERENCES entities(id),
+           fiscal_year INTEGER NOT NULL,
+           quarter TEXT NOT NULL,
+           paid_on TEXT,
+           amount TEXT NOT NULL,
+           source TEXT DEFAULT 'manual',
+           created_at TEXT NOT NULL,
+           UNIQUE(entity_id, fiscal_year, quarter, source)
+       );
+       CREATE INDEX IF NOT EXISTS idx_pte_entity_year ON pte_payments(entity_id, fiscal_year); \
        """
 
 
@@ -363,6 +379,23 @@ def init_db(db_path: Path | None = None) -> None:
                 )
             except Exception:
                 pass  # column already exists on freshly-created DB
+        if current < 7:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS pte_payments ("
+                "id TEXT PRIMARY KEY, "
+                "entity_id TEXT NOT NULL REFERENCES entities(id), "
+                "fiscal_year INTEGER NOT NULL, "
+                "quarter TEXT NOT NULL, "
+                "paid_on TEXT, "
+                "amount TEXT NOT NULL, "
+                "source TEXT DEFAULT 'manual', "
+                "created_at TEXT NOT NULL, "
+                "UNIQUE(entity_id, fiscal_year, quarter, source))"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pte_entity_year "
+                "ON pte_payments(entity_id, fiscal_year)"
+            )
         if current < SCHEMA_VERSION:
             conn.execute(
                 "INSERT OR REPLACE INTO schema_meta(key,value) VALUES('version',?)",
@@ -905,3 +938,73 @@ class ImportRegistry:
                 (str(_uuid.uuid4()), source_file, parser_id, account_id,
                  period, datetime.now(timezone.utc).isoformat()),
             )
+
+
+class PTEPaymentRepo:
+    """Entity-level external PTE payment persistence (W31 / T7)."""
+
+    @staticmethod
+    def upsert(
+        entity_id: str,
+        fiscal_year: int,
+        quarter: str,
+        amount: Decimal,
+        paid_on: str | None = None,
+        source: str = "manual",
+        db_path: Path | None = None,
+    ) -> dict:
+        import uuid as _uuid
+
+        q_norm = quarter.strip().upper()
+        amt_str = str(Decimal(str(amount)).quantize(Decimal("0.01")))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        rec_id = str(_uuid.uuid4())
+        with get_conn(db_path) as conn:
+            existing = conn.execute(
+                "SELECT id FROM pte_payments "
+                "WHERE entity_id=? AND fiscal_year=? AND quarter=? AND source=?",
+                (entity_id, int(fiscal_year), q_norm, source),
+            ).fetchone()
+            if existing:
+                rec_id = existing["id"]
+            conn.execute(
+                "INSERT OR REPLACE INTO pte_payments"
+                "(id,entity_id,fiscal_year,quarter,paid_on,amount,source,created_at)"
+                " VALUES(?,?,?,?,?,?,?,?)",
+                (rec_id, entity_id, int(fiscal_year), q_norm, paid_on, amt_str, source, now_iso),
+            )
+        return {
+            "id": rec_id,
+            "entity_id": entity_id,
+            "fiscal_year": int(fiscal_year),
+            "quarter": q_norm,
+            "paid_on": paid_on,
+            "amount": amt_str,
+            "source": source,
+            "created_at": now_iso,
+        }
+
+    @staticmethod
+    def list_for_year(
+        entity_id: str,
+        fiscal_year: int,
+        db_path: Path | None = None,
+    ) -> list[dict]:
+        with get_conn(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, entity_id, fiscal_year, quarter, paid_on, amount, source, created_at "
+                "FROM pte_payments WHERE entity_id=? AND fiscal_year=? ORDER BY quarter, created_at",
+                (entity_id, int(fiscal_year)),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def total_paid_for_year(
+        entity_id: str,
+        fiscal_year: int,
+        db_path: Path | None = None,
+    ) -> Decimal:
+        rows = PTEPaymentRepo.list_for_year(entity_id, fiscal_year, db_path=db_path)
+        total = sum((_decimal(r["amount"]) for r in rows), Decimal("0.00"))
+        return total.quantize(Decimal("0.01"))
+

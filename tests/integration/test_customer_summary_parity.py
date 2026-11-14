@@ -29,7 +29,6 @@ import ledger_agent.core.api as api
 import ledger_agent.core.config as core_config
 from ledger_agent.bridge.jsonrpc_stdio import _dispatch
 from ledger_agent.cli.main import cmd_summary
-from ledger_agent.core.config import NOT_TAX_ADVICE_DISCLAIMER
 from ledger_agent.core.database import (
     AccountRepo,
     EntityRepo,
@@ -46,6 +45,8 @@ from ledger_agent.core.models import (
     TransactionType,
 )
 from ledger_agent.mcp.tools import call_tool
+
+NOT_TAX_ADVICE_DISCLAIMER = core_config.NOT_TAX_ADVICE_DISCLAIMER
 
 
 @pytest.fixture

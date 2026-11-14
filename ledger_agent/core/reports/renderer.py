@@ -6,6 +6,7 @@ Uses `rich` for beautiful console output and pandas + openpyxl for Excel export.
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
 from datetime import datetime
 from decimal import Decimal
@@ -26,12 +27,7 @@ try:
 except ImportError:
     _RICH = False
 
-try:
-    import pandas as pd  # noqa: F401
-
-    _PANDAS = True
-except ImportError:
-    _PANDAS = False
+_PANDAS = importlib.util.find_spec("pandas") is not None
 
 try:
     import openpyxl

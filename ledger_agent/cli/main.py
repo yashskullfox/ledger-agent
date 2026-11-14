@@ -117,11 +117,36 @@ def cmd_balance(args: list[str]) -> int:
 
 
 def cmd_tax(args: list[str]) -> int:
-    """Show quarterly tax estimate."""
-    year_arg = next((a for a in args if a.isdigit()), None)
+    """Show quarterly tax estimate (or record an external PTE payment via --record-payment)."""
+    year_arg = next((a for a in args if a.isdigit() and len(a) == 4), None)
     year = int(year_arg) if year_arg else 2024
 
     api = _import_api()
+    if "--record-payment" in args:
+        try:
+            q_idx = args.index("--quarter")
+            quarter = args[q_idx + 1]
+            a_idx = args.index("--amount")
+            amount = args[a_idx + 1]
+        except (ValueError, IndexError):
+            _print("[red]Usage: ledger tax <year> --record-payment --quarter Q1 --amount <amt> [--paid-on YYYY-MM-DD][/red]")
+            return 1
+        paid_on = None
+        if "--paid-on" in args:
+            try:
+                paid_on = args[args.index("--paid-on") + 1]
+            except IndexError:
+                pass
+        try:
+            rec = api.record_pte_payment(year, quarter, amount, paid_on=paid_on)
+            _print(
+                f"[green]✓ Recorded PTE payment for FY{year} {rec['quarter']}: "
+                f"${float(rec['amount']):,.2f}[/green]"
+            )
+        except ValueError as e:
+            _print(f"[red]{e}[/red]")
+            return 1
+
     from ledger_agent.core.reports.renderer import render_tax_estimate
     try:
         from ledger_agent.core.accounting.tax_estimator import TaxEstimator
@@ -132,9 +157,14 @@ def cmd_tax(args: list[str]) -> int:
             _print(f"[yellow]No data for {year}.[/yellow]")
             return 1
         entity = entities[0]
-        f = api.generate_form_1065(year)
-        raw = TaxEstimator(entity.name, year).estimate_from_net_income(f.ordinary_business_income)
+        est = api.pte_estimate(year)
+        raw = TaxEstimator(entity.name, year).estimate_from_net_income(est.net_income)
         render_tax_estimate(raw)
+        if est.paid_ytd > 0:
+            _print(
+                f"  [green]Recorded External PTE Paid YTD:[/green] ${est.paid_ytd:>12,.2f}\n"
+                f"  [yellow]Remaining Estimated Balance:[/yellow]   ${est.remaining_balance:>12,.2f}"
+            )
         _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
         return 0
     except ValueError as e:
@@ -234,6 +264,9 @@ def cmd_summary(args: list[str]) -> int:
     pte_color = "yellow" if pte["status"] == "likely_due" else "green"
     _print(f"  PTE status:           [{pte_color}]{pte['status'].upper()}[/{pte_color}]"
            f"  (annual est: {float(pte['annual_estimate']):,.2f})")
+    if float(pte.get("paid_ytd", 0)) > 0:
+        _print(f"  PTE paid YTD:         {float(pte['paid_ytd']):,.2f}"
+               f"  (remaining est: {float(pte['remaining_balance']):,.2f})")
     if pte["status"] == "likely_due":
         _print(f"  Next payment due:     {pte['next_due']}")
     _print("\n[bold]Confidence:[/bold]")

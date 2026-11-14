@@ -44,8 +44,8 @@ python scripts/check_doc_redaction.py --strict --all-tracked  # must stay at 0 h
 
 ```
 ledger_agent/core/
-  api.py                ← 7 public functions (single source of truth)
-  database.py           ← SQLite; SCHEMA_VERSION=6
+  api.py                ← 7 public functions + record_pte_payment (single source of truth)
+  database.py           ← SQLite; SCHEMA_VERSION=7
   models.py             ← Entity/Account/Transaction/Position/Snapshot/PositionType
   parsers/              ← bank_x{,2,3,4}_checking, bank_x4_creditcard,
                            broker_y_brokerage, broker_z  (+base, registry)
@@ -92,6 +92,7 @@ statements/2026/                 ← 8 USB PDFs (checking + credit card, Jan–M
 | T4 Wash-sale confidence flag | ✅ Done | `core/api.py:792-809` (`_wash_csv_present` gates W16 flag) |
 | T5 Leap-day date parsing | ✅ Done | `parsers/base.py:78-83` (leap-day parsing in leap years) |
 | T6 Dynamic PTE next_due | ✅ Done | `accounting/tax_estimator.py`, `api.py:681-702` (`_compute_next_pte_due`) |
+| T7 / W31 External PTE payments | ✅ Done | `database.py` (`PTEPaymentRepo`), `api.py` (`record_pte_payment`), `test_tax_estimator.py` |
 | T8 Withholding ingestion hook | ✅ Done | `core/api.py:289-291` (`reclassify_partner_withholding` in import) |
 | T9 Customer summary bridge & parity | ✅ Done | `bridge/jsonrpc_stdio.py`, `tests/integration/test_customer_summary_parity.py` |
 | T11 Ruff modernization & debt resolution | ✅ Done | `pyproject.toml`, 0 errors across codebase via `ruff check .` |
