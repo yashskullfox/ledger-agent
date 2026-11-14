@@ -7,12 +7,17 @@ import re
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ledger_agent.core.exceptions import ParserGap
 from ledger_agent.core.models import (
-    AccountSnapshot, ParsedStatement, Position, PositionType, RealisedTrade,
-    StatementType, Transaction, TransactionType,
+    AccountSnapshot,
+    ParsedStatement,
+    Position,
+    PositionType,
+    RealisedTrade,
+    StatementType,
+    Transaction,
+    TransactionType,
 )
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
@@ -78,7 +83,7 @@ class BrokerZParser(BaseStatementParser):
             source_file=str(pdf_path),
         )
 
-    def _extract_period(self, text: str) -> Tuple[str, int]:
+    def _extract_period(self, text: str) -> tuple[str, int]:
         m = re.search(
             r"(?:Period|From)[:\s]+(\d{4}-\d{2}-\d{2})\s*(?:to|-)\s*(\d{4}-\d{2}-\d{2})",
             text, re.IGNORECASE,
@@ -143,7 +148,7 @@ class BrokerZParser(BaseStatementParser):
         return "UNKNOWN ENTITY"
 
     def _parse_cash_report(self, text: str, period: str) -> AccountSnapshot:
-        def _find(pattern: str) -> Optional[Decimal]:
+        def _find(pattern: str) -> Decimal | None:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
                 raw = m.group(1).replace(",", "")
@@ -264,7 +269,7 @@ class BrokerZParser(BaseStatementParser):
         r"(?P<mtm_pl>[-\d,.]+|--)\s*$"
     )
 
-    def _parse_trades(self, text: str, period: str, year: int) -> List[RealisedTrade]:
+    def _parse_trades(self, text: str, period: str, year: int) -> list[RealisedTrade]:
         section = _extract_text_section(
             text,
             r"Trades\s*$\s*Symbol Date/Time",
@@ -277,8 +282,8 @@ class BrokerZParser(BaseStatementParser):
                 r"^(?:Dividends|Fees|Cash Report|Open Positions|Financial Instrument)",
             )
 
-        trades: List[RealisedTrade] = []
-        current_date: Optional[date] = None
+        trades: list[RealisedTrade] = []
+        current_date: date | None = None
         date_re = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
         for line in section.splitlines():
@@ -372,7 +377,7 @@ class BrokerZParser(BaseStatementParser):
         re.MULTILINE,
     )
 
-    def _parse_positions(self, text: str, period: str, year: int) -> List[Position]:
+    def _parse_positions(self, text: str, period: str, year: int) -> list[Position]:
         try:
             from ledger_agent.core.audit import audit as _audit
         except Exception:
@@ -383,7 +388,7 @@ class BrokerZParser(BaseStatementParser):
             r"Open Positions",
             r"^(?:Realized|Trades|Dividends|Cash Report|Net Stock Position Summary|Forex Balances)",
         )
-        positions: List[Position] = []
+        positions: list[Position] = []
 
         # Try detailed multi-column format first
         detailed_matches = list(self._POSITION_DETAIL_RE.finditer(section))
@@ -466,7 +471,7 @@ class BrokerZParser(BaseStatementParser):
         re.MULTILINE | re.IGNORECASE,
     )
 
-    def _parse_cash_transactions(self, text: str, period: str, year: int) -> List[Transaction]:
+    def _parse_cash_transactions(self, text: str, period: str, year: int) -> list[Transaction]:
         # Look for Deposits & Withdrawals section
         idx = text.find("Deposits & Withdrawals")
         header_idx = -1
@@ -484,7 +489,7 @@ class BrokerZParser(BaseStatementParser):
                 re.MULTILINE,
             )
             sec = text[start:start + end_m.start()] if end_m else text[start:start + 2000]
-            txns: List[Transaction] = []
+            txns: list[Transaction] = []
             line_re = re.compile(
                 r"(?:^|.*?)(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<desc>.+?)\s+(?P<amt>[-\d,]+\.\d{2})\s*$"
             )
@@ -548,7 +553,7 @@ class BrokerZParser(BaseStatementParser):
             r"Deposits & Withdrawals|Cash Transactions",
             r"^(?:Trades|Open Positions)",
         )
-        legacy_txns: List[Transaction] = []
+        legacy_txns: list[Transaction] = []
         for m in self._CASH_TX_RE.finditer(section):
             txn_date = self.parse_date(m.group(1))
             txn_kind = m.group(2).lower()
@@ -590,7 +595,7 @@ class BrokerZParser(BaseStatementParser):
         re.IGNORECASE,
     )
 
-    def _parse_interest(self, text: str, period: str, year: int) -> List[Transaction]:
+    def _parse_interest(self, text: str, period: str, year: int) -> list[Transaction]:
         sec = _extract_text_section(
             text,
             r"(?:Interest Accruals\s+)?Interest\s*\n\s*(?:Base Currency Summary\s+)?Date Description Amount",
@@ -603,7 +608,7 @@ class BrokerZParser(BaseStatementParser):
                 r"^(?:Deposits & Withdrawals|Financial Instrument|Stock Yield Enhancement|Net Asset Value|Trades|Open Positions)",
             )
 
-        txns: List[Transaction] = []
+        txns: list[Transaction] = []
         search_text = sec if sec else text
         for line in search_text.splitlines():
             stripped = line.strip()

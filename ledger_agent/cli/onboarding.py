@@ -24,7 +24,6 @@ import sys
 import time
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from ledger_agent.core.logging_setup import get_logger
 
@@ -32,7 +31,7 @@ log = get_logger(__name__)
 
 # Type aliases
 AccountKey = str                              # "{institution}|{last4}"
-CoverageMap = Dict[Tuple[AccountKey, str], List[Path]]   # (acct_key, period) → paths
+CoverageMap = dict[tuple[AccountKey, str], list[Path]]   # (acct_key, period) → paths
 
 _MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -41,11 +40,11 @@ _MONTH_MAP = {a.lower(): i + 1 for i, a in enumerate(_MONTH_ABBR)}
 
 # ── Window helpers ─────────────────────────────────────────────────────────────
 
-def rolling_window(n: int = 12) -> List[str]:
+def rolling_window(n: int = 12) -> list[str]:
     """Return list of n 'YYYY-MM' strings ending at the last complete month."""
     today = date.today()
     last_day = today.replace(day=1) - timedelta(days=1)   # last day of prev month
-    months: List[str] = []
+    months: list[str] = []
     y, m = last_day.year, last_day.month
     for _ in range(n):
         months.append(f"{y}-{m:02d}")
@@ -56,13 +55,13 @@ def rolling_window(n: int = 12) -> List[str]:
     return list(reversed(months))
 
 
-def parse_window_arg(raw: str) -> List[str]:
+def parse_window_arg(raw: str) -> list[str]:
     """Parse '--window 2025-01:2025-12' into a list of YYYY-MM strings."""
     parts = raw.split(":")
     if len(parts) != 2:
         raise ValueError(f"Invalid --window: {raw!r}  expected 'YYYY-MM:YYYY-MM'")
 
-    def _ym(s: str) -> Tuple[int, int]:
+    def _ym(s: str) -> tuple[int, int]:
         mo = re.match(r"(\d{4})-(\d{2})", s.strip())
         if not mo:
             raise ValueError(f"Invalid period: {s!r}")
@@ -73,7 +72,7 @@ def parse_window_arg(raw: str) -> List[str]:
 
     sy, sm = _ym(parts[0])
     ey, em = _ym(parts[1])
-    months: List[str] = []
+    months: list[str] = []
     y, m = sy, sm
     while (y, m) <= (ey, em):
         months.append(f"{y}-{m:02d}")
@@ -86,7 +85,7 @@ def parse_window_arg(raw: str) -> List[str]:
 
 # ── PDF text helpers ───────────────────────────────────────────────────────────
 
-def _period_from_text(text: str) -> Optional[str]:
+def _period_from_text(text: str) -> str | None:
     """Best-effort YYYY-MM extraction from raw PDF text."""
     # MM/DD/YYYY  (most common date format on US-issued statements)
     for mo in re.finditer(r"\b(\d{2})/(\d{2})/(\d{4})\b", text):
@@ -94,7 +93,7 @@ def _period_from_text(text: str) -> Optional[str]:
         if 2020 <= yr <= 2035 and 1 <= mon <= 12:
             return f"{yr}-{mon:02d}"
 
-    _MONTH_PAT = (
+    _month_pat = (
         r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
         r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|"
         r"Dec(?:ember)?"
@@ -102,7 +101,7 @@ def _period_from_text(text: str) -> Optional[str]:
 
     # Month D(D), YYYY  (e.g. "January 31, 2025", "March 1, 2026")
     for mo in re.finditer(
-        rf"\b({_MONTH_PAT})\s+\d{{1,2}},?\s+(\d{{4}})\b",
+        rf"\b({_month_pat})\s+\d{{1,2}},?\s+(\d{{4}})\b",
         text, re.IGNORECASE,
     ):
         key = mo.group(1)[:3].lower()
@@ -112,7 +111,7 @@ def _period_from_text(text: str) -> Optional[str]:
 
     # Month YYYY  (e.g. "January 2025", "Mar 2026")
     for mo in re.finditer(
-        rf"\b({_MONTH_PAT})\s+(\d{{4}})\b",
+        rf"\b({_month_pat})\s+(\d{{4}})\b",
         text, re.IGNORECASE,
     ):
         key = mo.group(1)[:3].lower()
@@ -165,7 +164,7 @@ def save_discovery_cache(cache_path: Path, cache: dict) -> None:
 
 # ── PDF probing ────────────────────────────────────────────────────────────────
 
-def probe_pdf(pdf_path: Path, cache: dict) -> Optional[dict]:
+def probe_pdf(pdf_path: Path, cache: dict) -> dict | None:
     """
     Return {parser_id, institution, account_last4, period} for a PDF.
     Returns None if the file is not recognised by any parser.
@@ -210,13 +209,13 @@ def discover_folder(
     folder: Path,
     glob_pattern: str,
     cache: dict,
-) -> List[Tuple[Path, dict]]:
+) -> list[tuple[Path, dict]]:
     """
     Recursively find PDFs under folder, probe each, return [(path, info), ...].
     Unrecognised or unparseable files are silently skipped.
     """
     pdfs = sorted(set(folder.rglob(glob_pattern)) | set(folder.rglob("*.PDF")))
-    results: List[Tuple[Path, dict]] = []
+    results: list[tuple[Path, dict]] = []
     for pdf in pdfs:
         info = probe_pdf(pdf, cache)
         if info:
@@ -227,9 +226,9 @@ def discover_folder(
 # ── Coverage matrix ────────────────────────────────────────────────────────────
 
 def build_coverage(
-    discovered: List[Tuple[Path, dict]],
-    window: List[str],
-) -> Tuple[dict, CoverageMap]:
+    discovered: list[tuple[Path, dict]],
+    window: list[str],
+) -> tuple[dict, CoverageMap]:
     """
     Build account registry and coverage map from discovered PDFs.
 
@@ -257,7 +256,7 @@ def build_coverage(
 def render_coverage_matrix(
     accounts: dict,
     coverage: CoverageMap,
-    window: List[str],
+    window: list[str],
 ) -> None:
     """Print the coverage matrix table using Rich (fallback to plaintext)."""
     col_labels = [
@@ -266,9 +265,9 @@ def render_coverage_matrix(
     ]
 
     try:
+        from rich import box
         from rich.console import Console
         from rich.table import Table
-        from rich import box
 
         console = Console()
         tbl = Table(
@@ -301,7 +300,7 @@ def render_coverage_matrix(
 
     # Plain-text fallback
     print(f"\n=== Statement Coverage ({window[0]} → {window[-1]}) ===")
-    hdr = f"{'Account':<36}" + "".join(f"{l.replace(chr(10),' '):<7}" for l in col_labels)
+    hdr = f"{'Account':<36}" + "".join(f"{col.replace(chr(10),' '):<7}" for col in col_labels)
     print(hdr)
     print("-" * len(hdr))
     for acct_key, info in accounts.items():
@@ -314,7 +313,7 @@ def render_coverage_matrix(
     print()
 
 
-def _summary_stats(accounts: dict, coverage: CoverageMap, window: List[str]) -> dict:
+def _summary_stats(accounts: dict, coverage: CoverageMap, window: list[str]) -> dict:
     total = len(accounts) * len(window)
     present = sum(
         1 for ak in accounts for ym in window
@@ -365,7 +364,7 @@ def _filename_hint(info: dict, period: str) -> str:
 def gap_fill_interactive(
     accounts: dict,
     coverage: CoverageMap,
-    window: List[str],
+    window: list[str],
     folder: Path,
     cache: dict,
 ) -> bool:
@@ -481,7 +480,7 @@ def _poll_for_drop(
 def emit_coverage_json(
     accounts: dict,
     coverage: CoverageMap,
-    window: List[str],
+    window: list[str],
 ) -> dict:
     """Serialise coverage matrix as JSON (for --no-prompt / CI mode)."""
     matrix: dict = {}
@@ -510,7 +509,7 @@ def emit_coverage_json(
 
 # ── Folder resolution & persistence ───────────────────────────────────────────
 
-def _load_last_dir(data_dir: Path) -> Optional[Path]:
+def _load_last_dir(data_dir: Path) -> Path | None:
     marker = data_dir / ".last_statements_dir"
     if marker.exists():
         try:
@@ -530,7 +529,7 @@ def _save_last_dir(data_dir: Path, folder: Path) -> None:
 
 
 def resolve_folder(
-    cli_arg: Optional[str],
+    cli_arg: str | None,
     data_dir: Path,
     statements_dir: Path,
 ) -> Path:
@@ -576,17 +575,22 @@ def resolve_folder(
 # ── Ingestion helper ───────────────────────────────────────────────────────────
 
 def _ingest_discovered(
-    discovered: List[Tuple[Path, dict]],
+    discovered: list[tuple[Path, dict]],
     force: bool = False,
-) -> Tuple[int, int, List[str]]:
+) -> tuple[int, int, list[str]]:
     """
     Import every discovered PDF through the existing import pipeline.
     Returns (imported_count, skipped_count, failed_names).
     """
-    from ledger_agent.core.database import init_db
     from ledger_agent.cli.commands import _get_or_setup_entity
-    from ledger_agent.cli.prompts import print_info, print_warning, print_error, print_success, prompt_classify
-    from ledger_agent.cli.quick_scan import _import_single, _AlreadyImportedSkip
+    from ledger_agent.cli.prompts import (
+        print_error,
+        print_info,
+        print_warning,
+        prompt_classify,
+    )
+    from ledger_agent.cli.quick_scan import _AlreadyImportedSkip, _import_single
+    from ledger_agent.core.database import init_db
     from ledger_agent.core.exceptions import ParserNotFoundError
 
     init_db()
@@ -596,7 +600,7 @@ def _ingest_discovered(
         return 0, 0, []
 
     imported = skipped = 0
-    failed: List[str] = []
+    failed: list[str] = []
 
     for pdf_path, _info in discovered:
         print_info(f"  📄 {pdf_path.name}")
@@ -637,8 +641,8 @@ def _ingest_discovered(
 # ── Main command ───────────────────────────────────────────────────────────────
 
 def cmd_onboard(
-    folder: Optional[str] = None,
-    window_arg: Optional[str] = None,
+    folder: str | None = None,
+    window_arg: str | None = None,
     no_prompt: bool = False,
     force: bool = False,
     show_report: bool = False,
@@ -752,11 +756,11 @@ def _print_no_pdfs(scan_dir: Path, no_prompt: bool) -> None:
 def _show_post_import_report() -> None:
     """After ingestion, render balance sheet + tax for the most recent period."""
     try:
-        from ledger_agent.core.database import SnapshotRepo, init_db
         from ledger_agent.cli.commands import _get_or_setup_entity
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
-        from ledger_agent.core.reports.renderer import render_balance_sheet
         from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
+        from ledger_agent.core.database import SnapshotRepo, init_db
+        from ledger_agent.core.reports.renderer import render_balance_sheet
 
         init_db()
         entity = _get_or_setup_entity()

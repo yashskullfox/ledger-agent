@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import pytest
-
 
 class TestScheduleK1CapitalVsProfitLossSplit:
     """Capital and P&L percentages are independent on a K-1 (Part II Box J)."""
@@ -30,8 +28,9 @@ class TestScheduleK1CapitalVsProfitLossSplit:
 
     def test_ordinary_income_uses_profit_loss_pct_not_capital_pct(self):
         """Ordinary income allocation uses profit_loss_pct, not capital_pct."""
-        from ledger_agent.core.api import generate_k1, ScheduleK1
         import os
+
+        from ledger_agent.core.api import ScheduleK1
         os.environ["FI_PARTNER_1_CAPITAL"] = "0.99"  # redaction: allow
         os.environ["FI_PARTNER_1_PL"] = "1.00"  # redaction: allow
         os.environ["FI_PARTNER_2_CAPITAL"] = "0.01"  # redaction: allow
@@ -79,12 +78,24 @@ class TestScheduleK1CapitalVsProfitLossSplit:
     def test_generate_k1_applies_profit_loss_pct_to_income(self, db):
         """generate_k1 allocates income by profit_loss_pct, not capital_pct."""
         import os
-        from decimal import Decimal
-        from ledger_agent.core.database import init_db, EntityRepo, AccountRepo, SnapshotRepo, TransactionRepo
-        from ledger_agent.core.models import (
-            Entity, Account, AccountType, AccountSnapshot, Transaction, TransactionType,
-        )
         from datetime import date
+        from decimal import Decimal
+
+        from ledger_agent.core.database import (
+            AccountRepo,
+            EntityRepo,
+            SnapshotRepo,
+            TransactionRepo,
+            init_db,
+        )
+        from ledger_agent.core.models import (
+            Account,
+            AccountSnapshot,
+            AccountType,
+            Entity,
+            Transaction,
+            TransactionType,
+        )
 
         init_db()
         entity = Entity(name="ALLOC TEST LLC", entity_type="LLC", state="MO")

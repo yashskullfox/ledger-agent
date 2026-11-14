@@ -1,7 +1,7 @@
 # AGENTS.md — ledger-agent
 > Pseudonyms only in tracked files: `ENTITY_A`, `PARTNER_1/2`, `BANK_X/X2/X3/X4`, `BROKER_Y/Z`, `TICKER_SEC1/2`, `acct_****1234`.  
 > Real values live in `data/`, `statements/`, `private/` (all gitignored).  
-> **Last reviewed 2026-05-25.** Full work history → `requirement-and-review-feedback.md`. Consultant onboarding → `docs/REQUIREMENTS.md`.
+> **Last reviewed 2026-10-28.** Full work history → `docs/requirement-and-review-feedback.md`. Consultant onboarding → `docs/REQUIREMENTS.md`.
 
 ---
 
@@ -32,7 +32,7 @@ All four forms must produce identical numbers. Divergence > $1 is P0 (R-51 / ARC
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q                                               # 344+ passed, 0 failed
+pytest -q                                               # 514+ passed, 32 skipped, 0 failed
 python scripts/check_doc_redaction.py --strict --all-tracked  # must stay at 0 hits
 ```
 
@@ -40,16 +40,16 @@ python scripts/check_doc_redaction.py --strict --all-tracked  # must stay at 0 h
 
 ---
 
-## 4. Repository layout (verified 2026-05-25)
+## 4. Repository layout (verified 2026-10-28)
 
 ```
 ledger_agent/core/
-  api.py                ← 6 public functions (single source of truth)
-  database.py           ← SQLite; SCHEMA_VERSION=6
+  api.py                ← 7 public functions + record_pte_payment (single source of truth)
+  database.py           ← SQLite; SCHEMA_VERSION=7
   models.py             ← Entity/Account/Transaction/Position/Snapshot/PositionType
   parsers/              ← bank_x{,2,3,4}_checking, bank_x4_creditcard,
                            broker_y_brokerage, broker_z  (+base, registry)
-  accounting/           ← balance_sheet, continuity, tax_estimator
+  accounting/           ← balance_sheet, continuity, tax_estimator, wash_sale, withholding
   intelligence/         ← classifier.py (CLASSIFIER_VERSION="1.0")
   reports/renderer.py   ← export_balance_sheet_json (writes *.coverage.json)
   privacy.py / audit.py / cleanup.py
@@ -71,7 +71,7 @@ statements/2026/                 ← 8 USB PDFs (checking + credit card, Jan–M
 
 ---
 
-## 5. Current state (2026-05-25)
+## 5. Current state (2026-10-28)
 
 | Ticket | Status | Key files |
 |---|---|---|
@@ -79,24 +79,37 @@ statements/2026/                 ← 8 USB PDFs (checking + credit card, Jan–M
 | ARCH-26 Coverage manifest | ✅ Done | `balance_sheet.py:138-173`, `renderer.py`, `test_aggregation_no_silent_drop.py` |
 | ARCH-27 Persist classification | ✅ Done | `classifier.py`, `database.py` (`update_coa_with_meta`), `test_classification_persisted.py` |
 | ARCH-28 Margin liability | ✅ Done | `balance_sheet.py:268-281`, `test_liability_recognition.py` |
+| ARCH-29 Partner withholding | ✅ Done | `accounting/withholding.py`, `api.py:289-291`, `test_withholding.py` |
+| ARCH-30 Multi-entity isolation | ✅ Done | `api.py:163-176`, `test_entity_isolation.py` |
+| ARCH-31 Prior period adjustments | ✅ Done | `accounting/continuity.py:75-100`, `test_continuity.py` |
+| ARCH-32 Cross-form parity / CPA parity | ✅ Done | `test_2024_cpa_parity.py`, `test_customer_summary_parity.py` |
 | W26 Test regression (coa_code) | ✅ Done | `test_liability_recognition.py` lines 122, 161 |
 | W27 Customer summary contract | ✅ Done | `docs/customer-summary-contract.md` (APPROVED); `core/api.py` `CustomerSummary` dataclass |
 | W28 CLI summary command | ✅ Done | `ledger_agent/cli/main.py` `cmd_summary()` — `ledger summary <year>` |
 | W29 Webapp result cards | ✅ Done | `webapp/src/main/resources/templates/results.html` — summary cards + collapsed raw JSON |
 | W30 MCP customer_summary tool | ✅ Done | `ledger_agent/mcp/tools.py` — 7th tool; `tests/integration/test_mcp_privacy.py` updated |
 | bank_x4_checking "Customer Deposits" | ✅ Done | `bank_x4_checking.py` `_parse_customer_deposits()`; `test_bank_x4_2026.py` |
-| ARCH-29..32 | ⛔ Blocked | Spec (req doc §4) missing from disk — owner must supply |
+| T4 Wash-sale confidence flag | ✅ Done | `core/api.py:792-809` (`_wash_csv_present` gates W16 flag) |
+| T5 Leap-day date parsing | ✅ Done | `parsers/base.py:78-83` (leap-day parsing in leap years) |
+| T6 Dynamic PTE next_due | ✅ Done | `accounting/tax_estimator.py`, `api.py:681-702` (`_compute_next_pte_due`) |
+| T7 / W31 External PTE payments | ✅ Done | `database.py` (`PTEPaymentRepo`), `api.py` (`record_pte_payment`), `test_tax_estimator.py` |
+| T8 Withholding ingestion hook | ✅ Done | `core/api.py:289-291` (`reclassify_partner_withholding` in import) |
+| T9 Customer summary bridge & parity | ✅ Done | `bridge/jsonrpc_stdio.py`, `tests/integration/test_customer_summary_parity.py` |
+| T11 Ruff modernization & debt resolution | ✅ Done | `pyproject.toml`, 0 errors across codebase via `ruff check .` |
+| T12 Documentation synchronization | ✅ Done | `AGENTS.md`, `STRUCTURE.md`, `docs/developer-tasks.md`, `docs/requirement-and-review-feedback.md` |
+| T13 "Not tax advice" disclaimer | ✅ Done | `core/config.py`, `api.py`, CLI, MCP, webapp, `renderer.py` |
+| T17 Orphan DB removal | ✅ Done | `data/db/ledger.db` safely removed; `financials.db` confirmed |
 | W15-COGS-LINE | ⚠️ xfail | 3 parity tests need COGS structural fix in `api.py` — owner spec required |
 | W16-WASH-SALE | ⚠️ xfail | `private/wash_sale_adjustments.csv` gitignored; xfail in CI — owner must supply CSV |
 | W17-DATA-REFRESH | ⚠️ skip | Missing 2024 `account_snapshots`; BANK_X2/X3 detection tokens unconfigured — owner must supply |
-| W15..W25 open-source prep | PENDING | See `requirement-and-review-feedback.md` Phase 7 |
+| W15..W25 open-source prep | PENDING | See `docs/requirement-and-review-feedback.md` Phase 7 |
 
 ---
 
 ## 6. Coding rules
 
 - **Core purity (ARCH-02):** `ledger_agent/core/` must NOT import `cli`, `rich`, `click`, `typer`, `requests`, `httpx`, `fastapi`, `flask`, `questionary`, `colorama`. Verified by `test_core_purity.py`.
-- **Single source of truth:** All six core operations live in `ledger_agent.core.api`. Forms B/C/D are thin wrappers — no reimplementation.
+- **Single source of truth:** All seven core operations live in `ledger_agent.core.api`. Forms B/C/D are thin wrappers — no reimplementation.
 - **Schema changes:** bump `SCHEMA_VERSION` in `database.py` and add a migration block in `init_db()`. Never rename existing columns.
 - **Parser registration:** subclass `BaseStatementParser`, decorate with `@ParserRegistry.register`. Detection tokens from `private/institutions.py` only.
 - **Classification:** call `TransactionRepo.update_coa_with_meta()` at classify time. Never classify at report time.
@@ -134,7 +147,7 @@ statements/2026/                 ← 8 USB PDFs (checking + credit card, Jan–M
 | Need | File |
 |---|---|
 | Developer task cards & sprint board | `docs/developer-tasks.md` |
-| Ticket status board | `requirement-and-review-feedback.md` |
+| Ticket status board | `docs/requirement-and-review-feedback.md` |
 | Consultant onboarding | `docs/REQUIREMENTS.md` |
 | Customer output contract | `docs/customer-summary-contract.md` |
 | Pseudonym corpus | `config/redaction_corpus.yaml` |

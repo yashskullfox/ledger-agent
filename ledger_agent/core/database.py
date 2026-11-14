@@ -7,33 +7,43 @@ Schema is created / migrated on first connection via schema_version.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from collections import defaultdict
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from collections import defaultdict
-from typing import Generator, List, Optional, Sequence
 
-import os
-
-from config import DB_PATH, DB_DIR
+from config import DB_PATH
 from ledger_agent.core.models import (
-    Account, AccountSnapshot, AccountType, COAEntry, COAType,
-    Entity, Position, PositionType, RealisedTrade, Transaction, TransactionType,
+    Account,
+    AccountSnapshot,
+    AccountType,
+    COAEntry,
+    COAType,
+    Entity,
+    Position,
+    PositionType,
+    RealisedTrade,
+    Transaction,
+    TransactionType,
 )
 
 # Increment whenever the schema changes; auto-migration runs on connect.
 # v4: positions.position_type (ARCH-25)
 # v5: transactions.classifier_version, transactions.confidence (ARCH-27)
-SCHEMA_VERSION = 6
+# v6: transactions.classification_lock_at
+# v7: pte_payments table (W31 / T7 entity-level external PTE payments)
+SCHEMA_VERSION = 7
 
 
 def _decimal(v) -> Decimal:
     return Decimal(str(v)) if v is not None else Decimal("0")
 
 
-def _date(v) -> Optional[date]:
+def _date(v) -> date | None:
     if v is None:
         return None
     if isinstance(v, date):
@@ -41,7 +51,7 @@ def _date(v) -> Optional[date]:
     return date.fromisoformat(str(v))
 
 
-def _resolve_db_path(db_path: Optional[Path]) -> Path:
+def _resolve_db_path(db_path: Path | None) -> Path:
     """Resolve DB path, preferring FI_DB_PATH env var to support test isolation.
 
     Resolution order (highest priority first):
@@ -58,7 +68,7 @@ def _resolve_db_path(db_path: Optional[Path]) -> Path:
 
 
 @contextmanager
-def get_conn(db_path: Optional[Path] = None) -> Generator[sqlite3.Connection, None, None]:
+def get_conn(db_path: Path | None = None) -> Generator[sqlite3.Connection, None, None]:
     db_path = _resolve_db_path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -317,11 +327,25 @@ _DDL = """
            account_id,
            statement_period
        )
-           ); \
+           );
+
+       CREATE TABLE IF NOT EXISTS pte_payments
+       (
+           id TEXT PRIMARY KEY,
+           entity_id TEXT NOT NULL REFERENCES entities(id),
+           fiscal_year INTEGER NOT NULL,
+           quarter TEXT NOT NULL,
+           paid_on TEXT,
+           amount TEXT NOT NULL,
+           source TEXT DEFAULT 'manual',
+           created_at TEXT NOT NULL,
+           UNIQUE(entity_id, fiscal_year, quarter, source)
+       );
+       CREATE INDEX IF NOT EXISTS idx_pte_entity_year ON pte_payments(entity_id, fiscal_year); \
        """
 
 
-def init_db(db_path: Optional[Path] = None) -> None:
+def init_db(db_path: Path | None = None) -> None:
     """Create tables and seed the COA if the DB is brand-new."""
     db_path = _resolve_db_path(db_path)
     with get_conn(db_path) as conn:
@@ -355,6 +379,23 @@ def init_db(db_path: Optional[Path] = None) -> None:
                 )
             except Exception:
                 pass  # column already exists on freshly-created DB
+        if current < 7:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS pte_payments ("
+                "id TEXT PRIMARY KEY, "
+                "entity_id TEXT NOT NULL REFERENCES entities(id), "
+                "fiscal_year INTEGER NOT NULL, "
+                "quarter TEXT NOT NULL, "
+                "paid_on TEXT, "
+                "amount TEXT NOT NULL, "
+                "source TEXT DEFAULT 'manual', "
+                "created_at TEXT NOT NULL, "
+                "UNIQUE(entity_id, fiscal_year, quarter, source))"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pte_entity_year "
+                "ON pte_payments(entity_id, fiscal_year)"
+            )
         if current < SCHEMA_VERSION:
             conn.execute(
                 "INSERT OR REPLACE INTO schema_meta(key,value) VALUES('version',?)",
@@ -428,7 +469,7 @@ _DEFAULT_COA: list[tuple] = [
 ]
 
 
-def _seed_coa(db_path: Optional[Path] = None) -> None:
+def _seed_coa(db_path: Path | None = None) -> None:
     """Insert canonical COA rows. INSERT OR IGNORE means safe to call any time —
     existing rows are preserved; new codes are added to live databases too."""
     with get_conn(db_path) as conn:
@@ -441,7 +482,7 @@ def _seed_coa(db_path: Optional[Path] = None) -> None:
 
 class EntityRepo:
     @staticmethod
-    def upsert(e: Entity, db_path: Optional[Path] = None) -> None:
+    def upsert(e: Entity, db_path: Path | None = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO entities(id,name,entity_type,state,ein_masked,notes,created_at)"
@@ -451,7 +492,7 @@ class EntityRepo:
             )
 
     @staticmethod
-    def get_by_name(name: str, db_path: Optional[Path] = None) -> Optional[Entity]:
+    def get_by_name(name: str, db_path: Path | None = None) -> Entity | None:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM entities WHERE name=? LIMIT 1", (name,)
@@ -466,7 +507,7 @@ class EntityRepo:
         )
 
     @staticmethod
-    def list_all(db_path: Optional[Path] = None) -> List[Entity]:
+    def list_all(db_path: Path | None = None) -> list[Entity]:
         with get_conn(db_path) as conn:
             rows = conn.execute("SELECT * FROM entities ORDER BY name").fetchall()
         return [Entity(id=r["id"], name=r["name"], entity_type=r["entity_type"],
@@ -477,7 +518,7 @@ class EntityRepo:
 
 class AccountRepo:
     @staticmethod
-    def upsert(a: Account, db_path: Optional[Path] = None) -> None:
+    def upsert(a: Account, db_path: Path | None = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO accounts"
@@ -491,7 +532,7 @@ class AccountRepo:
 
     @staticmethod
     def find(institution: str, account_number_masked: str,
-             db_path: Optional[Path] = None) -> Optional[Account]:
+             db_path: Path | None = None) -> Account | None:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM accounts WHERE institution=? AND account_number_masked=? LIMIT 1",
@@ -502,7 +543,7 @@ class AccountRepo:
         return AccountRepo._row_to_model(row)
 
     @staticmethod
-    def get_by_id(account_id: str, db_path: Optional[Path] = None) -> Optional[Account]:
+    def get_by_id(account_id: str, db_path: Path | None = None) -> Account | None:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM accounts WHERE id=? LIMIT 1", (account_id,)
@@ -510,7 +551,7 @@ class AccountRepo:
         return AccountRepo._row_to_model(row) if row else None
 
     @staticmethod
-    def list_for_entity(entity_id: str, db_path: Optional[Path] = None) -> List[Account]:
+    def list_for_entity(entity_id: str, db_path: Path | None = None) -> list[Account]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM accounts WHERE entity_id=? ORDER BY institution,name",
@@ -533,7 +574,7 @@ class AccountRepo:
 
 class TransactionRepo:
     @staticmethod
-    def bulk_insert(txns: List[Transaction], db_path: Optional[Path] = None) -> int:
+    def bulk_insert(txns: list[Transaction], db_path: Path | None = None) -> int:
         if not txns:
             return 0
         inserted = 0
@@ -579,7 +620,7 @@ class TransactionRepo:
 
     @staticmethod
     def update_coa(tx_id: str, coa_code: str, coa_name: str,
-                   db_path: Optional[Path] = None) -> None:
+                   db_path: Path | None = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "UPDATE transactions SET coa_code=?, coa_name=? WHERE id=?",
@@ -593,7 +634,7 @@ class TransactionRepo:
         coa_name: str,
         classifier_version: str,
         confidence: float,
-        db_path: Optional[Path] = None,
+        db_path: Path | None = None,
     ) -> None:
         """R-65/R-66 / ARCH-27: persist classification with audit metadata."""
         from datetime import datetime, timezone
@@ -608,7 +649,7 @@ class TransactionRepo:
             )
 
     @staticmethod
-    def get_by_id(tx_id: str, db_path: Optional[Path] = None) -> Optional["Transaction"]:
+    def get_by_id(tx_id: str, db_path: Path | None = None) -> Transaction | None:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM transactions WHERE id=? LIMIT 1", (tx_id,)
@@ -617,8 +658,8 @@ class TransactionRepo:
 
     @staticmethod
     def list_for_period(statement_period: str,
-                        account_id: Optional[str] = None,
-                        db_path: Optional[Path] = None) -> List[Transaction]:
+                        account_id: str | None = None,
+                        db_path: Path | None = None) -> list[Transaction]:
         with get_conn(db_path) as conn:
             if account_id:
                 rows = conn.execute(
@@ -636,9 +677,9 @@ class TransactionRepo:
     @staticmethod
     def list_for_periods(
         statement_periods: Sequence[str],
-        account_ids: Optional[Sequence[str]] = None,
-        db_path: Optional[Path] = None,
-    ) -> List[Transaction]:
+        account_ids: Sequence[str] | None = None,
+        db_path: Path | None = None,
+    ) -> list[Transaction]:
         if not statement_periods:
             return []
         p_placeholders = ",".join("?" for _ in statement_periods)
@@ -656,7 +697,7 @@ class TransactionRepo:
         return [TransactionRepo._row_to_model(r) for r in rows]
 
     @staticmethod
-    def list_unclassified(db_path: Optional[Path] = None) -> List[Transaction]:
+    def list_unclassified(db_path: Path | None = None) -> list[Transaction]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM transactions WHERE (coa_code='' OR coa_code IS NULL)"
@@ -686,7 +727,7 @@ class TransactionRepo:
 
 class PositionRepo:
     @staticmethod
-    def upsert_period(positions: List[Position], db_path: Optional[Path] = None) -> None:
+    def upsert_period(positions: list[Position], db_path: Path | None = None) -> None:
         if not positions:
             return
         period = positions[0].statement_period
@@ -714,7 +755,7 @@ class PositionRepo:
 
     @staticmethod
     def list_for_period(account_id: str, statement_period: str,
-                        db_path: Optional[Path] = None) -> List[Position]:
+                        db_path: Path | None = None) -> list[Position]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM positions WHERE account_id=? AND statement_period=?"
@@ -744,7 +785,7 @@ class PositionRepo:
 
 class SnapshotRepo:
     @staticmethod
-    def upsert(s: AccountSnapshot, db_path: Optional[Path] = None) -> None:
+    def upsert(s: AccountSnapshot, db_path: Path | None = None) -> None:
         with get_conn(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO account_snapshots"
@@ -766,7 +807,7 @@ class SnapshotRepo:
 
     @staticmethod
     def get(account_id: str, period: str,
-            db_path: Optional[Path] = None) -> Optional[AccountSnapshot]:
+            db_path: Path | None = None) -> AccountSnapshot | None:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM account_snapshots WHERE account_id=? AND statement_period=?",
@@ -777,7 +818,7 @@ class SnapshotRepo:
         return SnapshotRepo._row_to_model(row)
 
     @staticmethod
-    def list_for_entity(entity_id: str, db_path: Optional[Path] = None) -> List[AccountSnapshot]:
+    def list_for_entity(entity_id: str, db_path: Path | None = None) -> list[AccountSnapshot]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT s.* FROM account_snapshots s"
@@ -811,7 +852,7 @@ class SnapshotRepo:
 
 class RealisedTradeRepo:
     @staticmethod
-    def upsert_period(trades: List[RealisedTrade], db_path: Optional[Path] = None) -> None:
+    def upsert_period(trades: list[RealisedTrade], db_path: Path | None = None) -> None:
         if not trades:
             return
         period = trades[0].statement_period
@@ -834,7 +875,7 @@ class RealisedTradeRepo:
 
     @staticmethod
     def list_for_period(statement_period: str,
-                        db_path: Optional[Path] = None) -> List[RealisedTrade]:
+                        db_path: Path | None = None) -> list[RealisedTrade]:
         with get_conn(db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM realised_trades WHERE statement_period=? ORDER BY settlement_date",
@@ -852,13 +893,13 @@ class RealisedTradeRepo:
 
 class COARepo:
     @staticmethod
-    def list_all(db_path: Optional[Path] = None) -> List[COAEntry]:
+    def list_all(db_path: Path | None = None) -> list[COAEntry]:
         with get_conn(db_path) as conn:
             rows = conn.execute("SELECT * FROM coa ORDER BY code").fetchall()
         return [COARepo._row_to_model(r) for r in rows]
 
     @staticmethod
-    def get(code: str, db_path: Optional[Path] = None) -> Optional[COAEntry]:
+    def get(code: str, db_path: Path | None = None) -> COAEntry | None:
         with get_conn(db_path) as conn:
             row = conn.execute("SELECT * FROM coa WHERE code=?", (code,)).fetchone()
         return COARepo._row_to_model(row) if row else None
@@ -877,7 +918,7 @@ class COARepo:
 class ImportRegistry:
     @staticmethod
     def already_imported(account_id: str, period: str,
-                         db_path: Optional[Path] = None) -> bool:
+                         db_path: Path | None = None) -> bool:
         with get_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT id FROM imported_statements WHERE account_id=? AND statement_period=?",
@@ -887,7 +928,7 @@ class ImportRegistry:
 
     @staticmethod
     def record(source_file: str, parser_id: str, account_id: str, period: str,
-               db_path: Optional[Path] = None) -> None:
+               db_path: Path | None = None) -> None:
         import uuid as _uuid
         with get_conn(db_path) as conn:
             conn.execute(
@@ -897,3 +938,73 @@ class ImportRegistry:
                 (str(_uuid.uuid4()), source_file, parser_id, account_id,
                  period, datetime.now(timezone.utc).isoformat()),
             )
+
+
+class PTEPaymentRepo:
+    """Entity-level external PTE payment persistence (W31 / T7)."""
+
+    @staticmethod
+    def upsert(
+        entity_id: str,
+        fiscal_year: int,
+        quarter: str,
+        amount: Decimal,
+        paid_on: str | None = None,
+        source: str = "manual",
+        db_path: Path | None = None,
+    ) -> dict:
+        import uuid as _uuid
+
+        q_norm = quarter.strip().upper()
+        amt_str = str(Decimal(str(amount)).quantize(Decimal("0.01")))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        rec_id = str(_uuid.uuid4())
+        with get_conn(db_path) as conn:
+            existing = conn.execute(
+                "SELECT id FROM pte_payments "
+                "WHERE entity_id=? AND fiscal_year=? AND quarter=? AND source=?",
+                (entity_id, int(fiscal_year), q_norm, source),
+            ).fetchone()
+            if existing:
+                rec_id = existing["id"]
+            conn.execute(
+                "INSERT OR REPLACE INTO pte_payments"
+                "(id,entity_id,fiscal_year,quarter,paid_on,amount,source,created_at)"
+                " VALUES(?,?,?,?,?,?,?,?)",
+                (rec_id, entity_id, int(fiscal_year), q_norm, paid_on, amt_str, source, now_iso),
+            )
+        return {
+            "id": rec_id,
+            "entity_id": entity_id,
+            "fiscal_year": int(fiscal_year),
+            "quarter": q_norm,
+            "paid_on": paid_on,
+            "amount": amt_str,
+            "source": source,
+            "created_at": now_iso,
+        }
+
+    @staticmethod
+    def list_for_year(
+        entity_id: str,
+        fiscal_year: int,
+        db_path: Path | None = None,
+    ) -> list[dict]:
+        with get_conn(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, entity_id, fiscal_year, quarter, paid_on, amount, source, created_at "
+                "FROM pte_payments WHERE entity_id=? AND fiscal_year=? ORDER BY quarter, created_at",
+                (entity_id, int(fiscal_year)),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def total_paid_for_year(
+        entity_id: str,
+        fiscal_year: int,
+        db_path: Path | None = None,
+    ) -> Decimal:
+        rows = PTEPaymentRepo.list_for_year(entity_id, fiscal_year, db_path=db_path)
+        total = sum((_decimal(r["amount"]) for r in rows), Decimal("0.00"))
+        return total.quantize(Decimal("0.01"))
+

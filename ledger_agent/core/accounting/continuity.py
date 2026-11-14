@@ -4,14 +4,13 @@ accounting/continuity.py  –  Fiscal-year period continuity checker (R-72 / ARC
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import List, Optional, Tuple
 
 
 def check_period_continuity(
     entity_id: str,
     period_a: str,
     period_b: str,
-) -> Optional[Decimal]:
+) -> Decimal | None:
     """
     Compare the total ending balance of period_a against the total ending balance
     of period_b for the same entity. Returns the delta (period_b - period_a), or
@@ -29,13 +28,13 @@ def check_period_continuity(
     Returns:
         Decimal delta (period_b total - period_a total), or None if data absent.
     """
-    from ledger_agent.core.database import SnapshotRepo, AccountRepo
+    from ledger_agent.core.database import AccountRepo, SnapshotRepo
 
     accounts = AccountRepo.list_for_entity(entity_id)
     if not accounts:
         return None
 
-    def _total_ending(period: str) -> Optional[Decimal]:
+    def _total_ending(period: str) -> Decimal | None:
         snapshots = SnapshotRepo.list_for_entity(entity_id)
         period_snaps = [s for s in snapshots if s.statement_period == period]
         if not period_snaps:
@@ -53,8 +52,8 @@ def check_period_continuity(
 
 def list_discontinuities(
     entity_id: str,
-    periods: List[str],
-) -> List[Tuple[str, str, Decimal]]:
+    periods: list[str],
+) -> list[tuple[str, str, Decimal]]:
     """
     Check all consecutive period pairs in `periods` for carry-forward gaps.
 
@@ -78,7 +77,7 @@ def materialise_prior_period_adjustments(
         period_b: str,
         *,
         dry_run: bool = False,
-) -> Optional[Decimal]:
+) -> Decimal | None:
     """
     If a carry-forward gap exists between period_a and period_b, create a
     ``TransactionType.PRIOR_PERIOD_ADJUSTMENT`` transaction in the database
@@ -93,10 +92,11 @@ def materialise_prior_period_adjustments(
     Returns:
         The delta written (or that would be written), or None if no data.
     """
+    import uuid
+    from datetime import date as date_
+
     from ledger_agent.core.database import AccountRepo, TransactionRepo
     from ledger_agent.core.models import Transaction, TransactionType
-    from datetime import date as date_
-    import uuid
 
     delta = check_period_continuity(entity_id, period_a, period_b)
     if delta is None or delta == Decimal("0"):

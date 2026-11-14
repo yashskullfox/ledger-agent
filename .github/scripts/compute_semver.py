@@ -25,10 +25,10 @@ Exit codes
 0   Success
 1   Could not determine version (no tags, no commits)
 """
+import os
 import re
 import subprocess
 import sys
-import os
 
 _MAJOR_RE = re.compile(r"^(feat!|fix!|refactor!|BREAKING CHANGE)", re.MULTILINE)
 _MINOR_RE = re.compile(r"^feat(\(.+?\))?:", re.MULTILINE)

@@ -42,9 +42,9 @@ import os
 import shutil
 import tempfile
 import threading
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator, List, Optional
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ _lock = threading.Lock()
 # Writers acquire via hold_write_lock(); cleanup acquires with a short timeout
 # and emits cleanup.skipped_busy if it cannot (rather than racing with writers).
 _write_lock = threading.Lock()
-_hooks: List[Callable[[], None]] = []
+_hooks: list[Callable[[], None]] = []
 
 
 # ── Write-lock API (BUG-C1) ───────────────────────────────────────────────────
@@ -198,7 +198,7 @@ def _purge_privacy_session() -> None:
 # ── Shared cleanup core ───────────────────────────────────────────────────────
 
 
-def _do_cleanup(event_name: str, *, run_hooks: bool, label: Optional[str] = None) -> None:
+def _do_cleanup(event_name: str, *, run_hooks: bool, label: str | None = None) -> None:
     """
     SMELL-C3 fix: single implementation shared by boot_cleanup and
     cycle_cleanup. Previously those two functions were near-duplicates

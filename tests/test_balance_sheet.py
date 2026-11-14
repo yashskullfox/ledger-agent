@@ -13,12 +13,20 @@ import pytest
 def seeded_db(db):
     """Create entity, accounts, snapshot and transactions for a balance sheet test."""
     from ledger_agent.core.database import (
-        init_db, EntityRepo, AccountRepo, SnapshotRepo, TransactionRepo,
+        AccountRepo,
+        EntityRepo,
+        SnapshotRepo,
+        TransactionRepo,
         get_conn,
+        init_db,
     )
     from ledger_agent.core.models import (
-        Entity, Account, AccountType, AccountSnapshot,
-        Transaction, TransactionType,
+        Account,
+        AccountSnapshot,
+        AccountType,
+        Entity,
+        Transaction,
+        TransactionType,
     )
     init_db()
     # Clear tables in FK-safe order (children before parents)
@@ -147,15 +155,24 @@ class TestPlPeriodsAggregation:
     def test_net_income_aggregates_across_pl_periods(self, db):
         """Full-FY P&L = sum of all monthly P&L values."""
         from datetime import date
+
+        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         from ledger_agent.core.database import (
-            init_db, EntityRepo, AccountRepo, SnapshotRepo, TransactionRepo,
+            AccountRepo,
+            EntityRepo,
+            SnapshotRepo,
+            TransactionRepo,
             get_conn,
+            init_db,
         )
         from ledger_agent.core.models import (
-            Entity, Account, AccountType, AccountSnapshot,
-            Transaction, TransactionType,
+            Account,
+            AccountSnapshot,
+            AccountType,
+            Entity,
+            Transaction,
+            TransactionType,
         )
-        from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         init_db()
         with get_conn() as conn:
             for t in ("realised_trades", "transactions", "account_snapshots",
@@ -205,9 +222,9 @@ class TestPlPeriodsAggregation:
 
     def test_entity_id_set_on_balance_sheet(self, db):
         """BalanceSheet.entity_id is set from BalanceSheetBuilder."""
-        from ledger_agent.core.database import init_db, EntityRepo, AccountRepo, SnapshotRepo
-        from ledger_agent.core.models import Entity, Account, AccountType, AccountSnapshot
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+        from ledger_agent.core.database import AccountRepo, EntityRepo, SnapshotRepo, init_db
+        from ledger_agent.core.models import Account, AccountSnapshot, AccountType, Entity
         init_db()
         entity = Entity(name="TEST LLC 2", entity_type="LLC", state="MO")
         EntityRepo.upsert(entity)
@@ -227,8 +244,9 @@ class TestComputeNetLtcg:
     def test_5071_excluded_from_ltcg(self):
         """COA 5071 (Legal Fees) must NOT appear in LTCG calculation."""
         from datetime import date
-        from ledger_agent.core.models import Transaction, TransactionType
+
         from ledger_agent.core.api import _compute_net_ltcg
+        from ledger_agent.core.models import Transaction, TransactionType
         txns = [
             Transaction(
                 account_id="a", date=date(2025, 1, 1),
@@ -264,8 +282,9 @@ class TestComputeNetLtcg:
     def test_5075_included_in_ltcg(self):
         """COA 5075 (LTCG Loss) IS included in LTCG calculation."""
         from datetime import date
-        from ledger_agent.core.models import Transaction, TransactionType
+
         from ledger_agent.core.api import _compute_net_ltcg
+        from ledger_agent.core.models import Transaction, TransactionType
         txns = [
             Transaction(
                 account_id="a", date=date(2025, 1, 3),

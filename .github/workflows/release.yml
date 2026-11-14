@@ -85,9 +85,9 @@ jobs:
           python -c "
           import ledger_agent.core.api as a
           fns = ['import_statements','generate_balance_sheet','generate_form_1065',
-                 'generate_k1','pte_estimate','reconcile_year']
+                 'generate_k1','pte_estimate','reconcile_year','build_customer_summary']
           [getattr(a, f) for f in fns]
-          print('ARCH-01 PASS: all 6 API functions present')
+          print('ARCH-01 PASS: all 7 API functions present')
           "
 
       - name: Run core purity test

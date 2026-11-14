@@ -22,7 +22,7 @@ Environment variables:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from config import LOCAL_CONFIDENCE_THRESHOLD as _DEFAULT_THRESHOLD
 from ledger_agent.core.intelligence.ai_backend.base import AIBackend
@@ -49,8 +49,8 @@ class ChainedBackend(AIBackend):
             self,
             description: str,
             amount: float,
-            context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         local_result = self._local.classify_transaction(description, amount, context)
         if local_result.get("confidence", 0.0) >= self._threshold:
             local_result["source"] = "local"
@@ -72,7 +72,7 @@ class ChainedBackend(AIBackend):
             pattern: str,
             coa_code: str,
             confirmed_count: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         try:
             return self._remote.enhance_memory_rule(pattern, coa_code, confirmed_count)
         except Exception:

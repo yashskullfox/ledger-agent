@@ -23,10 +23,8 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
-
 
 # ── DB fixture ────────────────────────────────────────────────────────────────
 
@@ -145,7 +143,7 @@ class TestClassificationPersisted:
         acct = _account(db, entity.id)
         txn = _txn(db, acct.id, "TRAN FEE BANK SERVICE", "-3.00")
 
-        from ledger_agent.core.intelligence.classifier import classify_batch, CLASSIFIER_VERSION
+        from ledger_agent.core.intelligence.classifier import CLASSIFIER_VERSION, classify_batch
         classify_batch([txn])
 
         from ledger_agent.core.database import get_conn

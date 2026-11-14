@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Optional
+from typing import Any
 
 
-def read_message() -> Optional[dict]:
+def read_message() -> dict | None:
     """Read one JSON-RPC message from stdin.
 
     Returns ``None`` on EOF (client disconnected).
