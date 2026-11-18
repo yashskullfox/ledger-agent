@@ -34,7 +34,8 @@ def _seed_two_entities(db_path):
     con.execute("INSERT INTO entities(id,name,entity_type,state,created_at) VALUES('eb','ENTITY_B','LLC','CA','2024-01-01')")
     con.execute("INSERT INTO accounts(id,entity_id,name,institution,account_type,account_number_masked,created_at) VALUES('ab','eb','ENTITY_B Checking','BANK_X','checking','****5678','2024-01-01')")
     con.execute("INSERT INTO transactions(id,account_id,date,description,amount,transaction_type,coa_code,statement_period,is_transfer,created_at) VALUES('tb1','ab','2024-06-01','Revenue B','9000.00','credit','4020','2024-06',0,'2024-06-01')")
-    con.commit(); con.close()
+    con.commit()
+    con.close()
 
 
 class TestEntityIsolation:

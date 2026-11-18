@@ -43,7 +43,7 @@ def _vars_in_docs() -> set[str]:
 class TestEnvVarsDocumented:
     def test_docs_file_exists(self):
         assert ENV_VARS_DOC.exists(), (
-            f"docs/env-vars.md not found — create it (W24)"
+            "docs/env-vars.md not found — create it (W24)"
         )
 
     def test_all_fi_vars_documented(self):

@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 def main() -> int:
     try:
         from ledger_agent.core.api import build_customer_summary
-        from ledger_agent.core.database import init_db, EntityRepo
+        from ledger_agent.core.database import EntityRepo, init_db
         init_db()
         entities = EntityRepo.list_all()
         if not entities:

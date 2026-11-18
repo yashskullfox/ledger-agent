@@ -21,14 +21,13 @@ What it does:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 from ledger_agent.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
-def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
+def cmd_quick_scan(folder: str | None = None, force: bool = False) -> None:
     """
     Auto-import all PDFs from a folder, then generate balance sheet + tax report.
 
@@ -36,13 +35,16 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
         folder: Path to folder containing PDF statements. Prompts if None.
         force:  Re-import even if statement was already imported.
     """
-    from ledger_agent.core.database import init_db, SnapshotRepo
+    from config import STATEMENTS_DIR
     from ledger_agent.cli.prompts import (
-        ask_select, ask_text,
-        print_error, print_info, print_warning,
+        ask_select,
+        ask_text,
+        print_error,
+        print_info,
+        print_warning,
         prompt_classify,
     )
-    from config import STATEMENTS_DIR
+    from ledger_agent.core.database import SnapshotRepo, init_db
 
     init_db()
 
@@ -86,7 +88,7 @@ def cmd_quick_scan(folder: Optional[str] = None, force: bool = False) -> None:
 
     imported_count = 0
     skipped_count = 0
-    failed: List[str] = []
+    failed: list[str] = []
 
     for pdf_path in pdf_files:
         print_info(f"\n📄 Processing: [bold]{pdf_path.name}[/bold]")
@@ -163,14 +165,18 @@ def _load_all_parsers() -> None:
 
 def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> None:
     """Import one PDF. Raises _AlreadyImportedSkip or ParserNotFoundError."""
-    from ledger_agent.core.parsers.registry import ParserRegistry
-    from ledger_agent.core.parsers.base import BaseStatementParser
+    from ledger_agent.cli.commands import _default_account_name, _infer_account_type
     from ledger_agent.core.database import (
-        AccountRepo, ImportRegistry, PositionRepo, SnapshotRepo, TransactionRepo,
+        AccountRepo,
+        ImportRegistry,
+        PositionRepo,
+        SnapshotRepo,
+        TransactionRepo,
     )
-    from ledger_agent.core.models import Account
-    from ledger_agent.cli.commands import _infer_account_type, _default_account_name
     from ledger_agent.core.intelligence.classifier import classify_batch
+    from ledger_agent.core.models import Account
+    from ledger_agent.core.parsers.base import BaseStatementParser
+    from ledger_agent.core.parsers.registry import ParserRegistry
 
     raw_text = BaseStatementParser.extract_text(pdf_path)
     parser_cls = ParserRegistry.detect_or_raise(raw_text)
@@ -236,9 +242,9 @@ def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
         log.warning("Tax estimate failed", extra={"error": str(exc)})
 
 
-def _offer_exports(entity, latest_period: str, all_periods: List[str]) -> None:
+def _offer_exports(entity, latest_period: str, all_periods: list[str]) -> None:
     """Offer export options after the scan."""
-    from ledger_agent.cli.prompts import ask_select, print_success, print_info
+    from ledger_agent.cli.prompts import ask_select, print_info, print_success
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
 
     export = ask_select(

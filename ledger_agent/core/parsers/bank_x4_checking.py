@@ -21,11 +21,13 @@ import re
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ledger_agent.core.models import (
-    AccountSnapshot, ParsedStatement,
-    StatementType, Transaction, TransactionType,
+    AccountSnapshot,
+    ParsedStatement,
+    StatementType,
+    Transaction,
+    TransactionType,
 )
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
@@ -100,7 +102,7 @@ class BankX4CheckingParser(BaseStatementParser):
             source_file=str(pdf_path),
         )
 
-    def _extract_period(self, lines: List[str], full_text: str) -> Tuple[str, int]:
+    def _extract_period(self, lines: list[str], full_text: str) -> tuple[str, int]:
         m = re.search(
             r"Ending Balance on\s+"
             r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{1,2},?\s*(\d{4})",
@@ -123,7 +125,7 @@ class BankX4CheckingParser(BaseStatementParser):
                         return f"{year}-{month_num}", year
         return "0000-00", 0
 
-    def _extract_account_number(self, lines: List[str]) -> str:
+    def _extract_account_number(self, lines: list[str]) -> str:
         for i, line in enumerate(lines):
             if "Account Number" in line:
                 for candidate in [line] + lines[i + 1: i + 3]:
@@ -132,14 +134,14 @@ class BankX4CheckingParser(BaseStatementParser):
                         return digits
         return "0000"
 
-    def _extract_entity_name(self, lines: List[str]) -> str:
+    def _extract_entity_name(self, lines: list[str]) -> str:
         for line in lines:
             stripped = line.strip()
             if re.match(r"^[A-Z][A-Z &,]+(?:LLC|INC|CORP|CO|LTD)$", stripped):
                 return stripped
         return "UNKNOWN ENTITY"
 
-    def _extract_balances(self, full_text: str) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+    def _extract_balances(self, full_text: str) -> tuple[Decimal | None, Decimal | None]:
         prev = new = None
         m = re.search(r"Beginning Balance on[^$]*\$?([\d,]+\.\d{2})", full_text, re.IGNORECASE)
         if m:
@@ -163,8 +165,8 @@ class BankX4CheckingParser(BaseStatementParser):
         re.IGNORECASE,
     )
 
-    def _parse_section(self, lines: List[str], year: int, period: str,
-                       is_debit: bool) -> List[Transaction]:
+    def _parse_section(self, lines: list[str], year: int, period: str,
+                       is_debit: bool) -> list[Transaction]:
         if is_debit:
             start_pat = r"^Other Withdrawals\s*$"
             end_pat = r"^Total Other Withdrawals"
@@ -173,7 +175,7 @@ class BankX4CheckingParser(BaseStatementParser):
             end_pat = r"^Total Other Deposits"
 
         section_lines = _slice_section(lines, start_pat, end_pat)
-        txns: List[Transaction] = []
+        txns: list[Transaction] = []
 
         for line in section_lines:
             m = self._TX_RE.match(line)
@@ -206,8 +208,8 @@ class BankX4CheckingParser(BaseStatementParser):
             ))
         return txns
 
-    def _parse_customer_deposits(self, lines: List[str], year: int,
-                                 period: str) -> List[Transaction]:
+    def _parse_customer_deposits(self, lines: list[str], year: int,
+                                 period: str) -> list[Transaction]:
         """Parse the 'Customer Deposits' section — ACH deposits without descriptions.
 
         USB Business Checking statements use this section for direct ACH deposits.
@@ -215,7 +217,7 @@ class BankX4CheckingParser(BaseStatementParser):
         """
         section = _slice_section(lines, r"^Customer Deposits\s*$",
                                  r"^Total Customer Deposits")
-        txns: List[Transaction] = []
+        txns: list[Transaction] = []
         for line in section:
             m = self._CUST_DEP_RE.match(line)
             if not m:
@@ -243,10 +245,10 @@ class BankX4CheckingParser(BaseStatementParser):
         return txns
 
 
-def _extract_lines_by_y(pdf_path: Path) -> List[str]:
+def _extract_lines_by_y(pdf_path: Path) -> list[str]:
     """Reconstruct text lines by grouping PDF chars sharing the same vertical position."""
     import pdfplumber
-    lines: List[str] = []
+    lines: list[str] = []
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page in pdf.pages:
             rows: dict = collections.defaultdict(list)
@@ -261,10 +263,10 @@ def _extract_lines_by_y(pdf_path: Path) -> List[str]:
     return lines
 
 
-def _slice_section(lines: List[str], start_pat: str, end_pat: str) -> List[str]:
+def _slice_section(lines: list[str], start_pat: str, end_pat: str) -> list[str]:
     """Return lines between the first match of start_pat and end_pat."""
     in_section = False
-    result: List[str] = []
+    result: list[str] = []
     for line in lines:
         if not in_section and re.search(start_pat, line, re.IGNORECASE):
             in_section = True

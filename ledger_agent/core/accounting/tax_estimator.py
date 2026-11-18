@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
-from typing import List
+
+from ledger_agent.core.config import NOT_TAX_ADVICE_DISCLAIMER
 
 
 def _env_decimal(key: str, default: str) -> Decimal:
@@ -56,12 +58,26 @@ QUARTERLY_DUE_DATES = {
 }
 
 
+def get_quarterly_due_date(quarter: str, fiscal_year: int) -> date:
+    """Return the statutory due date for an estimated quarterly tax payment."""
+    if quarter == "Q1":
+        return date(fiscal_year, 4, 15)
+    elif quarter == "Q2":
+        return date(fiscal_year, 6, 15)
+    elif quarter == "Q3":
+        return date(fiscal_year, 9, 15)
+    elif quarter == "Q4":
+        return date(fiscal_year + 1, 1, 15)
+    raise ValueError(f"Unknown quarter: {quarter!r}")
+
+
 @dataclass
 class QuarterlyPayment:
     quarter: str  # "Q1", "Q2", etc.
     due_date: str
     amount: Decimal
     description: str
+    due_date_obj: date | None = None
 
 
 @dataclass
@@ -73,8 +89,8 @@ class TaxEstimate:
     federal_income_tax: Decimal
     state_income_tax: Decimal
     total_annual_tax: Decimal
-    quarterly_payments: List[QuarterlyPayment] = field(default_factory=list)
-    notes: List[str] = field(default_factory=list)
+    quarterly_payments: list[QuarterlyPayment] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     @property
     def effective_rate(self) -> Decimal:
@@ -116,6 +132,7 @@ class TaxEstimator:
                     due_date=QUARTERLY_DUE_DATES[q],
                     amount=zero,
                     description=f"No estimated payment due – net income is not positive ({QUARTERLY_DUE_DATES[q]})",
+                    due_date_obj=get_quarterly_due_date(q, self.year),
                 )
                 for q in ("Q1", "Q2", "Q3", "Q4")
             ]
@@ -130,7 +147,7 @@ class TaxEstimator:
                 quarterly_payments=payments,
                 notes=[
                     "ℹ️  Net income is zero or negative — no estimated tax payments are due.",
-                    "⚠️  These are rough estimates only — consult a CPA for actual tax filings.",
+                    f"⚠️  {NOT_TAX_ADVICE_DISCLAIMER}",
                 ],
             )
 
@@ -162,12 +179,13 @@ class TaxEstimator:
                     f"Estimated federal + state + SE tax – "
                     f"${quarterly_amount:,.2f} due {QUARTERLY_DUE_DATES[q]}"
                 ),
+                due_date_obj=get_quarterly_due_date(q, self.year),
             )
             for q in ("Q1", "Q2", "Q3", "Q4")
         ]
 
         notes = [
-            "⚠️  These are rough estimates only — consult a CPA for actual tax filings.",
+            f"⚠️  {NOT_TAX_ADVICE_DISCLAIMER}",
             f"SE Tax rate: {float(SE_TAX_RATE) * 100:.1f}%  |  "
             f"Federal rate: {float(FEDERAL_INCOME_RATE) * 100:.1f}%  |  "
             f"State rate: {float(STATE_INCOME_RATE) * 100:.1f}%",

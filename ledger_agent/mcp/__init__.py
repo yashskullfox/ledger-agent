@@ -29,6 +29,6 @@ Claude Desktop config entry::
       }
     }
 """
-from ledger_agent.mcp.server import serve_stdio, serve_http, main  # noqa: F401
+from ledger_agent.mcp.server import main, serve_http, serve_stdio  # noqa: F401
 
 __all__ = ["serve_stdio", "serve_http", "main"]

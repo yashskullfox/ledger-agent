@@ -28,7 +28,6 @@ if str(ROOT) not in sys.path:
 
 from ledger_agent.mcp.server import _redact_response
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -175,7 +174,7 @@ class TestMcpDispatchPrivacy:
 
     def test_initialize_returns_protocol_version(self):
         """initialize must echo back the MCP protocol version."""
-        from ledger_agent.mcp.server import _dispatch, PROTOCOL_VERSION
+        from ledger_agent.mcp.server import PROTOCOL_VERSION, _dispatch
         msg = {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}}
         response = _dispatch(msg)
         assert response["result"]["protocolVersion"] == PROTOCOL_VERSION

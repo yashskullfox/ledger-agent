@@ -43,9 +43,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from ledger_agent.cli.prompts import ask_select, print_error, print_info
 from ledger_agent.core.database import init_db
 from ledger_agent.core.logging_setup import configure_logging
-from ledger_agent.cli.prompts import ask_select, print_error, print_info
 
 
 def _boot() -> None:
@@ -160,8 +160,8 @@ def _cmd_context(period: str | None = None) -> None:
     """Export AI-consumable context JSON for a period."""
     init_db()
     from ledger_agent.cli.commands import _get_or_setup_entity
-    from ledger_agent.core.database import SnapshotRepo
     from ledger_agent.cli.prompts import print_success
+    from ledger_agent.core.database import SnapshotRepo
     entity = _get_or_setup_entity()
     if not entity:
         return
@@ -172,7 +172,7 @@ def _cmd_context(period: str | None = None) -> None:
         return
     if not period:
         period = ask_select("Select period for AI context:", choices=periods, default=periods[0])
-    from adapters.context_builder import build_context, save_context, context_to_prompt
+    from adapters.context_builder import build_context, context_to_prompt, save_context
     from config import EXPORTS_DIR
     ctx = build_context(entity.id, period)
     path = save_context(ctx, EXPORTS_DIR / f"ai_context_{period}.json")

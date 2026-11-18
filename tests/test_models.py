@@ -7,7 +7,10 @@ from decimal import Decimal
 
 from ledger_agent.core.models import (
     BalanceSheetLine,
-    COAEntry, COAType, Entity, )
+    COAEntry,
+    COAType,
+    Entity,
+)
 
 
 class TestEntity:

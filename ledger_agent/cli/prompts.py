@@ -6,8 +6,6 @@ remains I/O-free and testable.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
-
 from ledger_agent.core.models import COAEntry, Transaction
 
 try:
@@ -64,7 +62,7 @@ def ask_select(prompt: str, choices: list, default=None):
         return default
 
 
-def ask_autocomplete(prompt: str, choices: List[str], default: str = "") -> str:
+def ask_autocomplete(prompt: str, choices: list[str], default: str = "") -> str:
     if _Q:
         return questionary.autocomplete(
             prompt, choices=choices, default=default, style=_STYLE
@@ -116,8 +114,8 @@ def wizard_entity() -> dict:
 
 def prompt_classify(
         txn: Transaction,
-        coa_entries: List[COAEntry],
-) -> Optional[Tuple[str, str, bool]]:
+        coa_entries: list[COAEntry],
+) -> tuple[str, str, bool] | None:
     """
     Ask the user to classify a transaction.
 
@@ -161,7 +159,7 @@ def prompt_classify(
     return entry.code, entry.name, is_transfer
 
 
-def prompt_statement_file(statements_dir) -> Optional[str]:
+def prompt_statement_file(statements_dir) -> str | None:
     """Ask user to pick a PDF from the statements dir or enter a path."""
     from pathlib import Path
     pdfs = list(Path(statements_dir).glob("*.pdf"))

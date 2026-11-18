@@ -38,7 +38,7 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -50,8 +50,8 @@ _DISABLED = os.environ.get("FI_AUDIT_DISABLED", "0") == "1"
 # ── Run state ────────────────────────────────────────────────────────────────
 
 _lock = threading.Lock()
-_run_id: Optional[str] = None
-_log_path: Optional[Path] = None
+_run_id: str | None = None
+_log_path: Path | None = None
 _initialised = False
 
 _log = logging.getLogger("fi.audit")
@@ -125,7 +125,7 @@ def _ensure_initialised() -> None:
     })
 
 
-def _write_raw(obj: Dict[str, Any]) -> None:
+def _write_raw(obj: dict[str, Any]) -> None:
     """Low-level write. Caller is responsible for redaction beforehand.
 
     BUG-A1 fix: hold _lock for the entire open+write sequence.  Without this,
@@ -148,7 +148,7 @@ def _write_raw(obj: Dict[str, Any]) -> None:
             _log.warning("audit: write failed (%s); event=%r", e, obj.get("event"))
 
 
-def _redact_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def _redact_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     Pass every value through the privacy filter at scope='log'.
     Nested dicts/lists are recursed; tuples become lists.
@@ -167,7 +167,7 @@ def _redact_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     markers rather than logging raw values fail-open.
     """
     try:
-        from ledger_agent.core.privacy import redact, PrivacyLeakError
+        from ledger_agent.core.privacy import PrivacyLeakError, redact
     except Exception:
         # Privacy module unavailable — substitute markers instead of fail-open.
         _log.critical("audit: core.privacy unavailable; audit values replaced with markers")
@@ -201,7 +201,7 @@ def _redact_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
-def current_run_id() -> Optional[str]:
+def current_run_id() -> str | None:
     """Return the active run_id, initialising if necessary."""
     if _DISABLED:
         return None
@@ -209,7 +209,7 @@ def current_run_id() -> Optional[str]:
     return _run_id
 
 
-def current_log_path() -> Optional[Path]:
+def current_log_path() -> Path | None:
     """Return the path to the active audit log file."""
     if _DISABLED:
         return None

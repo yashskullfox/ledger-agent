@@ -24,11 +24,9 @@ Cost model:
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from ledger_agent.core.intelligence.ai_backend.base import AIBackend
 
-_instance: Optional[AIBackend] = None
+_instance: AIBackend | None = None
 
 
 def get_backend(force_reload: bool = False) -> AIBackend:
@@ -46,14 +44,14 @@ def get_backend(force_reload: bool = False) -> AIBackend:
 
     if AI_BACKEND == "openai":
         validate_ai_config()
-        from ledger_agent.core.intelligence.ai_backend.openai_backend import OpenAIBackend
         from ledger_agent.core.intelligence.ai_backend.chained_backend import ChainedBackend
+        from ledger_agent.core.intelligence.ai_backend.openai_backend import OpenAIBackend
         _instance = ChainedBackend(remote=OpenAIBackend())
 
     elif AI_BACKEND == "gemini":
         validate_ai_config()
-        from ledger_agent.core.intelligence.ai_backend.gemini_backend import GeminiBackend
         from ledger_agent.core.intelligence.ai_backend.chained_backend import ChainedBackend
+        from ledger_agent.core.intelligence.ai_backend.gemini_backend import GeminiBackend
         _instance = ChainedBackend(remote=GeminiBackend())
 
     else:

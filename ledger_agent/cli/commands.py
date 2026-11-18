@@ -7,16 +7,27 @@ All heavy logic lives in parsers / intelligence / accounting / reports.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
-from ledger_agent.cli.prompts import (
-    ask_confirm, ask_select, print_error, print_info, print_success, print_warning,
-    prompt_classify, prompt_statement_file, wizard_entity,
-)
 from config import STATEMENTS_DIR
+from ledger_agent.cli.prompts import (
+    ask_confirm,
+    ask_select,
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
+    prompt_classify,
+    prompt_statement_file,
+    wizard_entity,
+)
 from ledger_agent.core.database import (
-    AccountRepo, EntityRepo, ImportRegistry, PositionRepo,
-    SnapshotRepo, TransactionRepo, init_db,
+    AccountRepo,
+    EntityRepo,
+    ImportRegistry,
+    PositionRepo,
+    SnapshotRepo,
+    TransactionRepo,
+    init_db,
 )
 from ledger_agent.core.exceptions import ParserNotFoundError
 from ledger_agent.core.models import Account, AccountType, Entity, StatementType
@@ -44,7 +55,7 @@ def cmd_setup() -> Entity:
     return entity
 
 
-def _get_or_setup_entity() -> Optional[Entity]:
+def _get_or_setup_entity() -> Entity | None:
     """Return first entity or run setup wizard if none exists."""
     entities = EntityRepo.list_all()
     if not entities:
@@ -57,7 +68,7 @@ def _get_or_setup_entity() -> Optional[Entity]:
     return next((e for e in entities if e.name == choice), entities[0])
 
 
-def cmd_import(pdf_path: Optional[str] = None) -> None:
+def cmd_import(pdf_path: str | None = None) -> None:
     """
     Parse a PDF statement and persist all extracted data to the database.
     Runs interactive classification for any unrecognised transactions.
@@ -83,9 +94,8 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     print_info(f"Reading PDF: {pdf_path.name} …")
 
     import ledger_agent.core.parsers  # noqa: F401  – triggers auto-discovery in parsers/__init__.py
-    from ledger_agent.core.parsers.registry import ParserRegistry
-
     from ledger_agent.core.parsers.base import BaseStatementParser
+    from ledger_agent.core.parsers.registry import ParserRegistry
     raw_text = BaseStatementParser.extract_text(pdf_path)
 
     try:
@@ -161,7 +171,7 @@ def cmd_import(pdf_path: Optional[str] = None) -> None:
     print_success(f"Import complete for {stmt.statement_period}!")
 
 
-def cmd_balance_sheet(period: Optional[str] = None) -> None:
+def cmd_balance_sheet(period: str | None = None) -> None:
     """Build and display the balance sheet for a given period."""
     init_db()
     entity = _get_or_setup_entity()
@@ -209,7 +219,7 @@ def cmd_balance_sheet(period: Optional[str] = None) -> None:
         print_success(f"Saved: {path}")
 
 
-def cmd_transactions(period: Optional[str] = None) -> None:
+def cmd_transactions(period: str | None = None) -> None:
     """Display and optionally export transactions for a period."""
     init_db()
     entity = _get_or_setup_entity()
@@ -260,8 +270,8 @@ def cmd_memory() -> None:
         return
 
     try:
-        from rich.table import Table
         from rich.console import Console
+        from rich.table import Table
         _r = True
     except ImportError:
         _r = False
@@ -308,8 +318,8 @@ def cmd_mom_summary() -> None:
     sheets = build_comparison(entity.id, all_periods)
 
     try:
-        from rich.table import Table
         from rich.console import Console
+        from rich.table import Table
         tbl = Table(title=f"{entity.name}  –  Month-over-Month Summary")
         tbl.add_column("Metric", style="cyan", min_width=28)
         for p in all_periods:

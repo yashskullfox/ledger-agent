@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class _DecimalEncoder(json.JSONEncoder):
@@ -30,10 +30,10 @@ class _DecimalEncoder(json.JSONEncoder):
 
 def build_context(
         entity_id: str,
-        period: Optional[str] = None,
+        period: str | None = None,
         include_transactions: bool = True,
         include_positions: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build a rich AI-consumable context dict for one entity + period.
 
@@ -47,9 +47,9 @@ def build_context(
       - summary: high-level KPIs
       - ai_instructions: system prompt snippet for LLMs
     """
-    from ledger_agent.core.database import EntityRepo, SnapshotRepo, TransactionRepo
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
     from ledger_agent.core.accounting.tax_estimator import TaxEstimator
+    from ledger_agent.core.database import EntityRepo, SnapshotRepo, TransactionRepo
 
     # Resolve entity
     entities = EntityRepo.list_all()
@@ -71,7 +71,7 @@ def build_context(
     tax = TaxEstimator(entity.name, int(period[:4])).estimate_from_balance_sheet(bs)
 
     # Build context
-    ctx: Dict[str, Any] = {
+    ctx: dict[str, Any] = {
         "schema_version": "2.0",
         "generated_at": _now_iso(),
         "entity": {
@@ -177,14 +177,14 @@ def build_context(
     return ctx
 
 
-def save_context(ctx: Dict[str, Any], path: Path) -> Path:
+def save_context(ctx: dict[str, Any], path: Path) -> Path:
     """Save context dict as pretty-printed JSON. Returns the file path."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(ctx, indent=2, cls=_DecimalEncoder))
     return path
 
 
-def context_to_prompt(ctx: Dict[str, Any]) -> str:
+def context_to_prompt(ctx: dict[str, Any]) -> str:
     """
     Convert context to a compact text prompt suitable for LLM input.
     Useful for copy-paste to Perplexity, Claude.ai, etc.
@@ -234,7 +234,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _safe_div(a, b) -> Optional[float]:
+def _safe_div(a, b) -> float | None:
     try:
         return round(float(a) / float(b), 4) if b else None
     except Exception:

@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
-from ledger_agent.core.logging_setup import get_logger
 from ledger_agent.core.intelligence.ai_backend.base import AIBackend
+from ledger_agent.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -41,7 +41,7 @@ _COA_HINT = (
     "5100=Travel & Transportation,5999=Uncategorized Expense,9000=Inter-Account Transfer"
 )
 
-_MOCK_CLASSIFICATION: Dict[str, Any] = {
+_MOCK_CLASSIFICATION: dict[str, Any] = {
     "coa_code": "5999",
     "coa_name": "Uncategorized Expense",
     "is_transfer": False,
@@ -62,7 +62,7 @@ class GeminiBackend(AIBackend):
                 "google-generativeai not installed. "
                 "Run: pip install financial-intelligence[gemini]"
             )
-        from config import ai_api_key, GEMINI_MODEL
+        from config import GEMINI_MODEL, ai_api_key
         genai.configure(api_key=ai_api_key())
         self._model = genai.GenerativeModel(
             model_name=GEMINI_MODEL,
@@ -79,6 +79,7 @@ class GeminiBackend(AIBackend):
         """Send a prompt and return text response with basic retry."""
         try:
             from tenacity import retry, stop_after_attempt, wait_exponential
+
             from ledger_agent.core.privacy import audit_egress
 
             # Hard pre-flight PII audit before any network call
@@ -94,7 +95,7 @@ class GeminiBackend(AIBackend):
             log.warning("Gemini call failed", extra={"error": str(exc)})
             raise
 
-    def _parse_json(self, raw: str) -> Dict[str, Any]:
+    def _parse_json(self, raw: str) -> dict[str, Any]:
         """Extract JSON from Gemini response (which may include markdown fences)."""
         raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
         return json.loads(raw)
@@ -103,8 +104,8 @@ class GeminiBackend(AIBackend):
             self,
             description: str,
             amount: float,
-            context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from config import AI_EGRESS_MODE
         from ledger_agent.core.privacy import redact, unredact_result
 
@@ -136,7 +137,7 @@ class GeminiBackend(AIBackend):
             pattern: str,
             coa_code: str,
             confirmed_count: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         from config import AI_EGRESS_MODE
         from ledger_agent.core.privacy import redact
 

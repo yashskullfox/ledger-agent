@@ -49,7 +49,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -91,10 +90,10 @@ class WashSaleReport:
     entity_id: str
     loss_sales_considered: int = 0
     total_loss_at_risk: Decimal = Decimal("0")
-    findings: List[WashSaleFinding] = field(default_factory=list)
+    findings: list[WashSaleFinding] = field(default_factory=list)
     total_disallowed: Decimal = Decimal("0")
     source: str = "computed"      # "csv" | "computed" | "combined" | "none"
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -123,14 +122,14 @@ class WashSaleReport:
 # --------------------------------------------------------------------------- #
 
 
-def load_adjustments(csv_path: Optional[Path] = None) -> Dict[str, Decimal]:
+def load_adjustments(csv_path: Path | None = None) -> dict[str, Decimal]:
     """Load wash-sale disallowance amounts from CSV.
 
     Returns {ticker: disallowed_loss}. Returns {} if the file is absent —
     caller must decide whether to fall back to ``compute_from_ledger``.
     """
     env_path = os.environ.get("FI_WASH_SALE_CSV", "").strip()
-    candidates: List[Path] = []
+    candidates: list[Path] = []
     if csv_path is not None:
         candidates.append(csv_path)
     if env_path:
@@ -146,8 +145,8 @@ def load_adjustments(csv_path: Optional[Path] = None) -> Dict[str, Decimal]:
     return {}
 
 
-def _parse_csv(path: Path) -> Dict[str, Decimal]:
-    result: Dict[str, Decimal] = {}
+def _parse_csv(path: Path) -> dict[str, Decimal]:
+    result: dict[str, Decimal] = {}
     with path.open(encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
@@ -181,12 +180,12 @@ def _prev_period(period: str) -> str:
     return f"{y:04d}-{m-1:02d}"
 
 
-def _load_loss_sales(entity_id: str, fiscal_year: int) -> List[LossSaleEvent]:
+def _load_loss_sales(entity_id: str, fiscal_year: int) -> list[LossSaleEvent]:
     """Every SELL transaction with a negative amount (realised loss) for
     ``entity_id`` in ``fiscal_year``. Ticker comes from the parser's
     ``tags`` convention: last uppercase 1-8 char token in ``tags``."""
     from ledger_agent.core.database import get_conn  # deferred: core purity
-    events: List[LossSaleEvent] = []
+    events: list[LossSaleEvent] = []
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT t.account_id, t.date, t.statement_period, t.description, "
@@ -330,13 +329,13 @@ def compute_from_ledger(entity_id: str, fiscal_year: int) -> WashSaleReport:
 
 
 def reconcile_computed_vs_csv(entity_id: str, fiscal_year: int,
-                              csv_path: Optional[Path] = None) -> dict:
+                              csv_path: Path | None = None) -> dict:
     """Return a per-ticker delta dict that contrasts the computed disallowance
     against the CSV (1099-B) overlay. Useful at year-end for calibration."""
     computed = compute_from_ledger(entity_id, fiscal_year)
     csv_data = load_adjustments(csv_path)
 
-    computed_by_ticker: Dict[str, Decimal] = {}
+    computed_by_ticker: dict[str, Decimal] = {}
     for f in computed.findings:
         computed_by_ticker[f.symbol] = (
             computed_by_ticker.get(f.symbol, Decimal("0")) + f.disallowed_amount
@@ -369,9 +368,9 @@ def reconcile_computed_vs_csv(entity_id: str, fiscal_year: int,
 # --------------------------------------------------------------------------- #
 
 
-def total_disallowed(csv_path: Optional[Path] = None,
-                     entity_id: Optional[str] = None,
-                     fiscal_year: Optional[int] = None) -> Decimal:
+def total_disallowed(csv_path: Path | None = None,
+                     entity_id: str | None = None,
+                     fiscal_year: int | None = None) -> Decimal:
     """Total wash-sale disallowance to add back to net STCG.
 
     Preference order:

@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import List, Optional
 
 
 class AccountType(str, Enum):
@@ -60,7 +59,7 @@ class Entity:
     entity_type: str
     state: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    ein_masked: Optional[str] = None
+    ein_masked: str | None = None
     notes: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -94,7 +93,7 @@ class Transaction:
     raw_description: str = ""
     coa_code: str = ""
     coa_name: str = ""
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     notes: str = ""
     is_reconciled: bool = False
     is_transfer: bool = False
@@ -123,15 +122,15 @@ class Position:
     market_value: Decimal
     statement_period: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    cost_basis: Optional[Decimal] = None
-    unrealized_gain_loss: Optional[Decimal] = None
+    cost_basis: Decimal | None = None
+    unrealized_gain_loss: Decimal | None = None
     is_margin: bool = False
-    as_of_date: Optional[date] = None
+    as_of_date: date | None = None
     position_type: PositionType = PositionType.EQUITY
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
-    def unrealized_pct(self) -> Optional[Decimal]:
+    def unrealized_pct(self) -> Decimal | None:
         if self.cost_basis and self.cost_basis != 0:
             return ((self.market_value - self.cost_basis) / abs(self.cost_basis)) * 100
         return None
@@ -143,14 +142,14 @@ class AccountSnapshot:
     statement_period: str
     ending_balance: Decimal
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    gross_asset_value: Optional[Decimal] = None
-    margin_balance: Optional[Decimal] = None
-    realised_gain_loss: Optional[Decimal] = None
-    beginning_balance: Optional[Decimal] = None
-    total_deposits: Optional[Decimal] = None
-    total_withdrawals: Optional[Decimal] = None
-    total_debits: Optional[Decimal] = None
-    total_credits: Optional[Decimal] = None
+    gross_asset_value: Decimal | None = None
+    margin_balance: Decimal | None = None
+    realised_gain_loss: Decimal | None = None
+    beginning_balance: Decimal | None = None
+    total_deposits: Decimal | None = None
+    total_withdrawals: Decimal | None = None
+    total_debits: Decimal | None = None
+    total_credits: Decimal | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -162,9 +161,9 @@ class ParsedStatement:
     account_number_masked: str
     statement_period: str
     entity_name: str
-    transactions: List[Transaction] = field(default_factory=list)
-    positions: List[Position] = field(default_factory=list)
-    snapshot: Optional[AccountSnapshot] = None
+    transactions: list[Transaction] = field(default_factory=list)
+    positions: list[Position] = field(default_factory=list)
+    snapshot: AccountSnapshot | None = None
     raw_text: str = ""
     source_file: str = ""
 
@@ -174,9 +173,9 @@ class COAEntry:
     code: str
     name: str
     coa_type: COAType
-    parent_code: Optional[str] = None
+    parent_code: str | None = None
     description: str = ""
-    keywords: List[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -198,5 +197,5 @@ class RealisedTrade:
     gain_loss: Decimal
     term: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    settlement_date: Optional[date] = None
+    settlement_date: date | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

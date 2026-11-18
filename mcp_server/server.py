@@ -34,12 +34,12 @@ import json
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 SERVER_NAME = "financial-intelligence"
 SERVER_VERSION = "1.0.0"
 
-TOOLS: List[Dict[str, Any]] = [
+TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_balance_sheet",
         "description": (
@@ -155,13 +155,13 @@ def _bootstrap() -> None:
         sys.path.insert(0, str(root))
 
 
-def _handle_get_balance_sheet(args: Dict[str, Any]) -> Dict[str, Any]:
+def _handle_get_balance_sheet(args: dict[str, Any]) -> dict[str, Any]:
     period = args.get("period", "")
     if not period:
         return {"error": "period is required"}
 
-    from ledger_agent.core.database import init_db, EntityRepo
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
+    from ledger_agent.core.database import EntityRepo, init_db
 
     init_db()
     entities = EntityRepo.list_all()
@@ -192,11 +192,11 @@ def _handle_get_balance_sheet(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _handle_list_transactions(args: Dict[str, Any]) -> Dict[str, Any]:
-    period: Optional[str] = args.get("period")
+def _handle_list_transactions(args: dict[str, Any]) -> dict[str, Any]:
+    period: str | None = args.get("period")
     limit: int = int(args.get("limit", 100))
 
-    from ledger_agent.core.database import init_db, TransactionRepo
+    from ledger_agent.core.database import TransactionRepo, init_db
     init_db()
 
     if period:
@@ -242,14 +242,14 @@ def _handle_list_transactions(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"transactions": records, "count": len(records)}
 
 
-def _handle_get_tax_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
+def _handle_get_tax_estimate(args: dict[str, Any]) -> dict[str, Any]:
     period = args.get("period", "")
     if not period:
         return {"error": "period is required"}
 
-    from ledger_agent.core.database import init_db, EntityRepo
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
     from ledger_agent.core.accounting.tax_estimator import TaxEstimator
+    from ledger_agent.core.database import EntityRepo, init_db
 
     init_db()
     entities = EntityRepo.list_all()
@@ -284,7 +284,7 @@ def _handle_get_tax_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _handle_classify_transaction(args: Dict[str, Any]) -> Dict[str, Any]:
+def _handle_classify_transaction(args: dict[str, Any]) -> dict[str, Any]:
     description = args.get("description", "")
     if not description:
         return {"error": "description is required"}
@@ -304,8 +304,8 @@ def _handle_classify_transaction(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _handle_list_periods(args: Dict[str, Any]) -> Dict[str, Any]:
-    from ledger_agent.core.database import init_db, SnapshotRepo, EntityRepo
+def _handle_list_periods(args: dict[str, Any]) -> dict[str, Any]:
+    from ledger_agent.core.database import EntityRepo, SnapshotRepo, init_db
     init_db()
 
     entities = EntityRepo.list_all()
@@ -318,8 +318,8 @@ def _handle_list_periods(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"periods": periods, "entity": entity.name}
 
 
-def _handle_get_entity_summary(args: Dict[str, Any]) -> Dict[str, Any]:
-    from ledger_agent.core.database import init_db, EntityRepo, AccountRepo, SnapshotRepo
+def _handle_get_entity_summary(args: dict[str, Any]) -> dict[str, Any]:
+    from ledger_agent.core.database import AccountRepo, EntityRepo, SnapshotRepo, init_db
     init_db()
 
     entities = EntityRepo.list_all()
@@ -351,7 +351,7 @@ def _handle_get_entity_summary(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _handle_privacy_status(_args: Dict[str, Any]) -> Dict[str, Any]:
+def _handle_privacy_status(_args: dict[str, Any]) -> dict[str, Any]:
     try:
         from ledger_agent.core.privacy import privacy_status
         return privacy_status()
@@ -386,7 +386,7 @@ def _error(msg_id: Any, code: int, message: str) -> None:
     sys.stdout.flush()
 
 
-def _read_message() -> Optional[Dict[str, Any]]:
+def _read_message() -> dict[str, Any] | None:
     """Read one JSON-RPC message from stdin (MCP newline-delimited JSON)."""
     line = sys.stdin.readline()
     if not line:
@@ -397,7 +397,7 @@ def _read_message() -> Optional[Dict[str, Any]]:
     return json.loads(line)
 
 
-def _dispatch(msg: Dict[str, Any]) -> None:
+def _dispatch(msg: dict[str, Any]) -> None:
     msg_id = msg.get("id")
     method = msg.get("method", "")
     params = msg.get("params", {})

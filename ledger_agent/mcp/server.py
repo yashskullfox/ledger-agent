@@ -4,7 +4,6 @@ import json
 import logging
 import sys
 import traceback
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +75,7 @@ def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
         raise PrivacyRedactionError(f"redaction_failed: {exc}") from exc
 
 
-def _dispatch(msg: dict) -> Optional[dict]:
+def _dispatch(msg: dict) -> dict | None:
     from ledger_agent.mcp.tools import TOOL_SCHEMAS, call_tool
 
     msg_id = msg.get("id")
@@ -129,7 +128,7 @@ def _dispatch(msg: dict) -> Optional[dict]:
                 "content": [{"type": "text", "text": str(exc)}],
                 "isError": True,
             })
-        except Exception as exc:
+        except Exception:
             tb = traceback.format_exc()
             log.error("Tool %r raised:\n%s", tool_name, tb)
             import hashlib

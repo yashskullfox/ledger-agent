@@ -25,10 +25,8 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
-
 
 # ── DB fixture ────────────────────────────────────────────────────────────────
 
@@ -119,7 +117,7 @@ class TestMarginLiabilityRecognised:
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
 
-        margin_lines = [l for l in bs.lines if l.coa_code == "2010"]
+        margin_lines = [line for line in bs.lines if line.coa_code == "2010"]
         assert len(margin_lines) == 1, (
             "Expected exactly one 2010 Margin Loan Payable line"
         )
@@ -158,7 +156,7 @@ class TestMarginLiabilityRecognised:
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
         bs = BalanceSheetBuilder(entity.id, "2025-01").build()
 
-        margin_lines = [l for l in bs.lines if l.coa_code == "2010"]
+        margin_lines = [line for line in bs.lines if line.coa_code == "2010"]
         assert len(margin_lines) == 0, (
             "No 2010 line must appear when margin_balance is zero or positive"
         )

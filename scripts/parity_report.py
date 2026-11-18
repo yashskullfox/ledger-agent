@@ -34,16 +34,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from ledger_agent.core import api  # noqa: E402
 from ledger_agent.core.database import init_db  # noqa: E402
-
 
 TOL = 1.0  # R-51: divergence > $1 is a P0 release blocker
 
@@ -140,7 +137,7 @@ def _build_comparisons(anchors: dict[str, float],
 
     # Truth = anchor if present; else fall back to extracted cache (which is
     # a diagnostic sample, not authoritative).
-    def truth(anchor_key: str, ext_getter=lambda e: None) -> tuple[Optional[float], str]:
+    def truth(anchor_key: str, ext_getter=lambda e: None) -> tuple[float | None, str]:
         if anchor_key in anchors:
             return anchors[anchor_key], "anchor"
         v = ext_getter(extracted)
@@ -149,8 +146,8 @@ def _build_comparisons(anchors: dict[str, float],
     rows: list[dict] = []
 
     def add(field: str, section: str,
-            truth_val: Optional[float], truth_src: str,
-            pipeline_val: Optional[float]):
+            truth_val: float | None, truth_src: str,
+            pipeline_val: float | None):
         if truth_val is None:
             status = "NO_TRUTH"
             delta = None
@@ -235,17 +232,22 @@ def _build_comparisons(anchors: dict[str, float],
 # Masked stdout table                                                         #
 # --------------------------------------------------------------------------- #
 
-def _bucket(v: Optional[float]) -> str:
+def _bucket(v: float | None) -> str:
     if v is None:
         return "     —    "
     a = abs(v)
     if a == 0:
         b = "$0"
-    elif a < 1_000:       b = "~$XXX"
-    elif a < 10_000:      b = "~$X,XXX"
-    elif a < 100_000:     b = "~$XX,XXX"
-    elif a < 1_000_000:   b = "~$XXX,XXX"
-    else:                 b = "~$X,XXX,XXX"
+    elif a < 1_000:
+        b = "~$XXX"
+    elif a < 10_000:
+        b = "~$X,XXX"
+    elif a < 100_000:
+        b = "~$XX,XXX"
+    elif a < 1_000_000:
+        b = "~$XXX,XXX"
+    else:
+        b = "~$X,XXX,XXX"
     sign = "-" if v < 0 else " "
     return f"{sign}{b:>10}"
 

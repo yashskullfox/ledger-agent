@@ -22,11 +22,13 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ledger_agent.core.models import (
-    AccountSnapshot, ParsedStatement,
-    StatementType, Transaction, TransactionType,
+    AccountSnapshot,
+    ParsedStatement,
+    StatementType,
+    Transaction,
+    TransactionType,
 )
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
@@ -86,7 +88,7 @@ class BankX3CheckingParser(BaseStatementParser):
             source_file=str(pdf_path),
         )
 
-    def _extract_period(self, text: str) -> Tuple[str, int]:
+    def _extract_period(self, text: str) -> tuple[str, int]:
         """
         Bank X3 statements show: "January 01 - January 31, 2025"
         or "Statement period: 01/01/25 - 01/31/25"
@@ -140,7 +142,7 @@ class BankX3CheckingParser(BaseStatementParser):
                 return line
         return "UNKNOWN ENTITY"
 
-    def _extract_balances(self, text: str) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+    def _extract_balances(self, text: str) -> tuple[Decimal | None, Decimal | None]:
         prev = new = None
         m_prev = re.search(r"[Bb]eginning\s+[Bb]alance\s+\$?([\d,]+\.\d{2})", text)
         if m_prev:
@@ -157,7 +159,7 @@ class BankX3CheckingParser(BaseStatementParser):
     )
 
     def _parse_section(self, text: str, start_pat: str, end_pat: str,
-                       year: int, is_debit: bool) -> List[Transaction]:
+                       year: int, is_debit: bool) -> list[Transaction]:
         section = self._extract_section(text, start_pat, end_pat)
         txns = []
         for m in self._TX_RE.finditer(section):
@@ -180,7 +182,7 @@ class BankX3CheckingParser(BaseStatementParser):
                 ))
         return txns
 
-    def _parse_deposits(self, text: str, year: int) -> List[Transaction]:
+    def _parse_deposits(self, text: str, year: int) -> list[Transaction]:
         return self._parse_section(
             text,
             r"DEPOSITS\s+AND\s+ADDITIONS",
@@ -188,7 +190,7 @@ class BankX3CheckingParser(BaseStatementParser):
             year, is_debit=False,
         )
 
-    def _parse_atm_debits(self, text: str, year: int) -> List[Transaction]:
+    def _parse_atm_debits(self, text: str, year: int) -> list[Transaction]:
         return self._parse_section(
             text,
             r"ATM\s*[&]\s*DEBIT\s*CARD\s*WITHDRAWALS?",
@@ -196,7 +198,7 @@ class BankX3CheckingParser(BaseStatementParser):
             year, is_debit=True,
         )
 
-    def _parse_electronic_withdrawals(self, text: str, year: int) -> List[Transaction]:
+    def _parse_electronic_withdrawals(self, text: str, year: int) -> list[Transaction]:
         return self._parse_section(
             text,
             r"ELECTRONIC\s+WITHDRAWALS?",

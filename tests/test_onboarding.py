@@ -17,26 +17,23 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from datetime import date
 from pathlib import Path
-from typing import List
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from ledger_agent.cli.onboarding import (
-    rolling_window,
-    parse_window_arg,
-    _period_from_text,
     _account_last4_from_text,
+    _filename_hint,
+    _period_from_text,
+    _summary_stats,
     build_coverage,
     emit_coverage_json,
+    parse_window_arg,
     resolve_folder,
-    _filename_hint,
-    _summary_stats,
+    rolling_window,
 )
-
 
 # ── rolling_window ─────────────────────────────────────────────────────────────
 

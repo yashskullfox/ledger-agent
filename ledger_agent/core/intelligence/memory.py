@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from config import MEMORY_FILE
 
 try:
-    from rapidfuzz import fuzz, process as rf_process
+    from rapidfuzz import fuzz
+    from rapidfuzz import process as rf_process
 
     _FUZZY_AVAILABLE = True
 except ImportError:
@@ -42,10 +42,10 @@ class ClassificationMemory:
 
     def __init__(self, memory_file: Path = MEMORY_FILE):
         self._file = memory_file
-        self._rules: List[Dict] = []
+        self._rules: list[dict] = []
         self._load()
 
-    def lookup(self, description: str) -> Optional[Tuple[str, str, bool, int]]:
+    def lookup(self, description: str) -> tuple[str, str, bool, int] | None:
         """
         Try to find a remembered rule for `description`.
 
@@ -110,7 +110,7 @@ class ClassificationMemory:
         })
         self._save()
 
-    def list_rules(self) -> List[Dict]:
+    def list_rules(self) -> list[dict]:
         return list(self._rules)
 
     def remove_rule(self, pattern: str) -> bool:
@@ -138,10 +138,10 @@ class ClassificationMemory:
         # Intra-bank transfer keywords are institution-specific and live in
         # private/institutions.py (gitignored). Fall back to generic-only.
         try:
-            from private.institutions import BANK_X as _bx
+            from private.institutions import BANK_X
+            _intra_xfer_keywords = BANK_X.get("intra_xfer_keywords", [])
         except ImportError:
-            _bx = {}
-        _intra_xfer_keywords = _bx.get("intra_xfer_keywords", [])
+            _intra_xfer_keywords = []
 
         defaults = [
             # Software — canonical 5010
@@ -193,7 +193,7 @@ class ClassificationMemory:
 
 
 # Module-level singleton
-_memory: Optional[ClassificationMemory] = None
+_memory: ClassificationMemory | None = None
 
 
 def get_memory() -> ClassificationMemory:

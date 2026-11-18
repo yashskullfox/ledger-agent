@@ -4,8 +4,9 @@ tests/unit/test_form_1065_cogs.py  –  Form 1065 COGS separation unit tests (W1
 from __future__ import annotations
 
 import os
-import pytest
 from decimal import Decimal
+
+import pytest
 
 
 @pytest.fixture
@@ -19,6 +20,7 @@ def temp_db(tmp_path):
 def _seed_minimal(db_path):
     """Seed a minimal COA + transactions for structural tests."""
     import sqlite3
+
     from ledger_agent.core.database import init_db
     init_db(db_path)
 
@@ -94,7 +96,7 @@ class TestForm1065CogsStructure:
         import ledger_agent.core.api as api
         f = api.generate_form_1065(2024)
         assert f.gross_profit == f.total_income - f.cost_of_goods_sold, (
-            f"gross_profit should equal income - COGS"
+            "gross_profit should equal income - COGS"
         )
 
     def test_ordinary_business_income_uses_gross_profit(self):

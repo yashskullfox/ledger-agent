@@ -8,7 +8,10 @@ Usage:
     python scripts/diagnose_bs_delta.py --year 2025
 """
 from __future__ import annotations
-import argparse, json, sys
+
+import argparse
+import json
+import sys
 from decimal import Decimal
 from pathlib import Path
 
@@ -16,19 +19,26 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from ledger_agent.core import api  # noqa: E402
-from ledger_agent.core.database import init_db, get_conn  # noqa: E402
+from ledger_agent.core.database import get_conn, init_db  # noqa: E402
 
 
 def _bucket(v) -> str:
-    if v is None: return "     —    "
+    if v is None:
+        return "     —    "
     v = Decimal(str(v))
     a = abs(v)
-    if a == 0: b = "$0"
-    elif a < 1_000:    b = "~$XXX"
-    elif a < 10_000:   b = "~$X,XXX"
-    elif a < 100_000:  b = "~$XX,XXX"
-    elif a < 1_000_000:b = "~$XXX,XXX"
-    else:              b = "~$X,XXX,XXX"
+    if a == 0:
+        b = "$0"
+    elif a < 1_000:
+        b = "~$XXX"
+    elif a < 10_000:
+        b = "~$X,XXX"
+    elif a < 100_000:
+        b = "~$XX,XXX"
+    elif a < 1_000_000:
+        b = "~$XXX,XXX"
+    else:
+        b = "~$X,XXX,XXX"
     sign = "-" if v < 0 else " "
     return f"{sign}{b:>10}"
 
@@ -100,7 +110,7 @@ def main() -> int:
     print(f"  {'L21 partners capital EOY':<28s} {_bucket(truth_l21)}  {_bucket(pipeline_te)}  {_bucket(delta_te)}")
     print(f"  {'L22 total liab+cap EOY':<28s} {_bucket(truth_l22)}  {_bucket(pipeline_ta)}")
     print()
-    print(f"  Pipeline decomposition:")
+    print("  Pipeline decomposition:")
     print(f"    sum(ending_balance across last snapshots):       {_bucket(total_from_ending)}")
     print(f"    sum(gross_asset_value across last snapshots):    {_bucket(total_from_gross)}")
     print(f"    difference (invested value − cash):              {_bucket(total_from_gross - total_from_ending)}")

@@ -7,12 +7,17 @@ import re
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ledger_agent.core.exceptions import ParserGap
 from ledger_agent.core.models import (
-    AccountSnapshot, ParsedStatement, Position, PositionType,
-    RealisedTrade, StatementType, Transaction, TransactionType,
+    AccountSnapshot,
+    ParsedStatement,
+    Position,
+    PositionType,
+    RealisedTrade,
+    StatementType,
+    Transaction,
+    TransactionType,
 )
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
@@ -82,7 +87,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
             source_file=str(pdf_path),
         )
 
-    def _extract_period(self, text: str) -> Tuple[str, int]:
+    def _extract_period(self, text: str) -> tuple[str, int]:
         m = re.search(
             r"(\w+ \d{1,2}, (\d{4}))\s*[-–]\s*(\w+ \d{1,2}, \d{4})",
             text,
@@ -121,7 +126,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
         return "UNKNOWN ENTITY"
 
     def _parse_summary(self, text: str, period: str) -> AccountSnapshot:
-        def _find(pattern: str) -> Optional[Decimal]:
+        def _find(pattern: str) -> Decimal | None:
             m = re.search(pattern, text, re.IGNORECASE)
             return self.parse_amount(m.group(1)) if m else None
 
@@ -205,7 +210,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
         re.MULTILINE,
     )
 
-    def _parse_holdings(self, text: str, period: str, year: int) -> List[Position]:
+    def _parse_holdings(self, text: str, period: str, year: int) -> list[Position]:
         try:
             from ledger_agent.core.audit import audit as _audit
         except Exception:
@@ -255,8 +260,8 @@ class BrokerYBrokerageParser(BaseStatementParser):
         re.IGNORECASE,
     )
 
-    def _parse_trades(self, text: str, period: str, year: int) -> List[RealisedTrade]:
-        trades: List[RealisedTrade] = []
+    def _parse_trades(self, text: str, period: str, year: int) -> list[RealisedTrade]:
+        trades: list[RealisedTrade] = []
         lines = text.splitlines()
 
         for i, raw_line in enumerate(lines):
@@ -315,7 +320,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
 
         return trades
 
-    def _parse_deposits(self, text: str, period: str, year: int) -> List[Transaction]:
+    def _parse_deposits(self, text: str, period: str, year: int) -> list[Transaction]:
         def _extract_sec(txt: str, start_pat: str, end_pat: str) -> str:
             sm = re.search(start_pat, txt, re.IGNORECASE | re.MULTILINE)
             if not sm:
@@ -363,7 +368,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
         return txns
 
     @classmethod
-    def _build_withdrawal_re(cls) -> Optional[re.Pattern]:
+    def _build_withdrawal_re(cls) -> re.Pattern | None:
         """
         Build the cross-institution-transfer regex at runtime from the private
         config. The withdrawal line in a Broker Y statement references the
@@ -381,7 +386,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
             re.IGNORECASE,
         )
 
-    def _parse_withdrawals(self, text: str, period: str, year: int) -> List[Transaction]:
+    def _parse_withdrawals(self, text: str, period: str, year: int) -> list[Transaction]:
         def _extract_sec(txt: str, start_pat: str, end_pat: str) -> str:
             sm = re.search(start_pat, txt, re.IGNORECASE | re.MULTILINE)
             if not sm:
@@ -456,7 +461,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
         re.IGNORECASE,
     )
 
-    def _parse_margin_interest(self, text: str, period: str, year: int) -> List[Transaction]:
+    def _parse_margin_interest(self, text: str, period: str, year: int) -> list[Transaction]:
         txns = []
         for m in self._MARGIN_RE.finditer(text):
             amt = self.parse_amount(m.group(2))
@@ -484,7 +489,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
         re.IGNORECASE,
     )
 
-    def _parse_dividends(self, text: str, period: str, year: int) -> List[Transaction]:
+    def _parse_dividends(self, text: str, period: str, year: int) -> list[Transaction]:
         start_m = re.search(r"Dividends,\s*Interest\s*&\s*Other\s*Income", text, re.IGNORECASE)
         end_m = re.search(r"Total\s+Dividends", text, re.IGNORECASE)
         if not start_m:

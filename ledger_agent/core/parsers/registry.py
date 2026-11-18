@@ -10,16 +10,14 @@ Usage:
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Type
-
 from ledger_agent.core.exceptions import ParserNotFoundError
 
 
 class ParserRegistry:
-    _registry: Dict[str, "Type"] = {}  # parser_id → class
+    _registry: dict[str, type] = {}  # parser_id → class
 
     @classmethod
-    def register(cls, parser_cls: "Type") -> "Type":
+    def register(cls, parser_cls: type) -> type:
         """Class decorator – adds the parser to the registry."""
         pid = parser_cls.PARSER_ID
         if not pid:
@@ -28,7 +26,7 @@ class ParserRegistry:
         return parser_cls
 
     @classmethod
-    def detect(cls, text: str) -> Optional["Type"]:
+    def detect(cls, text: str) -> type | None:
         """
         Scan `text` against every registered parser's can_parse().
         Returns the matching class, or None if nothing matches.
@@ -39,7 +37,7 @@ class ParserRegistry:
         return None
 
     @classmethod
-    def detect_or_raise(cls, text: str) -> "Type":
+    def detect_or_raise(cls, text: str) -> type:
         parser_cls = cls.detect(text)
         if parser_cls is None:
             raise ParserNotFoundError(
@@ -49,9 +47,9 @@ class ParserRegistry:
         return parser_cls
 
     @classmethod
-    def list_parsers(cls) -> List[str]:
+    def list_parsers(cls) -> list[str]:
         return list(cls._registry.keys())
 
     @classmethod
-    def get(cls, parser_id: str) -> Optional["Type"]:
+    def get(cls, parser_id: str) -> type | None:
         return cls._registry.get(parser_id)

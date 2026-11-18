@@ -20,14 +20,14 @@ AI backend is selected by FI_AI_BACKEND env var:
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
-from typing import Callable, List, Optional, Tuple
 
 from config import AUTO_CLASSIFY_THRESHOLD, LOCAL_CONFIDENCE_THRESHOLD
 from ledger_agent.core.database import COARepo, TransactionRepo
+from ledger_agent.core.intelligence.memory import get_memory
 from ledger_agent.core.logging_setup import get_logger
 from ledger_agent.core.models import COAEntry, Transaction
-from ledger_agent.core.intelligence.memory import get_memory
 
 log = get_logger(__name__)
 
@@ -38,8 +38,8 @@ CLASSIFIER_VERSION = "1.1"
 
 
 def _keyword_match(description: str,
-                   coa_entries: List[COAEntry],
-                   amount: float = 0.0) -> Optional[COAEntry]:
+                   coa_entries: list[COAEntry],
+                   amount: float = 0.0) -> COAEntry | None:
     desc_up = description.upper()
     matches = []
     for entry in coa_entries:
@@ -59,8 +59,8 @@ def _keyword_match(description: str,
 
 def classify_transaction(
         txn: Transaction,
-        coa_entries: List[COAEntry],
-        prompt_fn: Optional[Callable[[Transaction, List[COAEntry]], Optional[Tuple[str, str, bool]]]] = None,
+        coa_entries: list[COAEntry],
+        prompt_fn: Callable[[Transaction, list[COAEntry]], tuple[str, str, bool] | None] | None = None,
 ) -> Transaction:
     if txn.coa_code and txn.coa_code != UNCLASSIFIED_CODE:
         return txn
@@ -81,7 +81,7 @@ def classify_transaction(
     # Modern payroll providers — bank descriptions typically include the
     # provider name but not the literal word "PAYROLL". Extends the rule
     # above so those outflows still route to L9 salaries / L18 payroll tax.
-    _PAYROLL_PROVIDERS = (
+    _payroll_providers = (
         "ADP",               # ADP payroll
         "GUSTO",             # Gusto payroll
         "PAYCHEX",           # Paychex
@@ -93,7 +93,7 @@ def classify_transaction(
         "SQUARE PAYROLL",
         "WAVE PAYROLL",
     )
-    if amt < 0 and any(p in desc_up for p in _PAYROLL_PROVIDERS):
+    if amt < 0 and any(p in desc_up for p in _payroll_providers):
         if "TAX" in desc_up or "WITHHOLDING" in desc_up:
             txn.coa_code, txn.coa_name = "5040", "Payroll Tax Expense"
         else:
@@ -203,10 +203,10 @@ def classify_transaction(
 
 
 def classify_batch(
-        transactions: List[Transaction],
-        prompt_fn: Optional[Callable] = None,
+        transactions: list[Transaction],
+        prompt_fn: Callable | None = None,
         confidence: float = 0.0,
-) -> Tuple[List[Transaction], int, int]:
+) -> tuple[list[Transaction], int, int]:
     try:
         from ledger_agent.core.audit import audit as _audit
     except Exception:
@@ -257,7 +257,7 @@ def classify_batch(
     return transactions, auto, prompted
 
 
-def coa_choices_for_prompt(coa_entries: List[COAEntry]) -> List[Tuple[str, str]]:
+def coa_choices_for_prompt(coa_entries: list[COAEntry]) -> list[tuple[str, str]]:
     leaves = [e for e in coa_entries if e.parent_code is not None]
     return [(f"{e.code}  {e.name}", e.code) for e in leaves]
 
@@ -303,7 +303,7 @@ def suggest_classification(description: str, amount: float = 0.0) -> dict:
     }
 
 
-def summarise_classifications(transactions: List[Transaction]) -> dict:
+def summarise_classifications(transactions: list[Transaction]) -> dict:
     summary: dict = {}
     for t in transactions:
         code = t.coa_code or UNCLASSIFIED_CODE

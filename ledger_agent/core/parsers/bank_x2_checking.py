@@ -18,11 +18,13 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ledger_agent.core.models import (
-    AccountSnapshot, ParsedStatement,
-    StatementType, Transaction, TransactionType,
+    AccountSnapshot,
+    ParsedStatement,
+    StatementType,
+    Transaction,
+    TransactionType,
 )
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
@@ -81,7 +83,7 @@ class BankX2CheckingParser(BaseStatementParser):
             source_file=str(pdf_path),
         )
 
-    def _extract_period(self, text: str) -> Tuple[str, int]:
+    def _extract_period(self, text: str) -> tuple[str, int]:
         """
         Bank X2: "Your account at a glance"  section, or
               "Statement Period: MM/DD/YYYY through MM/DD/YYYY"
@@ -121,7 +123,7 @@ class BankX2CheckingParser(BaseStatementParser):
                 return line
         return "UNKNOWN ENTITY"
 
-    def _extract_balances(self, text: str) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+    def _extract_balances(self, text: str) -> tuple[Decimal | None, Decimal | None]:
         prev = new = None
         m_prev = re.search(
             r"(?:Beginning|Opening)\s+[Bb]alance\s+[\$]?\s*([\d,]+\.\d{2})", text
@@ -143,7 +145,7 @@ class BankX2CheckingParser(BaseStatementParser):
         re.MULTILINE,
     )
 
-    def _parse_deposits(self, text: str, year: int) -> List[Transaction]:
+    def _parse_deposits(self, text: str, year: int) -> list[Transaction]:
         section = self._extract_section(
             text,
             r"Deposits\s+and\s+other\s+credits",
@@ -151,7 +153,7 @@ class BankX2CheckingParser(BaseStatementParser):
         )
         return self._parse_lines(section, year, is_debit=False)
 
-    def _parse_withdrawals(self, text: str, year: int) -> List[Transaction]:
+    def _parse_withdrawals(self, text: str, year: int) -> list[Transaction]:
         section = self._extract_section(
             text,
             r"Withdrawals\s+and\s+other\s+debits",
@@ -159,7 +161,7 @@ class BankX2CheckingParser(BaseStatementParser):
         )
         return self._parse_lines(section, year, is_debit=True)
 
-    def _parse_lines(self, section: str, year: int, is_debit: bool) -> List[Transaction]:
+    def _parse_lines(self, section: str, year: int, is_debit: bool) -> list[Transaction]:
         txns = []
         for m in self._TX_RE.finditer(section):
             date_str, desc, amt_str = m.group(1), m.group(2).strip(), m.group(3)

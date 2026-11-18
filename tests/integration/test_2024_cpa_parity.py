@@ -494,8 +494,9 @@ class TestCrossFormParity:
         Call generate_form_1065 via core.api and via mcp.tools.call_tool
         and confirm they return the same ordinary_business_income.
         """
-        from ledger_agent.mcp.tools import call_tool
         import json as _json
+
+        from ledger_agent.mcp.tools import call_tool
 
         mcp_result_json = call_tool("generate_form_1065", {"fiscal_year": 2024},
                                     allow_pii=True)

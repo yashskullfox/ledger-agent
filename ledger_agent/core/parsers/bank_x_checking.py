@@ -18,11 +18,13 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ledger_agent.core.models import (
-    AccountSnapshot, ParsedStatement,
-    StatementType, Transaction, TransactionType,
+    AccountSnapshot,
+    ParsedStatement,
+    StatementType,
+    Transaction,
+    TransactionType,
 )
 from ledger_agent.core.parsers.base import BaseStatementParser
 from ledger_agent.core.parsers.registry import ParserRegistry
@@ -81,7 +83,7 @@ class BankXCheckingParser(BaseStatementParser):
             source_file=str(pdf_path),
         )
 
-    def _extract_period(self, text: str) -> Tuple[str, int]:
+    def _extract_period(self, text: str) -> tuple[str, int]:
         """
         Looks for:  "For 01/31/2025"  or  "account statement\nFor 01/31/2025"
         Returns ("2025-01", 2025)
@@ -126,7 +128,7 @@ class BankXCheckingParser(BaseStatementParser):
                 return line
         return "UNKNOWN ENTITY"
 
-    def _extract_balances(self, text: str) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+    def _extract_balances(self, text: str) -> tuple[Decimal | None, Decimal | None]:
         """
         Match both spaced and space-collapsed formats:
           'Your previous balance as of MM/DD/YYYY ~$X,XXX'
@@ -147,7 +149,7 @@ class BankXCheckingParser(BaseStatementParser):
             new = self.parse_amount(m_new.group(1))
         return prev, new
 
-    def _parse_debits(self, text: str, year: int) -> List[Transaction]:
+    def _parse_debits(self, text: str, year: int) -> list[Transaction]:
         """
         Extract lines between:
           "Other withdrawals, debits and service charges"  (spaces may be collapsed)
@@ -177,7 +179,7 @@ class BankXCheckingParser(BaseStatementParser):
                 ))
         return txns
 
-    def _parse_credits(self, text: str, year: int) -> List[Transaction]:
+    def _parse_credits(self, text: str, year: int) -> list[Transaction]:
         """
         Extract lines between:
           "Deposits, credits and interest"  (spaces may be collapsed)

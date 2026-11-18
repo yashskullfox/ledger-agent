@@ -34,11 +34,11 @@ import json
 import logging as _logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ── Public types ─────────────────────────────────────────────────────────────
 
-RedactionMap = Dict[str, str]
+RedactionMap = dict[str, str]
 """Maps redaction-token → original value.  NEVER serialise or persist this."""
 
 
@@ -79,16 +79,16 @@ def _aba_valid(n: str) -> bool:
 
 # ── Vendor allowlist (loaded once) ────────────────────────────────────────────
 
-_ALLOWLIST: Optional[Set[str]] = None
+_ALLOWLIST: set[str] | None = None
 
 
-def _load_allowlist() -> Set[str]:
+def _load_allowlist() -> set[str]:
     global _ALLOWLIST
     if _ALLOWLIST is not None:
         return _ALLOWLIST
     allowlist_path = Path(__file__).parent / "privacy_allowlist.txt"
     if allowlist_path.exists():
-        entries: Set[str] = set()
+        entries: set[str] = set()
         for line in allowlist_path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if stripped and not stripped.startswith("#"):
@@ -101,7 +101,7 @@ def _load_allowlist() -> Set[str]:
 
 # ── Banking/system words — never redact as counterparties ─────────────────────
 
-_SYSTEM_WORDS: Set[str] = {
+_SYSTEM_WORDS: set[str] = {
     "ACH", "ATM", "LLC", "INC", "CORP", "LTD", "DBA", "FBO",
     "REF", "CHK", "DEP", "PMT", "PAY", "TXN", "TRN", "EFT",
     "PPD", "CCD", "WEB", "TEL", "CTX", "IAT", "POS",
@@ -129,7 +129,7 @@ _SYSTEM_WORDS: Set[str] = {
 
 # ── API key / secret patterns (expanded — defence-in-depth) ──────────────────
 
-_API_KEY_PATTERNS: List[re.Pattern] = [
+_API_KEY_PATTERNS: list[re.Pattern] = [
     re.compile(r"sk-[A-Za-z0-9_\-]{20,}"),                 # OpenAI / Anthropic
     re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),             # Anthropic prefixed
     re.compile(r"AIza[A-Za-z0-9_\-]{35}"),                 # Google / Gemini
@@ -313,8 +313,8 @@ _ALLCAPS_SEQ_PAT = re.compile(r"\b([A-Z]{2,}(?:[\s&][A-Z]{2,})*)\b")
 # Maps (category, original_value) → token.
 # NEVER persisted; regenerated each process invocation.
 
-_session_map: Dict[Tuple[str, str], str] = {}
-_session_counters: Dict[str, int] = {}
+_session_map: dict[tuple[str, str], str] = {}
+_session_counters: dict[str, int] = {}
 
 
 def _reset_session() -> None:
@@ -344,17 +344,17 @@ def _stable_token(category: str, original: str, hint: str = "") -> str:
 
 # ── Individual detector functions ─────────────────────────────────────────────
 
-def _detect_api_keys(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_api_keys(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for pat in _API_KEY_PATTERNS:
         for m in pat.finditer(text):
             hits.append((m.group(0), "<SECRET_***>"))
     return hits
 
 
-def _detect_ssn(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
-    seen: Set[str] = set()
+def _detect_ssn(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
 
     # Always detect hyphenated SSN
     for m in _SSN_HYPH.finditer(text):
@@ -378,9 +378,9 @@ def _detect_ssn(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_ein(text: str) -> List[Tuple[str, str]]:
+def _detect_ein(text: str) -> list[tuple[str, str]]:
     # BUG-P3 fix: require an EIN-context keyword within ±60 chars.
-    hits: List[Tuple[str, str]] = []
+    hits: list[tuple[str, str]] = []
     for m in _EIN_PAT.finditer(text):
         start = max(0, m.start() - 60)
         end = min(len(text), m.end() + 60)
@@ -390,8 +390,8 @@ def _detect_ein(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_credit_cards(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_credit_cards(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for m in _CARD_CANDIDATE.finditer(text):
         raw = m.group(0)
         digits = re.sub(r"[ \-]", "", raw)
@@ -402,8 +402,8 @@ def _detect_credit_cards(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_routing(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_routing(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for m in _NINE_DIGITS.finditer(text):
         orig = m.group(0)
         if not _aba_valid(orig):
@@ -416,8 +416,8 @@ def _detect_routing(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_account_numbers(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_account_numbers(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for m in _ACCT_DIGITS.finditer(text):
         orig = m.group(0)
         start = max(0, m.start() - 40)
@@ -430,8 +430,8 @@ def _detect_account_numbers(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_emails(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_emails(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for m in _EMAIL_PAT.finditer(text):
         orig = m.group(0)
         token = _stable_token("EMAIL", orig)
@@ -439,11 +439,11 @@ def _detect_emails(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_phones(text: str) -> List[Tuple[str, str]]:
+def _detect_phones(text: str) -> list[tuple[str, str]]:
     # BUG-P1 fix: require a phone-context keyword within ±60 chars to prevent
     # false-positive matches on 10-digit invoice numbers, Unix epoch values,
     # transaction IDs, and fiscal-year compounds in audit log fields.
-    hits: List[Tuple[str, str]] = []
+    hits: list[tuple[str, str]] = []
     for m in _PHONE_PAT.finditer(text):
         orig = m.group(0)
         digits = re.sub(r"\D", "", orig)
@@ -459,8 +459,8 @@ def _detect_phones(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_addresses(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_addresses(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for m in _ADDR_PAT.finditer(text):
         orig = m.group(0)
         token = _stable_token("ADDR", orig)
@@ -468,9 +468,9 @@ def _detect_addresses(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_person_names(text: str) -> List[Tuple[str, str]]:
+def _detect_person_names(text: str) -> list[tuple[str, str]]:
     allowlist = _load_allowlist()
-    hits: List[Tuple[str, str]] = []
+    hits: list[tuple[str, str]] = []
     for m in _PERSON_CTX_PAT.finditer(text):
         # Group 1 is the name (the (?i:...) context part is a non-capturing group)
         name = m.group(1).strip()
@@ -483,16 +483,16 @@ def _detect_person_names(text: str) -> List[Tuple[str, str]]:
 
 # ── Company-name suffixes (these alone don't disqualify a counterparty match) ─
 
-_COMPANY_SUFFIXES: Set[str] = {
+_COMPANY_SUFFIXES: set[str] = {
     "LLC", "INC", "CORP", "LTD", "DBA", "CO", "LP", "LLP", "PC", "PA",
     "PLLC", "PLC", "NV", "SA", "AG", "GMBH",
 }
 
 
-def _detect_counterparty_names(text: str) -> List[Tuple[str, str]]:
+def _detect_counterparty_names(text: str) -> list[tuple[str, str]]:
     allowlist = _load_allowlist()
-    hits: List[Tuple[str, str]] = []
-    seen: Set[str] = set()
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for m in _ALLCAPS_SEQ_PAT.finditer(text):
         orig = m.group(0).strip()
         if orig in seen or len(orig) < 5:
@@ -525,18 +525,18 @@ def _detect_counterparty_names(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_entity_name(text: str, entity_name: str) -> List[Tuple[str, str]]:
+def _detect_entity_name(text: str, entity_name: str) -> list[tuple[str, str]]:
     if not entity_name:
         return []
     pattern = re.compile(re.escape(entity_name), re.IGNORECASE)
-    hits: List[Tuple[str, str]] = []
+    hits: list[tuple[str, str]] = []
     for m in pattern.finditer(text):
         hits.append((m.group(0), "<ENTITY_NAME>"))
     return hits
 
 
-def _detect_iban(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_iban(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for m in _IBAN_PAT.finditer(text):
         raw = m.group(0)
         compact = re.sub(r"[\s\-]", "", raw)
@@ -546,8 +546,8 @@ def _detect_iban(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_swift(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
+def _detect_swift(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
     for m in _SWIFT_PAT.finditer(text):
         orig = m.group(0)
         start = max(0, m.start() - 40)
@@ -558,16 +558,16 @@ def _detect_swift(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_itin(text: str) -> List[Tuple[str, str]]:
+def _detect_itin(text: str) -> list[tuple[str, str]]:
     return [(m.group(0), "<ITIN_***>") for m in _ITIN_PAT.finditer(text)]
 
 
-def _detect_driver_license(text: str) -> List[Tuple[str, str]]:
+def _detect_driver_license(text: str) -> list[tuple[str, str]]:
     """Context-gated: only fires if 'DL', 'DRIVER', 'LICENSE' nearby."""
     if not _DL_CTX.search(text):
         return []
-    hits: List[Tuple[str, str]] = []
-    seen: Set[str] = set()
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for m in _DL_CANDIDATE.finditer(text):
         orig = m.group(0)
         if orig in seen:
@@ -580,12 +580,12 @@ def _detect_driver_license(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_passport(text: str) -> List[Tuple[str, str]]:
+def _detect_passport(text: str) -> list[tuple[str, str]]:
     """Context-gated to passport keyword."""
     if not _PASSPORT_CTX.search(text):
         return []
-    hits: List[Tuple[str, str]] = []
-    seen: Set[str] = set()
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for m in _PASSPORT_CANDIDATE.finditer(text):
         orig = m.group(0)
         if orig in seen:
@@ -598,10 +598,10 @@ def _detect_passport(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_dob(text: str) -> List[Tuple[str, str]]:
+def _detect_dob(text: str) -> list[tuple[str, str]]:
     """Context-gated DOB; date alone is not redacted."""
-    hits: List[Tuple[str, str]] = []
-    seen: Set[str] = set()
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for ctx in _DOB_CTX.finditer(text):
         start = ctx.end()
         window = text[start : min(len(text), start + 60)]
@@ -614,13 +614,13 @@ def _detect_dob(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_zip4(text: str) -> List[Tuple[str, str]]:
+def _detect_zip4(text: str) -> list[tuple[str, str]]:
     return [(m.group(0), "<ZIP4_***>") for m in _ZIP4_PAT.finditer(text)]
 
 
-def _detect_ipv4(text: str) -> List[Tuple[str, str]]:
-    hits: List[Tuple[str, str]] = []
-    seen: Set[str] = set()
+def _detect_ipv4(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for m in _IPV4_PAT.finditer(text):
         orig = m.group(0)
         # Skip common non-PII addresses (loopback, link-local, RFC 1918 private,
@@ -636,17 +636,17 @@ def _detect_ipv4(text: str) -> List[Tuple[str, str]]:
     return hits
 
 
-def _detect_ipv6(text: str) -> List[Tuple[str, str]]:
+def _detect_ipv6(text: str) -> list[tuple[str, str]]:
     return [(m.group(0), _stable_token("IPV6", m.group(0)))
             for m in _IPV6_PAT.finditer(text)]
 
 
-def _detect_mac(text: str) -> List[Tuple[str, str]]:
+def _detect_mac(text: str) -> list[tuple[str, str]]:
     return [(m.group(0), _stable_token("MAC", m.group(0)))
             for m in _MAC_PAT.finditer(text)]
 
 
-def _detect_url_creds(text: str) -> List[Tuple[str, str]]:
+def _detect_url_creds(text: str) -> list[tuple[str, str]]:
     """URLs with `scheme://user:pass@host` — always fatal-class secrets."""
     return [(m.group(0), "<URL_WITH_CREDS_***>") for m in _URL_CRED_PAT.finditer(text)]
 
@@ -661,7 +661,7 @@ _ALL_DETECTORS = [
     "entity_name", "person_name", "counterparty",
 ]
 
-_SCOPE_DETECTORS: Dict[str, List[str]] = {
+_SCOPE_DETECTORS: dict[str, list[str]] = {
     "openai":       _ALL_DETECTORS,
     "gemini":       _ALL_DETECTORS,
     "ai_context":   _ALL_DETECTORS,
@@ -693,7 +693,7 @@ def redact(
     text: str,
     scope: str = "openai",
     entity_name: str = "",
-) -> Tuple[str, RedactionMap]:
+) -> tuple[str, RedactionMap]:
     """
     Tokenise PII in `text` before sending to a remote service.
 
@@ -721,7 +721,7 @@ def redact(
     # ── select detectors for this scope ──────────────────────────────────────
     detectors = _SCOPE_DETECTORS.get(scope, _ALL_DETECTORS)
 
-    replacements: List[Tuple[str, str]] = []
+    replacements: list[tuple[str, str]] = []
 
     # API keys → always checked, immediately fatal
     if "api_key" in detectors:
@@ -782,8 +782,8 @@ def redact(
     replacements.sort(key=lambda x: len(x[0]), reverse=True)
 
     # Deduplicate (same original may appear from multiple detectors)
-    seen_originals: Set[str] = set()
-    deduped: List[Tuple[str, str]] = []
+    seen_originals: set[str] = set()
+    deduped: list[tuple[str, str]] = []
     for orig, token in replacements:
         if orig not in seen_originals:
             seen_originals.add(orig)
@@ -838,7 +838,7 @@ def unredact(text: str, mapping: RedactionMap) -> str:
     return result
 
 
-def unredact_result(result: Dict[str, Any], mapping: RedactionMap) -> Dict[str, Any]:
+def unredact_result(result: dict[str, Any], mapping: RedactionMap) -> dict[str, Any]:
     """
     Apply unredact() to all string values in a classification result dict.
     The 'reason' field is the primary field that may contain token references.
@@ -879,7 +879,7 @@ def audit_egress(payload: Any) -> None:
 
     # High-confidence structural PII (every detector below is high-precision
     # enough that any hit in an outbound payload is grounds to fail the call).
-    violations: List[str] = []
+    violations: list[str] = []
 
     if _SSN_HYPH.search(text):
         violations.append("SSN")
@@ -937,11 +937,11 @@ class PrivacyFilter(_logging.Filter):
 
 # ── privacy_status() — MCP tool helper ───────────────────────────────────────
 
-_egress_event_log: List[Dict[str, Any]] = []
+_egress_event_log: list[dict[str, Any]] = []
 _MAX_EVENT_LOG = 10
 
 
-def privacy_status() -> Dict[str, Any]:
+def privacy_status() -> dict[str, Any]:
     """
     Return current privacy configuration and recent egress audit events.
     Exposed as an MCP tool so operators can verify firewall status.

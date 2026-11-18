@@ -7,6 +7,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from config import NOT_TAX_ADVICE_DISCLAIMER
+
 log = logging.getLogger(__name__)
 
 
@@ -56,6 +58,8 @@ def _ok(data: Any, *, allow_pii: bool = False) -> str:
     serialised = _serialise(data)
     if not allow_pii:
         serialised = _sanitise_pii_fields(serialised)
+    if isinstance(serialised, dict):
+        serialised["disclaimer"] = NOT_TAX_ADVICE_DISCLAIMER
     return json.dumps(serialised, indent=2, default=str)
 
 
@@ -91,7 +95,7 @@ TOOL_SCHEMAS: list[dict] = [
         "description": (
             "Build a GAAP-style balance sheet for the last available period in the "
             "given fiscal year.  Returns total assets, liabilities, members equity, "
-            "net income, and a full line-item breakdown."
+            "net income, and a full line-item breakdown.  Not tax advice."
         ),
         "inputSchema": {
             "type": "object",
@@ -110,7 +114,7 @@ TOOL_SCHEMAS: list[dict] = [
             "Produce Form 1065 partnership return data for the given fiscal year. "
             "Aggregates ordinary business income/loss and Schedule K items "
             "(capital gains, dividends, interest).  Not a substitute for a "
-            "professionally prepared return."
+            "professionally prepared return.  Not tax advice."
         ),
         "inputSchema": {
             "type": "object",
@@ -128,7 +132,8 @@ TOOL_SCHEMAS: list[dict] = [
         "description": (
             "Generate Schedule K-1 for a single partner. "
             "Partner IDs are canonical slugs configured on the entity (see api.PARTNERS). "
-            "Returns the partner's distributive share of income, gains, and deductions."
+            "Returns the partner's distributive share of income, gains, and deductions.  "
+            "Not tax advice."
         ),
         "inputSchema": {
             "type": "object",
@@ -151,7 +156,8 @@ TOOL_SCHEMAS: list[dict] = [
         "description": (
             "Compute quarterly estimated tax payments for the pass-through entity "
             "for the given fiscal year.  Returns net income, total annual tax, "
-            "effective rate, and a quarterly payment schedule with due dates."
+            "effective rate, and a quarterly payment schedule with due dates.  "
+            "Not tax advice."
         ),
         "inputSchema": {
             "type": "object",
@@ -172,7 +178,7 @@ TOOL_SCHEMAS: list[dict] = [
             "confidence flags, and next actions. "
             "Follows the W27 CustomerSummary contract (docs/customer-summary-contract.md). "
             "Always check confidence_flags — any NOT_CLOSE_READY_* flag means the answer "
-            "is directional only, not CPA-ready."
+            "is directional only, not CPA-ready.  Not tax advice."
         ),
         "inputSchema": {
             "type": "object",
@@ -191,7 +197,7 @@ TOOL_SCHEMAS: list[dict] = [
             "Run inter-account transfer reconciliation for the fiscal year. "
             "Matches INTRA_BANK_XFER / Zelle / wire transfers between accounts "
             "and flags unmatched movements.  Returns matched/unmatched counts "
-            "and a list of issues."
+            "and a list of issues.  Not tax advice."
         ),
         "inputSchema": {
             "type": "object",

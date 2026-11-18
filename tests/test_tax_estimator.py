@@ -121,3 +121,73 @@ class TestRenderTaxEstimate:
         assert "=== Tax Estimate – TEST LLC (2025) ===" in out
         assert "Net Income (annual):" in out
         assert "60,000.00" in out
+
+
+class TestExternalPTEPayments:
+    """W31 / T7: Entity-level external PTE payment recording and deduction."""
+
+    def test_record_pte_payment_updates_estimate_and_summary(self, tmp_path, monkeypatch):
+        from datetime import date
+
+        import ledger_agent.core.api as api
+        from ledger_agent.core.database import AccountRepo, EntityRepo, TransactionRepo, init_db
+        from ledger_agent.core.models import (
+            Account,
+            AccountType,
+            Entity,
+            Transaction,
+            TransactionType,
+        )
+
+        db_file = tmp_path / "pte_test.db"
+        monkeypatch.setenv("FI_DB_PATH", str(db_file))
+        init_db(db_file)
+
+        entity = Entity(id="ent-pte-1", name="ENTITY_A", entity_type="LLC", state="MO")
+        EntityRepo.upsert(entity, db_file)
+        acct = Account(
+            id="acct-pte-1",
+            entity_id=entity.id,
+            name="Operating",
+            institution="Bank X",
+            account_type=AccountType.CHECKING,
+            account_number_masked="1234",
+        )
+        AccountRepo.upsert(acct, db_file)
+        TransactionRepo.bulk_insert(
+            [
+                Transaction(
+                    id="txn-pte-1",
+                    account_id=acct.id,
+                    date=date(2026, 3, 15),
+                    description="Consulting Revenue",
+                    amount=Decimal("20000.00"),
+                    transaction_type=TransactionType.CREDIT,
+                    statement_period="2026-03",
+                    coa_code="4020",
+                    coa_name="Service Revenue",
+                )
+            ],
+            db_file,
+        )
+
+        est_before = api.pte_estimate(2026)
+        assert est_before.paid_ytd == Decimal("0.00")
+        assert est_before.remaining_balance == est_before.total_annual_tax
+
+        rec = api.record_pte_payment(2026, "Q1", Decimal("1300.00"), paid_on="2026-04-15", source="MO-PTEAP")
+        assert rec["quarter"] == "Q1"
+        assert rec["amount"] == "1300.00"  # redaction: allow
+
+        est_after = api.pte_estimate(2026)
+        assert est_after.paid_ytd == Decimal("1300.00")  # redaction: allow
+        assert est_after.remaining_balance == est_before.total_annual_tax - Decimal("1300.00")  # redaction: allow
+        q1_entry = next(p for p in est_after.quarterly_payments if p["quarter"] == "Q1")
+        assert q1_entry["status"] == "paid"
+        assert q1_entry["paid_amount"] == 1300.0  # redaction: allow
+
+        summary = api.build_customer_summary(2026, as_of="2026-03-31")
+        assert summary.pte_due_signal["paid_ytd"] == "1300.00"  # redaction: allow
+        # Q1 is already paid, so next_due advances to Q2 (June 15)
+        assert summary.pte_due_signal["next_due"] == "June 15"
+

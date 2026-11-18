@@ -29,7 +29,6 @@ if str(ROOT) not in sys.path:
 
 from ledger_agent.mcp.server import PrivacyRedactionError, _redact_response
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

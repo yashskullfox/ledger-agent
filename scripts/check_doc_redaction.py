@@ -25,7 +25,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_PATH = REPO_ROOT / "config" / "redaction_corpus.yaml"
@@ -54,14 +53,14 @@ def _load_corpus() -> dict:
         sys.exit(2)
 
 
-def _all_tracked_files() -> List[Path]:
+def _all_tracked_files() -> list[Path]:
     result = subprocess.run(
         ["git", "ls-files"], capture_output=True, text=True, cwd=REPO_ROOT
     )
     return [REPO_ROOT / p.strip() for p in result.stdout.splitlines() if p.strip()]
 
 
-def _staged_files() -> List[Path]:
+def _staged_files() -> list[Path]:
     result = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
         capture_output=True, text=True, cwd=REPO_ROOT,
@@ -79,9 +78,9 @@ def _build_allowlist() -> set:
     return tokens
 
 
-def _load_denylist(corpus: dict, override_path: Path | None = None) -> List[Tuple[str, str]]:
+def _load_denylist(corpus: dict, override_path: Path | None = None) -> list[tuple[str, str]]:
     """Return list of (category, token_lower) pairs from corpus + optional local file."""
-    pairs: List[Tuple[str, str]] = []
+    pairs: list[tuple[str, str]] = []
     denylist = corpus.get("denylist_tokens", {}) or {}
     for category, tokens in denylist.items():
         if not tokens:
@@ -107,8 +106,8 @@ def _scan_file(
     path: Path,
     corpus: dict,
     allowlist: set,
-    denylist: List[Tuple[str, str]],
-) -> List[Tuple[int, str, str]]:
+    denylist: list[tuple[str, str]],
+) -> list[tuple[int, str, str]]:
     """Return list of (line_no, category, context) hits. Never prints the match value."""
     if not path.exists() or not path.is_file():
         return []
@@ -126,7 +125,7 @@ def _scan_file(
     except OSError:
         return []
 
-    hits: List[Tuple[int, str, str]] = []
+    hits: list[tuple[int, str, str]] = []
     replacement_tokens = corpus.get("replacement_tokens", {}) or {}
     # Build a set of all allowed pseudonym tokens (case-insensitive)
     allowed = set()
@@ -137,7 +136,7 @@ def _scan_file(
 
     pii_patterns = corpus.get("pii_patterns", {}) or {}
     # Pre-compile patterns (case-insensitive)
-    compiled_patterns: List[Tuple[str, "re.Pattern"]] = []
+    compiled_patterns: list[tuple[str, re.Pattern]] = []
     for category, pattern in pii_patterns.items():
         try:
             compiled_patterns.append((category, re.compile(pattern, re.IGNORECASE)))

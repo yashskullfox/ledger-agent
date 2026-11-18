@@ -18,7 +18,6 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import List
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +41,7 @@ WITHHOLDING_KEYWORDS: tuple = (
 def find_misclassified_withholding(
     entity_id: str,
     fiscal_year: int,
-) -> List[str]:
+) -> list[str]:
     """
     Return transaction IDs that are incorrectly coded as entity-level tax
     expense when they should be partner draws (3040).
@@ -63,7 +62,7 @@ def find_misclassified_withholding(
     placeholders = ",".join("?" * len(account_ids))
 
     prefix = f"{fiscal_year}-%"
-    candidates: List[str] = []
+    candidates: list[str] = []
 
     with get_conn() as conn:
         rows = conn.execute(

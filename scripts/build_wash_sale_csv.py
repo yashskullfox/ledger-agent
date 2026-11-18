@@ -46,7 +46,6 @@ import sys
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import DefaultDict
 
 try:
     import pdfplumber  # type: ignore
@@ -61,11 +60,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _mask_amount(amount: Decimal) -> str:
     """Bucket a dollar amount for safe stdout display."""
     a = abs(amount)
-    if a == 0:               return "$0"
-    if a < Decimal("1000"):  return "~$XXX"
-    if a < Decimal("10000"): return "~$X,XXX"
-    if a < Decimal("100000"):return "~$XX,XXX"
-    if a < Decimal("1000000"): return "~$XXX,XXX"
+    if a == 0:
+        return "$0"
+    if a < Decimal("1000"):
+        return "~$XXX"
+    if a < Decimal("10000"):
+        return "~$X,XXX"
+    if a < Decimal("100000"):
+        return "~$XX,XXX"
+    if a < Decimal("1000000"):
+        return "~$XXX,XXX"
     return "~$X,XXX,XXX"
 
 
@@ -86,9 +90,9 @@ def _parse_amount(raw: str) -> Decimal | None:
         return None
 
 
-def _extract_wash_sale_disallowances(pdf_path: Path) -> DefaultDict[str, Decimal]:
+def _extract_wash_sale_disallowances(pdf_path: Path) -> defaultdict[str, Decimal]:
     """Parse a 1099-B PDF and return {uppercase_ticker: total_disallowed_loss}."""
-    result: DefaultDict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    result: defaultdict[str, Decimal] = defaultdict(lambda: Decimal("0"))
 
     if not pdf_path.exists():
         print(f"WARNING: PDF not found: {pdf_path}", file=sys.stderr)
@@ -179,7 +183,7 @@ def main() -> int:
         pass  # absolute path outside repo — caller's responsibility
 
     per_pdf: list[dict] = []
-    aggregate: DefaultDict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    aggregate: defaultdict[str, Decimal] = defaultdict(lambda: Decimal("0"))
 
     for pdf_path in args.pdfs:
         if not pdf_path.exists():
@@ -205,7 +209,7 @@ def main() -> int:
             })
 
     total_all = sum(aggregate.values(), Decimal("0"))
-    print(f"\n=== Wash-sale CSV built (masked stdout) ===")
+    print("\n=== Wash-sale CSV built (masked stdout) ===")
     print(f"  output:              {out_path.relative_to(REPO_ROOT)}")
     print(f"  tickers aggregated:  {len(aggregate)}")
     print(f"  total disallowed:    {_mask_amount(total_all)}")

@@ -35,7 +35,6 @@ import re
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 try:
     import pdfplumber  # type: ignore
@@ -54,7 +53,7 @@ except ImportError:  # pragma: no cover
 _AMT_RE = re.compile(r"\(?-?\$?\s*\d[\d,]*(?:\.\d{1,2})?\)?")
 
 
-def _to_number(raw: str) -> Optional[float]:
+def _to_number(raw: str) -> float | None:
     if raw is None:
         return None
     s = raw.strip().replace("$", "").replace(" ", "").replace(",", "")
@@ -70,7 +69,7 @@ def _to_number(raw: str) -> Optional[float]:
     return -v if neg else v
 
 
-def _last_amount_on_line(line: str) -> Optional[float]:
+def _last_amount_on_line(line: str) -> float | None:
     """Return the last numeric amount on the line (IRS forms right-align)."""
     matches = _AMT_RE.findall(line)
     if not matches:
@@ -78,7 +77,7 @@ def _last_amount_on_line(line: str) -> Optional[float]:
     return _to_number(matches[-1])
 
 
-def _find_label(label_re: str, text: str, flags: int = re.IGNORECASE) -> Optional[float]:
+def _find_label(label_re: str, text: str, flags: int = re.IGNORECASE) -> float | None:
     """Find the first line containing ``label_re`` and return its last amount."""
     pat = re.compile(label_re, flags)
     for ln in text.split("\n"):
@@ -89,7 +88,7 @@ def _find_label(label_re: str, text: str, flags: int = re.IGNORECASE) -> Optiona
     return None
 
 
-def _find_first(pattern: str, text: str, flags: int = re.MULTILINE) -> Optional[float]:
+def _find_first(pattern: str, text: str, flags: int = re.MULTILINE) -> float | None:
     """Back-compat helper: find first regex match, return group(1) as number."""
     m = re.search(pattern, text, flags)
     if not m:
@@ -194,13 +193,13 @@ _K1_LABELS: dict[str, str] = {
 @dataclass
 class PartnerK1Truth:
     slug: str                     # "partner_1", "partner_2" (order-of-appearance)
-    profit_loss_pct: Optional[float] = None
-    capital_pct: Optional[float] = None
-    capital_boy: Optional[float] = None
-    capital_contributed: Optional[float] = None
-    net_income: Optional[float] = None
-    withdrawals: Optional[float] = None
-    capital_eoy: Optional[float] = None
+    profit_loss_pct: float | None = None
+    capital_pct: float | None = None
+    capital_boy: float | None = None
+    capital_contributed: float | None = None
+    net_income: float | None = None
+    withdrawals: float | None = None
+    capital_eoy: float | None = None
     boxes: dict = field(default_factory=dict)
 
 
@@ -232,7 +231,7 @@ def _extract_block(text: str, labels: dict[str, str]) -> dict[str, float]:
     return out
 
 
-def _find_capital_pct(text: str) -> tuple[Optional[float], Optional[float]]:
+def _find_capital_pct(text: str) -> tuple[float | None, float | None]:
     """Item J on K-1: '% ending' for profit and capital."""
     pl = None
     cap = None
@@ -319,7 +318,7 @@ def extract(pdf_path: Path, fiscal_year: int) -> FilingTruth:
 # --------------------------------------------------------------------------- #
 
 
-def _mask(v: Optional[float]) -> str:
+def _mask(v: float | None) -> str:
     if v is None:
         return "     —    "
     a = abs(v)
