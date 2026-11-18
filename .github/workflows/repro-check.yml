@@ -33,7 +33,7 @@ defaults:
     shell: bash
 
 env:
-  PYTHON_VERSION: "3.11.9"
+  PYTHON_VERSION: "3.11"
   JDK_VERSION: "21"
   JDK_DISTRO: "temurin"
   # All timestamps anchored to the commit time for reproducibility

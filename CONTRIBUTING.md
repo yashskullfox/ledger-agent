@@ -33,7 +33,7 @@ The pre-commit hook (`pre-commit install`) runs the scanner automatically.
 
 ### Prerequisites
 
-- Python **≥ 3.10** (CI tests 3.10, 3.11, 3.12; release builds pin to 3.11.9)
+- Python **≥ 3.10** (CI tests 3.10, 3.11, 3.12; release builds pin to 3.11)
 - JDK **21** (temurin) — only needed to build Form D (Spring Boot fat jar)
 - Maven **3.9+** — only needed for `webapp/`
 

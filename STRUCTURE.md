@@ -344,7 +344,7 @@ compute-version
 **Semver:** computed from conventional commits by `.github/scripts/compute_semver.py`.
 `feat:` → minor bump, `fix:` → patch, `feat!:` / `BREAKING CHANGE:` → major.
 
-**Reproducible builds:** `SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)`, Python 3.11.9,
+**Reproducible builds:** `SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)`, Python 3.11,
 JDK 21 temurin, `pip install --require-hashes -r requirements.lock`.
 
 ---
