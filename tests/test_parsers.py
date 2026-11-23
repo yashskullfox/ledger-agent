@@ -161,6 +161,30 @@ class TestBankXCheckingParser:
         tax_txns = [t for t in debits if t.transaction_type == TransactionType.TAX]
         assert len(tax_txns) >= 1
 
+    def test_parse_full_statement(self, parser, monkeypatch):
+        from pathlib import Path
+        monkeypatch.setattr(parser, "extract_text", lambda p: BANK_X_SAMPLE_TEXT)
+        parsed = parser.parse(Path("dummy.pdf"))
+        assert parsed.parser_id == "bank_x_checking"
+        assert parsed.statement_period == "2025-01"
+        assert len(parsed.transactions) >= 6
+        assert parsed.snapshot is not None
+
+    def test_period_and_account_fallbacks(self, parser):
+        period, year = parser._extract_period("Statement dated 03/15/2025")
+        assert period == "2025-03" and year == 2025
+
+        p_fail, y_fail = parser._extract_period("No dates")
+        assert p_fail == "0000-00" and y_fail == 0
+
+        assert parser._extract_account_number("VA 987654321012") == "987654321012"  # redaction: allow
+        assert parser._extract_account_number("ACCOUNT: 87654321") == "87654321"  # redaction: allow
+        assert parser._extract_account_number("none") == "0000"
+
+        assert parser._extract_entity_name("ALPHA SERVICES INC") == "ALPHA SERVICES INC"
+        assert parser._extract_entity_name("BETA HOLDINGS CORP") == "BETA HOLDINGS CORP"
+        assert parser._extract_entity_name("lower case line") == "UNKNOWN ENTITY"
+
 
 class TestBaseParserHelpers:
     @pytest.fixture
@@ -171,12 +195,19 @@ class TestBaseParserHelpers:
     def test_parse_amount_decimal(self, parser):
         assert parser.parse_amount("1,234.56") == Decimal("1234.56")
         assert parser.parse_amount("29.00") == Decimal("29.00")
+        assert parser.parse_amount("(100.50)") == Decimal("-100.50")
+        assert parser.parse_amount("-50.00") == Decimal("-50.00")
+        assert parser.parse_amount("") is None
         assert parser.parse_amount("invalid") is None
 
     def test_parse_date_with_year(self, parser):
         from datetime import date
         d = parser.parse_date("01/15", 2025)
         assert d == date(2025, 1, 15)
+        assert parser.parse_date("2025-01-15") == date(2025, 1, 15)
+        assert parser.parse_date("01/15/25") == date(2025, 1, 15)
+        assert parser.parse_date("") is None
+        assert parser.parse_date("invalid-date") is None
 
     def test_parse_date_full(self, parser):
         from datetime import date
