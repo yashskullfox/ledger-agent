@@ -20,11 +20,8 @@ import pytest
 
 # ── corpus roots ──────────────────────────────────────────────────────────────
 STMT_ROOT    = Path(__file__).parents[3] / "statements" / "2026"
-_synced_2026 = Path(__file__).parents[3] / "Synced-Accounts" / "2026"
-_synced_dirs = list(_synced_2026.glob("*Credit*")) if _synced_2026.exists() else []
-SYNCED_ROOT  = _synced_dirs[0] if _synced_dirs else Path()
-CHECKING_DIR = STMT_ROOT / "account" if (STMT_ROOT / "account").exists() else (SYNCED_ROOT / "Account" if SYNCED_ROOT.exists() else Path())
-CC_DIR       = STMT_ROOT / "Credit card" if (STMT_ROOT / "Credit card").exists() else (SYNCED_ROOT / "Credit Card" if SYNCED_ROOT.exists() else Path())
+CHECKING_DIR = STMT_ROOT / "account" if (STMT_ROOT / "account").exists() else Path()
+CC_DIR       = STMT_ROOT / "Credit card" if (STMT_ROOT / "Credit card").exists() else Path()
 
 _raw_checking = sorted(CHECKING_DIR.glob("*.pdf")) if CHECKING_DIR.exists() else []
 _raw_cc       = sorted(CC_DIR.glob("*.pdf"))       if CC_DIR.exists()       else []
