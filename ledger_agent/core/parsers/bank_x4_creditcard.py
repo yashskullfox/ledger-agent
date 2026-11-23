@@ -137,7 +137,7 @@ class BankX4CreditCardParser(BaseStatementParser):
         return self.parse_amount(m.group(1)) if m else None
 
     _TX_RE = re.compile(
-        r"^(\d{2}/\d{2})(?:(\d{2}/\d{2}))?(?:\d{4}|[A-Z0-9]{3,4})?(.+?)\$([\d,]+\.\d{2})\s*$"
+        r"^(\d{2}/\d{2})(?:(\d{2}/\d{2}))?(?:\d{3,4})?(.+?)\$([\d,]+\.\d{2})\s*$"
     )
 
     def _parse_transactions(
@@ -210,6 +210,8 @@ class BankX4CreditCardParser(BaseStatementParser):
                         amount=abs(amt),
                         transaction_type=TransactionType.TRANSFER_IN,
                         statement_period=period,
+                        coa_code="9000",
+                        coa_name="Inter-Account Transfer",
                         is_transfer=True,
                     )
                     payments.append(txn)
@@ -244,6 +246,8 @@ class BankX4CreditCardParser(BaseStatementParser):
                     amount=abs(amt),
                     transaction_type=TransactionType.TRANSFER_IN,
                     statement_period=period,
+                    coa_code="9000",
+                    coa_name="Inter-Account Transfer",
                     is_transfer=True,
                 )
                 payments.append(txn)

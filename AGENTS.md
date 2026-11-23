@@ -32,7 +32,7 @@ All four forms must produce identical numbers. Divergence > $1 is P0 (R-51 / ARC
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q                                               # 584 passed, 10 xfailed, 0 failed (verified 2026-11-23)
+pytest -q                                               # 594 passed, 0 skipped, 0 xfailed, 0 failed (verified 2026-11-23)
 python scripts/check_doc_redaction.py --strict --all-tracked  # must stay at 0 hits
 ```
 

@@ -152,8 +152,8 @@ class BankX4CheckingParser(BaseStatementParser):
         return prev, new
 
     _TX_RE = re.compile(
-        r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*(\d{1,2})"
-        r"(.+?)"
+        r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*(\d{1,2})(?!\d)"
+        r"(.*?)"
         r"\$([\d,]+\.\d{2})(-?)\s*$",
         re.IGNORECASE,
     )
@@ -192,7 +192,7 @@ class BankX4CheckingParser(BaseStatementParser):
             amt = self.parse_amount(amt_str)
             if amt is None:
                 continue
-            desc = _clean_bank_x4_desc(desc_raw)
+            desc = _clean_bank_x4_desc(desc_raw) if desc_raw else ("Ext Tfr Deposit" if not is_debit else "Withdrawal")
             txn_type = _classify(desc, is_debit)
             txns.append(Transaction(
                 account_id="",
