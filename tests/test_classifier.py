@@ -143,7 +143,7 @@ class TestPriorityRules:
     def test_payroll_salary_classified_5021(self, coa_entries, db):
         """PAYROLL debit without TAX → employee salary → 5021."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
-        txn = self._make_txn("ACHCORPDEBITPAYROLL INTUIT35986178 SYNCED", "-720.33")
+        txn = self._make_txn("ACHCORPDEBITPAYROLL INTUIT35986178 ENTITY_A", "-720.33")
         result = classify_transaction(txn, coa_entries)
         assert result.coa_code == "5021", (
             f"Payroll salary debit must be 5021 Payroll & Wages, got {result.coa_code}"
@@ -152,7 +152,7 @@ class TestPriorityRules:
     def test_payroll_tax_classified_5040(self, coa_entries, db):
         """PAYROLL TAX debit → payroll tax remittance → 5040."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
-        txn = self._make_txn("DEBITTAX PAYROLL INTUIT35986178 SYNCED", "-210.45")
+        txn = self._make_txn("DEBITTAX PAYROLL INTUIT35986178 ENTITY_A", "-210.45")
         result = classify_transaction(txn, coa_entries)
         assert result.coa_code == "5040", (
             f"Payroll tax debit must be 5040 Payroll Tax Expense, got {result.coa_code}"
@@ -212,7 +212,7 @@ class TestPriorityRules:
         """IRS EFTPS USATAXPYMT = Form 941 quarterly payroll tax → 5040, not 3040/5050."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
         txn = self._make_txn(
-            "ACH CORP DEBIT USATAXPYMT IRS SYNCED LLCCUSTOMER ID acct_****1234",
+            "ACH CORP DEBIT USATAXPYMT IRS ENTITY_A CUSTOMER ID acct_****1234",
             "-238.68",
         )
         result = classify_transaction(txn, coa_entries)
@@ -242,7 +242,7 @@ class TestLocalBackend:
         result = backend.classify_transaction("IRS USATAXPYMT", -72.95)
         assert result["coa_code"] == "3040", (
             "IRS USATAXPYMT must classify as Members Distributions (3040), "
-            "not Federal Income Tax Expense (5050) — SYNCED LLC is a pass-through"
+            "not Federal Income Tax Expense (5050) — ENTITY_A is a pass-through"
         )
         assert result["confidence"] >= 0.5
 
