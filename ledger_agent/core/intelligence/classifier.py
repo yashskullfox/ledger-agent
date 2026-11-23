@@ -138,6 +138,11 @@ def classify_transaction(
         memory.remember(txn.description, txn.coa_code, txn.coa_name, True)
         return txn
 
+    # Bare "DEPOSIT" (no vendor/invoice token) is an opening/capital deposit, not P&L service revenue
+    if desc_up == "DEPOSIT" and amt > 0:
+        txn.coa_code, txn.coa_name = "3010", "Members Capital Contributions"
+        return txn
+
     result = memory.lookup(txn.description)
     if result:
         code, name, is_xfer, score = result

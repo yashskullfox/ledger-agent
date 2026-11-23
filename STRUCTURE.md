@@ -26,7 +26,7 @@ ledger-agent/
 ├── run.sh                    Bootstrap launcher (Unix) — creates .venv, installs, dispatches
 ├── run.bat                   Bootstrap launcher (Windows) — same behaviour
 ├── main.py                   Legacy interactive menu (pass-through for mcp/context/classify/…)
-├── config.py                 All configuration via environment variables
+├── config.py                 Compatibility shim — re-exports ledger_agent/core/config.py
 ├── pyproject.toml            Root package metadata (ledger-agent 2.1.0)
 ├── requirements.txt          Loose runtime deps
 ├── requirements.lock         Pinned deps for reproducible builds (ARCH-11)
@@ -45,6 +45,8 @@ ledger-agent/
 │   │   ├── privacy.py        R-46 PII firewall — redact / unredact / audit_egress
 │   │   ├── audit.py          Structured JSONL audit logger
 │   │   ├── cleanup.py        Safe temporary file disposal
+│   │   ├── config.py         Canonical configuration (FI_* env vars); import-time secret scan
+│   │   ├── logging_setup.py  Logging configuration
 │   │   ├── exceptions.py     Custom exception hierarchy
 │   │   │
 │   │   ├── parsers/          Statement PDF parser plugins (auto-discovered)
@@ -79,7 +81,7 @@ ledger-agent/
 │   │   │   └── withholding.py        Partner estimated-tax reclassification to equity draws
 │   │   │
 │   │   └── reports/
-│   │       └── renderer.py   Rich console output + CSV / Excel / JSON export
+│   │       └── renderer.py   Rich console output (optional import) + CSV / Excel / JSON export
 │   │
 │   ├── cli/                  Form B — Thin CLI layer (ARCH-04)
 │   │   ├── __init__.py
@@ -106,7 +108,10 @@ ledger-agent/
 │   └── context_builder.py    Serialises financial data for Claude / GPT / Perplexity
 │
 ├── mcp_server/               Legacy MCP server (kept for backward compat; superseded by ledger_agent/mcp/)
-│   └── server.py             Old LSP-framed server — do not use for new integrations
+│   └── server.py             Older stdio server with a different tool set — do not use for new integrations
+│
+├── private/                  ← gitignored except institutions.example.py
+│   └── institutions.example.py  Template for parser detection tokens → copy to institutions.py
 │
 ├── packaging/                Per-form pyproject.toml manifests (ARCH-03)
 │   ├── core/
@@ -123,10 +128,16 @@ ledger-agent/
 │   └── src/main/
 │       ├── java/com/ledgeragent/
 │       │   ├── LedgerAgentApplication.java   Spring Boot entry point
+│       │   ├── api/
+│       │   │   ├── ApiController.java         JSON API endpoints
+│       │   │   └── RunRequest.java
 │       │   ├── bridge/
 │       │   │   ├── PythonBridge.java          Subprocess lifecycle + typed API
 │       │   │   ├── JsonRpcClient.java         JSON-RPC 2.0 stdio client
 │       │   │   └── BridgeException.java
+│       │   ├── service/
+│       │   │   ├── RunService.java            Shared run logic for web/ and api/
+│       │   │   └── ReportType.java
 │       │   ├── web/
 │       │   │   └── RunController.java         GET / POST /run GET /healthz
 │       │   └── runtime/
@@ -135,26 +146,31 @@ ledger-agent/
 │           ├── application.yml
 │           └── templates/
 │               ├── index.html     Folder picker + fiscal year + report selector
-│               └── results.html   JSON results + inline error + next-step panel
+│               └── results.html   Summary cards + collapsed raw JSON + inline error
+│   (src/test/java/… holds ApiControllerIT, PythonBridgeIT, ResultsIT)
 │
 ├── tests/
-│   ├── conftest.py           Shared fixtures; pytest_configure sets FI_DB_PATH before collection
+│   ├── conftest.py           Shared fixtures; pytest_configure points FI_DB_PATH at a temp DB
 │   ├── architecture/
-│   │   └── test_core_purity.py  ARCH-02: zero CLI/UI imports in core (32 tests)
-│   ├── integration/
-│   │   ├── test_mcp_privacy.py  ARCH-07: privacy firewall (13 tests)
-│   │   └── test_2024_cpa_parity.py  ARCH-12: CPA parity gate (15 tests; skip w/o corpus)
-│   ├── test_balance_sheet.py
-│   ├── test_classifier.py
-│   ├── test_models.py
-│   ├── test_onboarding.py
-│   ├── test_parsers.py
-│   ├── test_privacy.py
-│   └── test_tax_estimator.py
+│   │   ├── test_core_purity.py     ARCH-02: zero CLI/UI imports in core (38 tests)
+│   │   └── test_env_documented.py  W24: every FI_* var read in source is in docs/env-vars.md
+│   ├── integration/          Runs against the REAL data/db/financials.db (see conftest.py);
+│   │   │                     every module skips when that DB is absent
+│   │   ├── test_mcp_privacy.py      ARCH-07: privacy firewall (14 tests)
+│   │   ├── test_2024_cpa_parity.py  ARCH-12: CPA parity gate
+│   │   ├── parsers/                 Parser completeness tests (positions, brokerage, BANK_X4 2026)
+│   │   └── …                        Golden/summary parity, isolation, liabilities, coverage
+│   ├── unit/                 Per-module unit tests (parsers, accounting, renderer, config, …)
+│   ├── fixtures/             *.example.txt parser samples; private/ is gitignored
+│   └── test_*.py             Older top-level unit tests (balance sheet, classifier, parsers, …)
 │
 ├── .github/
 │   ├── workflows/
-│   │   └── release.yml       ARCH-11/12: four-artifact release pipeline
+│   │   ├── release.yml       ARCH-11/12: four-artifact release pipeline
+│   │   ├── repro-check.yml   Reproducible-build verification
+│   │   ├── redaction-scan.yml  Redaction scanner on tracked files
+│   │   ├── codeql.yml
+│   │   └── pip-audit.yml
 │   └── scripts/
 │       ├── compute_semver.py  Conventional-commit semver calculator
 │       └── sha256sums.sh      SHA256SUMS generator for release artifacts
@@ -259,19 +275,23 @@ import ledger_agent.core.api as a
 
 ## Core Purity Rule (ARCH-02)
 
-Directories `core/`, `accounting/`, `intelligence/`, `parsers/`, `reports/`, `ledger_agent/core/`
-must **never** import:
+Files under `ledger_agent/core/` must **never** import:
 
 ```
 cli  rich  click  typer  requests  httpx  fastapi  flask  questionary  colorama
 ```
+
+The same test also asserts that the old top-level `core/`, `accounting/`, `intelligence/`,
+`parsers/`, and `reports/` directories stay absent (ARCH-20); they were folded into
+`ledger_agent/core/`.
 
 Verified by:
 ```bash
 pytest tests/architecture/test_core_purity.py -q   # 38 tests
 ```
 
-Exceptions: `reports/renderer.py` (legitimately uses `rich`) and `logging_setup.py`.
+Exceptions: `ledger_agent/core/reports/renderer.py` (presentation layer; optional `rich` import)
+and `ledger_agent/core/logging_setup.py`.
 
 ---
 
@@ -351,22 +371,34 @@ JDK 21 temurin, `pip install --require-hashes -r requirements.lock`.
 
 ## Adding a New Institution Parser
 
-Create `parsers/wells_fargo.py`:
+Create `ledger_agent/core/parsers/bank_x5_checking.py`. Detection tokens never go in tracked
+code (real institution names are forbidden by the privacy contract). Load them from gitignored
+`private/institutions.py`:
 
 ```python
-from parsers.base import BaseStatementParser
-from parsers.registry import ParserRegistry
-from core.models import ParsedStatement, StatementType
 from pathlib import Path
 
+from ledger_agent.core.models import ParsedStatement
+from ledger_agent.core.parsers.base import BaseStatementParser
+from ledger_agent.core.parsers.registry import ParserRegistry
+
+try:
+    from private.institutions import BANK_X5 as _CFG  # type: ignore
+except ImportError:
+    _CFG = {"detect": []}
+
+
 @ParserRegistry.register
-class WellsFargoParser(BaseStatementParser):
-    PARSER_ID   = "wells_fargo"
-    INSTITUTION = "Wells Fargo"
+class BankX5CheckingParser(BaseStatementParser):
+    PARSER_ID   = "bank_x5_checking"
+    INSTITUTION = "Bank X5"
 
     @classmethod
     def can_parse(cls, text: str) -> bool:
-        return "WELLS FARGO" in text.upper() and "BUSINESS" in text.upper()
+        if not _CFG.get("detect"):
+            return False
+        t = text.upper().replace(" ", "")
+        return all(tok.replace(" ", "") in t for tok in _CFG["detect"])
 
     def parse(self, pdf_path: Path) -> ParsedStatement:
         raw_text = self.extract_text(pdf_path)
@@ -374,8 +406,10 @@ class WellsFargoParser(BaseStatementParser):
         return ParsedStatement(parser_id=self.PARSER_ID, ...)
 ```
 
-**That is all.** `parsers/__init__.py` uses `pkgutil.iter_modules` to auto-discover the file.
-No edits to any other file are needed.
+Then add `BANK_X5 = {"detect": []}` to `private/institutions.example.py` and the real tokens to
+your local `private/institutions.py`. `ledger_agent/core/parsers/__init__.py` uses
+`pkgutil.iter_modules` to auto-discover the module. Note that a parser that fails to import is
+skipped **silently**, so if a new parser never matches, import it directly to see the error.
 
 ---
 
@@ -405,7 +439,7 @@ No edits to any other file are needed.
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
 
-pytest -q                                                       # full suite (514+ passed, 32 skipped, 0 failed)
+pytest -q                                                       # 584 passed, 10 xfailed (2026-11-23, with data/db/financials.db present; integration modules skip without it)
 pytest tests/architecture/test_core_purity.py -q               # ARCH-02 (38)
 pytest tests/integration/test_mcp_privacy.py -q                # ARCH-07 (14)
 pytest -m parity tests/integration/test_2024_cpa_parity.py -q  # ARCH-12 (skip w/o corpus)
@@ -418,7 +452,7 @@ pytest --cov=. --cov-report=term-missing                        # coverage
 
 - `data/` is gitignored — statements, database, and exports never commit.
 - `.env` is gitignored — API keys never committed.
-- `config.py` scans itself at import for accidentally committed keys.
+- `ledger_agent/core/config.py` scans itself at import for accidentally committed keys.
 - Account numbers stored as last-4 masked strings only.
 - **R-46 PII firewall** — `ledger_agent/core/privacy.py` tokenises PII before any remote call; fully active on MCP egress.
 - **R-45 completeness gate** — year-end outputs block when a month × institution is missing.
@@ -438,4 +472,4 @@ pytest --cov=. --cov-report=term-missing                        # coverage
 
 ---
 
-*Last updated: October 2026 — v2.1.0 (ARCH-01 through ARCH-32 complete)*
+*Last updated: 2026-11-23 — v2.1.0 (ARCH-01 through ARCH-32 complete; layout re-verified against disk)*

@@ -51,12 +51,12 @@ class TestBrokerYBrokerageParserUnit:
     def test_parse_summary_success(self):
         parser = BrokerYBrokerageParser()
         text = (
-            "Beginning Account Value $10,000.00\n"
-            "Ending Account Value $12,500.00\n"
-            "Market Value of Holdings $15,000.00\n"
-            "Margin balance -$2,500.00\n"
-            "Withdrawals -$500.00\n"
-            "Net Gain/Loss $1,000.00\n"
+            "Beginning Account Value $10,000.00\n"  # redaction: allow
+            "Ending Account Value $12,500.00\n"  # redaction: allow
+            "Market Value of Holdings $15,000.00\n"  # redaction: allow
+            "Margin balance -$2,500.00\n"  # redaction: allow
+            "Withdrawals -$500.00\n"  # redaction: allow
+            "Net Gain/Loss $1,000.00\n"  # redaction: allow
         )
         snap = parser._parse_summary(text, "2025-01")
         assert snap.statement_period == "2025-01"
@@ -69,7 +69,7 @@ class TestBrokerYBrokerageParserUnit:
 
     def test_parse_summary_missing_ending_nav_raises_parser_gap(self):
         parser = BrokerYBrokerageParser()
-        text = "Beginning Account Value $10,000.00\nNo ending value"
+        text = "Beginning Account Value $10,000.00\nNo ending value"  # redaction: allow
         with pytest.raises(ParserGap) as exc_info:
             parser._parse_summary(text, "2025-01")
         assert "ending_balance" in exc_info.value.missing_fields
@@ -79,9 +79,9 @@ class TestBrokerYBrokerageParserUnit:
         text = (
             "Deposits\n"
             "Date  Description                   Amount\n"
-            "01/10 Wire Transfer In             $5,000.00\n"
-            "01/15 Direct Deposit Client Fee     $1,200.00\n"
-            "Total Deposits                     $6,200.00\n"
+            "01/10 Wire Transfer In             $5,000.00\n"  # redaction: allow
+            "01/15 Direct Deposit Client Fee     $1,200.00\n"  # redaction: allow
+            "Total Deposits                     $6,200.00\n"  # redaction: allow
         )
         txns = parser._parse_deposits(text, "2025-01", 2025)
         assert len(txns) == 2
@@ -99,9 +99,9 @@ class TestBrokerYBrokerageParserUnit:
         text = (
             "Withdrawals\n"
             "Date  Description                   Amount\n"
-            "01/20 Wire Transfer Out           -$2,000.00\n"
-            "01/25 Annual Fee                  -$150.00\n"
-            "Total Withdrawals                 -$2,150.00\n"
+            "01/20 Wire Transfer Out           -$2,000.00\n"  # redaction: allow
+            "01/25 Annual Fee                  -$150.00\n"  # redaction: allow
+            "Total Withdrawals                 -$2,150.00\n"  # redaction: allow
         )
         txns = parser._parse_withdrawals(text, "2025-01", 2025)
         assert len(txns) == 2
@@ -117,7 +117,7 @@ class TestBrokerYBrokerageParserUnit:
 
     def test_parse_margin_interest(self):
         parser = BrokerYBrokerageParser()
-        text = "01/01-01/31  10,000  8.5%  31  -$65.20\n"
+        text = "01/01-01/31  10,000  8.5%  31  -$65.20\n"  # redaction: allow
         txns = parser._parse_margin_interest(text, "2025-01", 2025)
         assert len(txns) == 1
         assert txns[0].transaction_type == TransactionType.MARGIN_INTEREST
@@ -128,8 +128,8 @@ class TestBrokerYBrokerageParserUnit:
         parser = BrokerYBrokerageParser()
         text = (
             "Dividends, Interest & Other Income\n"
-            "01/18  CORP_ALPHA INC  123456789  Dividend Received  $145.50\n"
-            "Total Dividends  $145.50\n"
+            "01/18  CORP_ALPHA INC  123456789  Dividend Received  $145.50\n"  # redaction: allow
+            "Total Dividends  $145.50\n"  # redaction: allow
         )
         txns = parser._parse_dividends(text, "2025-01", 2025)
         assert len(txns) == 1
@@ -140,8 +140,8 @@ class TestBrokerYBrokerageParserUnit:
     def test_parse_trades(self):
         parser = BrokerYBrokerageParser()
         text = (
-            "s 01/12  ABC COMMON STOCK You Sold  Short-term gain: $320.00\n"
-            "s 01/14  XYZ CORP NOTE You Sold      Long-term loss: $150.00\n"
+            "s 01/12  ABC COMMON STOCK You Sold  Short-term gain: $320.00\n"  # redaction: allow
+            "s 01/14  XYZ CORP NOTE You Sold      Long-term loss: $150.00\n"  # redaction: allow
         )
         trades = parser._parse_trades(text, "2025-01", 2025)
         assert len(trades) == 2
@@ -159,18 +159,18 @@ class TestBrokerYBrokerageParserUnit:
             "BETA ASSETS LLC\n"
             "Account Z23-123456\n"  # redaction: allow
             "For Period January 1, 2025 – January 31, 2025\n"
-            "Beginning Account Value $10,000.00\n"
-            "Ending Account Value $12,500.00\n"
-            "Market Value of Holdings $12,500.00\n"
+            "Beginning Account Value $10,000.00\n"  # redaction: allow
+            "Ending Account Value $12,500.00\n"  # redaction: allow
+            "Market Value of Holdings $12,500.00\n"  # redaction: allow
             "Deposits\n"
             "Date  Description                   Amount\n"
-            "01/10 Wire Transfer In             $2,000.00\n"
-            "Total Deposits                     $2,000.00\n"
+            "01/10 Wire Transfer In             $2,000.00\n"  # redaction: allow
+            "Total Deposits                     $2,000.00\n"  # redaction: allow
             "Withdrawals\n"
             "Date  Description                   Amount\n"
-            "01/25 Broker Fee                  -$100.00\n"
-            "Total Withdrawals                 -$100.00\n"
-            "s 01/12  SEC1 STOCK You Sold  Short-term gain: $600.00\n"
+            "01/25 Broker Fee                  -$100.00\n"  # redaction: allow
+            "Total Withdrawals                 -$100.00\n"  # redaction: allow
+            "s 01/12  SEC1 STOCK You Sold  Short-term gain: $600.00\n"  # redaction: allow
         )
         monkeypatch.setattr(parser, "extract_text", MagicMock(return_value=sample_text))
 

@@ -34,6 +34,22 @@ _P2 = "partner_2"
 
 # ── Fixture loading ────────────────────────────────────────────────────────────
 
+@pytest.fixture(scope="module", autouse=True)
+def _use_production_db_if_present():
+    """Point FI_DB_PATH at data/db/financials.db when present locally (overrides conftest empty session DB)."""
+    import os
+
+    prod_db = ROOT / "data" / "db" / "financials.db"
+    prev = os.environ.get("FI_DB_PATH")
+    if prod_db.exists() and (not prev or "fi_test_data" in prev or "fi_test_" in prev):
+        os.environ["FI_DB_PATH"] = str(prod_db)
+    yield
+    if prev is not None:
+        os.environ["FI_DB_PATH"] = prev
+    else:
+        os.environ.pop("FI_DB_PATH", None)
+
+
 @pytest.fixture(scope="module")
 def ref():
     """Load CPA reference fixture; skip if absent."""

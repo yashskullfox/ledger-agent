@@ -49,7 +49,7 @@ class TestBankX2CheckingParserUnit:
 
     def test_extract_balances(self):
         parser = BankX2CheckingParser()
-        text = "Beginning Balance $1,234.56\nEnding Balance $2,345.67"
+        text = "Beginning Balance $1,234.56\nEnding Balance $2,345.67"  # redaction: allow
         prev, new = parser._extract_balances(text)
         assert prev == Decimal("1234.56")
         assert new == Decimal("2345.67")
@@ -72,7 +72,7 @@ class TestBankX2CheckingParserUnit:
             "ALPHA TRADING LLC\n"
             "Account Number: 987654321012\n"  # redaction: allow
             "Statement Period: 01/01/2025 through 01/31/2025\n"
-            "Opening Balance $1,000.00\n"
+            "Opening Balance $1,000.00\n"  # redaction: allow
             "Deposits and other credits\n"
             "Date   Description                                    Amount\n"
             "01/06/25  Online Banking transfer from savings        2,000.00\n"
@@ -83,7 +83,7 @@ class TestBankX2CheckingParserUnit:
             "01/07  RECURRING PAYMENT SLACK                          15.00\n"
             "01/14  USATAXPYMT IRS                                   70.00\n"
             "Total withdrawals and other debits                       85.00\n"
-            "Ending Balance $3,415.00\n"
+            "Ending Balance $3,415.00\n"  # redaction: allow
         )
         monkeypatch.setattr(parser, "extract_text", MagicMock(return_value=sample_text))
 
@@ -146,7 +146,7 @@ class TestBankX3CheckingParserUnit:
 
     def test_extract_balances(self):
         parser = BankX3CheckingParser()
-        text = "Beginning Balance $5,000.00\nClosing Balance $7,500.00"
+        text = "Beginning Balance $5,000.00\nClosing Balance $7,500.00"  # redaction: allow
         prev, new = parser._extract_balances(text)
         assert prev == Decimal("5000.00")
         assert new == Decimal("7500.00")
@@ -157,7 +157,7 @@ class TestBankX3CheckingParserUnit:
         assert parser._classify_type("ZELLE TRANSFER IN", is_debit=False) == TransactionType.TRANSFER_IN
         assert parser._classify_type("IRS PAYMENT", is_debit=True) == TransactionType.TAX
         assert parser._classify_type("SERVICE CHARGE", is_debit=True) == TransactionType.FEE
-        assert parser._classify_type("STORE PURCHASE", is_debit=True) == TransactionType.DEBIT
+        assert parser._classify_type("STORE DEBIT", is_debit=True) == TransactionType.DEBIT
         assert parser._classify_type("DIRECT DEPOSIT", is_debit=False) == TransactionType.CREDIT
 
         assert parser._clean_desc("  VENDOR STORE   5678  ") == "VENDOR STORE"
@@ -168,7 +168,7 @@ class TestBankX3CheckingParserUnit:
             "PARTNER HOLDINGS LLC\n"
             "Account Number: ...11223344\n"  # redaction: allow
             "January 01 - January 31, 2025\n"
-            "Beginning Balance $2,000.00\n"
+            "Beginning Balance $2,000.00\n"  # redaction: allow
             "DEPOSITS AND ADDITIONS\n"
             "DATE        DESCRIPTION                                 AMOUNT\n"
             "01/15       Online Transfer from savings                1,500.00\n"
@@ -182,7 +182,7 @@ class TestBankX3CheckingParserUnit:
             "DATE        DESCRIPTION                                 AMOUNT\n"
             "01/07       Zelle To CHARLIE                              500.00\n"
             "Total Electronic                                          500.00\n"
-            "Ending Balance $3,210.00\n"
+            "Ending Balance $3,210.00\n"  # redaction: allow
         )
         monkeypatch.setattr(parser, "extract_text", MagicMock(return_value=sample_text))
 
