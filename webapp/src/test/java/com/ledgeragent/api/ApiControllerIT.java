@@ -104,7 +104,7 @@ class ApiControllerIT {
     @Test
     @DisplayName("POST /api/v1/run with allowPii=true propagates the flag")
     void runWithAllowPii() throws Exception {
-        JsonNode fakeResult = mapper.readTree("{\"entity_name\":\"SYNCED LLC\"}");
+        JsonNode fakeResult = mapper.readTree("{\"entity_name\":\"ENTITY_A\"}");
         when(runService.dispatch(eq(ReportType.FORM1065), eq(2024), any(), eq(true)))
                 .thenReturn(fakeResult);
 
@@ -112,7 +112,7 @@ class ApiControllerIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"report\":\"form1065\",\"fiscalYear\":2024,\"folder\":\"\",\"allowPii\":true}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.entity_name").value("SYNCED LLC"));
+                .andExpect(jsonPath("$.entity_name").value("ENTITY_A"));
     }
 
     // ── POST /api/v1/run — error cases ────────────────────────────────────────

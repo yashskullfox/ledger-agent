@@ -9,11 +9,11 @@ safe to run in a shared terminal / pipe into logs.
 USAGE
     python scripts/extract_filing_reference.py \
         --year 2024 \
-        --pdf "Synced-Accounts/2024/Tax-filled/2024 Tax Return Documents (SYNCED LLC).pdf"
+        --pdf "<STATEMENT_ARCHIVE>/2024/Tax-filled/2024_Tax_Return_ENTITY_A.pdf"
 
     python scripts/extract_filing_reference.py \
         --year 2025 \
-        --pdf "Synced-Accounts/2025 - SYNCED/2025 Tax Returns SYNCED.pdf"
+        --pdf "<STATEMENT_ARCHIVE>/2025/2025_Tax_Returns_ENTITY_A.pdf"
 
 DESIGN
     Every regex is anchored on IRS-stable line labels (Form 1065 line numbers,

@@ -65,9 +65,9 @@ _RULES: list[tuple[str, str, str, bool]] = [
 
     # Software & Subscriptions (5010)
     (r"QUICKBOOKS|INTUIT(?!\s*TRAN)", "5010", "Software & Subscriptions", False),
-    (r"GOOGLE\s*(WORKSPACE|LLC)(?!\s*ADS)", "5010", "Software & Subscriptions", False),
+    (r"GOOGLE\s*(WORKSPACE|LLC|FI|STO|PAYME)(?!\s*ADS)", "5010", "Software & Subscriptions", False),
     (r"GOOGLE\s*\*(?!\s*ADS)", "5010", "Software & Subscriptions", False),  # GOOGLE *FI, GOOGLE *YOUTUBE, etc.
-    (r"YOUTUBE", "5010", "Software & Subscriptions", False),
+    (r"YOUTUBE|DUCKDUCKGO|IONOS|WASHPOST|I3\s*BROADBAND|I3BROADBAND|APPLE\s*INC", "5010", "Software & Subscriptions", False),
     (r"MICROSOFT|MSFT", "5010", "Software & Subscriptions", False),
     (r"ADOBE", "5010", "Software & Subscriptions", False),
     (r"DROPBOX|BOX\.COM", "5010", "Software & Subscriptions", False),
@@ -77,8 +77,8 @@ _RULES: list[tuple[str, str, str, bool]] = [
     (r"AWS|AMAZON\s*WEB\s*SERVICES|AZURE|GCP|GOOGLE\s*CLOUD", "5010", "Software & Subscriptions", False),
 
     # Legal & Professional Fees (5071)
-    (r"INCFILE|REGISTERED\s*AGENT|NORTHWEST\s*REGISTERED", "5071", "Legal & Professional Fees", False),
-    (r"LEGALZOOM|ROCKET\s*LAWYER", "5071", "Legal & Professional Fees", False),
+    (r"INCFILE|BIZEE|REGISTERED\s*AGENT|NORTHWEST\s*REGISTERED", "5071", "Legal & Professional Fees", False),
+    (r"LEGALZOOM|ROCKET\s*LAWYER|HACKING\s*LAW|\bLAW\b|\bATTORNEY\b", "5071", "Legal & Professional Fees", False),
 
     # Bank & Transaction Fees (5020)
     (r"SERVICE\s*CHARGE|MONTHLY\s*FEE|BANK\s*FEE", "5020", "Bank & Transaction Fees", False),
@@ -93,7 +93,7 @@ _RULES: list[tuple[str, str, str, bool]] = [
     (r"TWITTER|X\.COM\s*ADS|GOOGLE\s*ADS", "5031", "Advertising & Marketing", False),
 
     # Office & Shipping Supplies (5061)
-    (r"OFFICE\s*DEPOT|STAPLES|AMAZON(?!\s*WEB)", "5061", "Office & Shipping Supplies", False),
+    (r"OFFICE\s*DEPOT|STAPLES|AMAZON(?!\s*WEB)|SAMS\s*CLUB|SAMSCLUB|EPSON", "5061", "Office & Shipping Supplies", False),
     (r"FEDEX|UPS|USPS", "5061", "Office & Shipping Supplies", False),
 
     # Travel & Transportation (5100)

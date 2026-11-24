@@ -11,7 +11,7 @@ real tickers and dollar amounts never leak into the tracked tree — mirrors
 the pattern from ``scripts/extract_filing_reference.py``.
 
 USAGE
-    # Point at BROKER_Y and BROKER_Z 1099-B PDFs under Synced-Accounts/
+    # Point at BROKER_Y and BROKER_Z 1099-B PDFs under <STATEMENT_ARCHIVE>/
     # (paths shown symbolically; real paths live in gitignored areas):
     python scripts/build_wash_sale_csv.py \\
         --1099b "$BROKER_Y_1099B_PDF" \\
@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sys
 from collections import defaultdict
 from decimal import Decimal
@@ -109,8 +110,9 @@ def _extract_wash_sale_disallowances(pdf_path: Path) -> defaultdict[str, Decimal
             try:
                 tables = page.extract_tables() or []
             except Exception:
-                continue
+                tables = []
 
+            page_table_hits = 0
             for table in tables:
                 if not table or len(table) < 2:
                     continue
@@ -153,8 +155,42 @@ def _extract_wash_sale_disallowances(pdf_path: Path) -> defaultdict[str, Decimal
                     # Wash-sale disallowance is always a positive amount in the
                     # "loss disallowed" column, even though it modifies a loss.
                     result[ticker] += abs(amount)
+                    page_table_hits += 1
+
+            if page_table_hits == 0:
+                text = page.extract_text() or ""
+                _extract_wash_sales_from_text(text, result)
 
     return result
+
+
+_SECTION_TICKER_RE = re.compile(r"^.+?,([A-Z]{1,6}),[A-Z0-9]{9}\s*$")
+_SALE_LINE_RE = re.compile(
+    r"^Sale\s+[\d,]+\.\d+\s+\d{2}/\d{2}/\d{2,4}\s+\d{2}/\d{2}/\d{2,4}\s+"
+    r"(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})(?:\s+.*)?$"
+)
+
+
+def _extract_wash_sales_from_text(
+    text: str,
+    result: defaultdict[str, Decimal],
+) -> None:
+    """Fallback parser for text-rendered 1099-B pages where pdfplumber finds no box tables."""
+    current_ticker: str | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        m_sec = _SECTION_TICKER_RE.match(line)
+        if m_sec:
+            current_ticker = m_sec.group(1).upper()
+            continue
+        if current_ticker:
+            m_sale = _SALE_LINE_RE.match(line)
+            if m_sale:
+                wash_amt = _parse_amount(m_sale.group(3))
+                if wash_amt is not None and wash_amt != 0:
+                    result[current_ticker] += abs(wash_amt)
 
 
 def main() -> int:
@@ -169,7 +205,7 @@ def main() -> int:
         print("ERROR: at least one --1099b PDF is required", file=sys.stderr)
         return 2
 
-    out_path = args.out or (REPO_ROOT / "private" / "wash_sale_adjustments.csv")
+    out_path = (args.out or (REPO_ROOT / "private" / "wash_sale_adjustments.csv")).resolve()
 
     # Refuse to write outside private/ (mirrors extract_filing_reference.py)
     try:

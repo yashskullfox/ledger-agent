@@ -136,10 +136,12 @@ explore_*.py
 # These live in statements/ but contain real Form 1065 / K-1 aggregates.
 # Populated locally or from the FI_CPA_CORPUS_2024 GitHub secret.
 statements/
-Synced-Accounts/
+*-Accounts/
 
 # ── Private local config (gitignored) — institution match strings, pseudonym map ──
-private/
+# `private/*` (not `private/`) so the negation below can take effect — git never
+# re-includes a file whose parent directory is itself excluded.
+private/*
 !private/institutions.example.py
 private/institutions.py
 notes/

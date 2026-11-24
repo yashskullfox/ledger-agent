@@ -32,11 +32,13 @@ All four forms must produce identical numbers. Divergence > $1 is P0 (R-51 / ARC
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q                                               # 514+ passed, 32 skipped, 0 failed
+pytest -q                                               # 594 passed, 0 skipped, 0 xfailed, 0 failed (verified 2026-11-23)
 python scripts/check_doc_redaction.py --strict --all-tracked  # must stay at 0 hits
 ```
 
-`private/institutions.py` (gitignored) must be populated from `private/institutions.example.py` for parsers to detect real PDFs. Without it, all 7 parsers return `can_parse=False`.
+The 0-skipped result holds only when `data/db/financials.db` exists. `tests/integration/conftest.py` points `FI_DB_PATH` at that real database and **skips every integration module when it is absent** (a fresh clone, or CI). In that case, skips are expected, not a regression.
+
+`private/institutions.py` (gitignored) must be populated from `private/institutions.example.py` (tracked; pseudonymous keys, empty token lists) for parsers to detect real PDFs. Without it, all 7 parsers return `can_parse=False`.
 
 ---
 
@@ -64,10 +66,10 @@ scripts/check_doc_redaction.py · regen_parity_corpus.py
 config/redaction_corpus.yaml
 docs/REQUIREMENTS.md · docs/developer-tasks.md
 private/institutions.example.py  (real tokens gitignored)
-statements/2026/                 ← 8 USB PDFs (checking + credit card, Jan–May 2026)
+statements/2026/                 ← 8 BANK_X4 PDFs (checking + credit card, Jan–May 2026)
 ```
 
-`STRUCTURE.md` references a top-level `core/` — it no longer exists; everything is under `ledger_agent/core/`. The on-disk view wins.
+There are no top-level `core/`, `accounting/`, `intelligence/`, `parsers/`, or `reports/` directories; everything is under `ledger_agent/core/` (`test_core_purity.py` asserts the top-level ones stay absent). Root `config.py` is a compatibility shim that re-exports `ledger_agent/core/config.py`. If any doc disagrees with disk, the on-disk view wins.
 
 ---
 

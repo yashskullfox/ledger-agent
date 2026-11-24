@@ -351,7 +351,11 @@ class BrokerYBrokerageParser(BaseStatementParser):
                 if not d or not amt or amt == 0:
                     continue
                 is_xfer = bool(
-                    re.search(r"\b(?:Eft|Transfer|Transferred|Money Line|Wire)\b", desc, re.IGNORECASE)
+                    re.search(
+                        r"\b(?:Eft|Transfer|Transferred|Money Line|Wire|Deposit Received)\b",
+                        desc,
+                        re.IGNORECASE,
+                    )
                 )
                 txns.append(Transaction(
                     account_id="",
@@ -438,7 +442,11 @@ class BrokerYBrokerageParser(BaseStatementParser):
                 if not d or not amt or amt == 0:
                     continue
                 is_xfer = bool(
-                    re.search(r"\b(?:Eft|Transfer|Transferred|Money Line|Wire)\b", desc, re.IGNORECASE)
+                    re.search(
+                        r"\b(?:Eft|Transfer|Transferred|Money Line|Wire|Deposit Received)\b",
+                        desc,
+                        re.IGNORECASE,
+                    )
                 )
                 txns.append(Transaction(
                     account_id="",
