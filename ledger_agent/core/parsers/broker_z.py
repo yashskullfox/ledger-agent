@@ -590,7 +590,7 @@ class BrokerZParser(BaseStatementParser):
     _INTEREST_LINE_RE = re.compile(
         r"(?:^|.*?)\b(?P<date>\d{4}-\d{2}-\d{2})\s+"
         r"(?:USD\s+)?"
-        r"(?P<desc>(?:USD\s+)?(?:Credit Interest|Debit Interest|[A-Za-z0-9_]+\s+Managed Securities|.*?Interest).*?)"
+        r"(?P<desc>(?:USD\s+)?(?:Credit Interest|Debit Interest|[A-Za-z0-9_]+\s+Managed Securities).*?)"
         r"\s+(?P<amt>[-\d,]+\.\d{2})\s*$",
         re.IGNORECASE,
     )

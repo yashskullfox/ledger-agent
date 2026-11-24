@@ -1,0 +1,33 @@
+"""
+private/institutions.example.py  –  Template for parser detection tokens
+=========================================================================
+
+Copy to ``private/institutions.py`` (gitignored) and fill in the token lists.
+This example file is tracked (see the ``!private/institutions.example.py`` rule
+in ``.gitignore``) and must only ever contain pseudonymous keys and empty lists.
+
+Each parser in ``ledger_agent/core/parsers/`` imports one dict from here, e.g.::
+
+    from private.institutions import BANK_X as _CFG
+
+If the import fails, or ``detect`` is empty, that parser's ``can_parse()``
+returns False, so it will never claim a PDF.
+
+Keys
+----
+detect
+    Strings that must ALL appear (case-insensitive, whitespace ignored) in the
+    PDF's extracted text for the parser to claim it.
+intra_xfer_keywords
+    Description fragments that mark a transaction as an inter-account transfer
+    between the entity's own accounts. Read by bank_x_checking and
+    broker_y_brokerage only.
+"""
+# ruff: noqa: N999  (dotted filename is intentional: it is a template, never imported)
+
+BANK_X = {"detect": [], "intra_xfer_keywords": []}   # bank_x_checking (+ broker_y cross-ref)
+BANK_X2 = {"detect": []}                             # bank_x2_checking
+BANK_X3 = {"detect": []}                             # bank_x3_checking
+BANK_X4 = {"detect": []}                             # bank_x4_checking, bank_x4_creditcard
+BROKER_Y = {"detect": [], "intra_xfer_keywords": []}  # broker_y_brokerage
+BROKER_Z = {"detect": []}                            # broker_z
