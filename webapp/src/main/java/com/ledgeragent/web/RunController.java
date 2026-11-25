@@ -147,6 +147,14 @@ public class RunController {
                             : "Issues found. Review the 'issues' list above before filing.";
             }
             case "customer_summary" -> "Review confidence flags. Address any NOT_CLOSE_READY items before filing.";
+            case "audit_year" -> {
+                String status = result.path("status").asText("");
+                yield "fail".equals(status)
+                        ? "Self-audit failed. Resolve the failing checks above before filing."
+                        : "warn".equals(status)
+                                ? "Self-audit passed with warnings. Review the flagged checks above."
+                                : "Self-audit passed.";
+            }
             default -> "";
         };
     }

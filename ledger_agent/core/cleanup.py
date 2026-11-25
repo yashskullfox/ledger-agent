@@ -46,14 +46,17 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from ledger_agent.core.config import DATA_DIR
+
 # ── Configuration ────────────────────────────────────────────────────────────
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+# Defaults hang off the canonical data dir (honours FI_DATA_DIR) so transient
+# files land next to the DB/exports rather than inside the installed package.
 _RAW_CACHE_DIR = Path(os.environ.get(
-    "FI_RAW_CACHE_DIR", str(_REPO_ROOT / "data" / "raw_cache")
+    "FI_RAW_CACHE_DIR", str(DATA_DIR / "raw_cache")
 ))
 _EXPORT_TMP_DIR = Path(os.environ.get(
-    "FI_EXPORT_TMP_DIR", str(_REPO_ROOT / "data" / "exports" / "_tmp")
+    "FI_EXPORT_TMP_DIR", str(DATA_DIR / "exports" / "_tmp")
 ))
 _PROCESS_SCRATCH_PREFIX = "ledger-agent-raw-"
 
@@ -158,15 +161,20 @@ def _purge_process_scratch() -> int:
     SMELL-C4 fix: only removes entries owned by the current effective uid.
     On a shared host another user can pre-create ``ledger-agent-raw-<x>``
     directories; a uid check prevents confused-deputy deletion of those.
+
+    Windows has no ``os.geteuid`` and ``st_uid`` is always 0 there; the
+    per-user ``%TEMP%`` directory already provides the isolation, so the
+    ownership check is skipped on such platforms.
     """
     tmp = Path(tempfile.gettempdir())
-    my_uid = os.geteuid()
+    geteuid = getattr(os, "geteuid", None)
+    my_uid = geteuid() if geteuid is not None else None
     removed = 0
     for entry in tmp.glob(f"{_PROCESS_SCRATCH_PREFIX}*"):
         try:
             # Skip entries not owned by us — avoids confused-deputy errors.
             st = entry.stat()
-            if st.st_uid != my_uid:
+            if my_uid is not None and st.st_uid != my_uid:
                 # SMELL-C4 fix: emit audit event so operators can detect
                 # pre-created trap directories on shared hosts.
                 try:

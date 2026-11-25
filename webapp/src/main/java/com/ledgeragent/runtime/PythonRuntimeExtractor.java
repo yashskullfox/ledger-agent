@@ -21,6 +21,7 @@ import java.util.zip.GZIPInputStream;
  * where {@code <OS-ARCH>} is one of:
  * <ul>
  *   <li>{@code linux-x86_64}</li>
+ *   <li>{@code linux-aarch64}</li>
  *   <li>{@code darwin-aarch64}</li>
  *   <li>{@code darwin-x86_64}</li>
  *   <li>{@code windows-x86_64}</li>
@@ -62,7 +63,7 @@ public final class PythonRuntimeExtractor {
         String sha8 = sha8(resource.toString());
         Path dest = Paths.get(BASE_TEMP, "py-" + sha8);
 
-        if (Files.isDirectory(dest) && Files.exists(dest.resolve("bin/python3"))) {
+        if (Files.isDirectory(dest) && hasPythonExecutable(dest)) {
             log.debug("Python runtime already extracted at {}", dest);
             return dest;
         }
@@ -77,6 +78,16 @@ public final class PythonRuntimeExtractor {
 
         log.info("Python runtime extracted ({} bytes) to {}", Files.walk(dest).count(), dest);
         return dest;
+    }
+
+    /**
+     * True if an extracted runtime root contains a Python interpreter, in either
+     * the POSIX layout ({@code bin/python3}) or the Windows layout
+     * ({@code python.exe} at the root).
+     */
+    static boolean hasPythonExecutable(Path root) {
+        return Files.exists(root.resolve("bin").resolve("python3"))
+                || Files.exists(root.resolve("python.exe"));
     }
 
     // ── OS/arch detection ─────────────────────────────────────────────────────
@@ -95,9 +106,10 @@ public final class PythonRuntimeExtractor {
         if (os.contains("mac") || os.contains("darwin")) {
             return "darwin-" + archKey;
         } else if (os.contains("win")) {
+            // Windows-on-ARM runs the x86_64 build under emulation.
             return "windows-x86_64";
         } else {
-            return "linux-x86_64";
+            return "linux-" + archKey;
         }
     }
 

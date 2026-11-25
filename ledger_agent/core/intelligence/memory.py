@@ -8,6 +8,8 @@ both resolve to the same remembered rule.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from config import MEMORY_FILE
@@ -175,11 +177,29 @@ class ClassificationMemory:
         self._save()
 
     def _save(self) -> None:
+        """Atomically rewrite the memory file.
+
+        Writes to a temp file in the same directory and ``os.replace``s it over
+        the target, so a crash mid-write never leaves truncated JSON behind
+        (``os.replace`` is atomic on both POSIX and Windows).
+        """
         self._file.parent.mkdir(parents=True, exist_ok=True)
-        self._file.write_text(
-            json.dumps({"rules": self._rules}, indent=2),
-            encoding="utf-8",
+        payload = json.dumps({"rules": self._rules}, indent=2)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{self._file.name}.", suffix=".tmp", dir=str(self._file.parent)
         )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_name, self._file)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def _normalise(text: str) -> str:

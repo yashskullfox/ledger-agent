@@ -26,10 +26,14 @@ Environment variables (read via config.py):
     FI_AI_EGRESS_MODE      redact | strict | mock | passthrough  (default: redact)
     FI_AI_EGRESS_MODE_ACK  I_understand_the_risk  (required for passthrough)
     FI_PRIVACY_ENTITY_NAME Legal entity name to token-replace as <ENTITY_NAME>
+    FI_PARTNER_<n>_NAME    Partner names, token-replaced as <PERSON_nnn>
+                           (entity names in the DB `entities` table are always
+                           protected too — see "Protected names" below)
     FI_PRIVACY_NER         spacy  (activates spaCy NER; optional dependency)
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging as _logging
 import re
@@ -526,13 +530,280 @@ def _detect_counterparty_names(text: str) -> list[tuple[str, str]]:
 
 
 def _detect_entity_name(text: str, entity_name: str) -> list[tuple[str, str]]:
+    """Legacy single-name detector (kept for callers); redact() uses protected names."""
     if not entity_name:
         return []
     pattern = re.compile(re.escape(entity_name), re.IGNORECASE)
     hits: list[tuple[str, str]] = []
     for m in pattern.finditer(text):
-        hits.append((m.group(0), "<ENTITY_NAME>"))
+        hits.append((m.group(0), ENTITY_TOKEN))
     return hits
+
+
+# ── Protected names (P-04): entity + partner names, always redacted ──────────
+# Sources, merged on every call:
+#   • every name in the DB ``entities`` table (read-only; the DB is never created)
+#   • FI_PRIVACY_ENTITY_NAME (config + env) and an explicit redact(entity_name=)
+#   • FI_PARTNER_<n>_NAME (env; api._build_partners uses n = 1, 2)
+# Matching is case-insensitive and whitespace-collapsed on the full name, plus
+# every individual name token of 4+ letters that is not a generic business word
+# (_NAME_STOPWORDS) or a pseudonym placeholder (anything containing "_" or a
+# digit, e.g. ENTITY_A).  Word boundaries are Unicode-aware (letters, digits,
+# combining marks and "_" count as word characters); scripts written without
+# spaces (CJK, kana, Thai, …) match without a boundary check.
+# Replacement tokens never contain any part of the name:
+#   entity names → <ENTITY_NAME>       partner names → <PERSON_nnn> (stable)
+
+ENTITY_TOKEN = "<ENTITY_NAME>"
+
+_NAME_STOPWORDS: frozenset[str] = frozenset({
+    # Legal-form / structural words
+    "LLC", "INC", "CORP", "CORPORATION", "INCORPORATED", "LIMITED", "COMPANY",
+    "HOLDING", "HOLDINGS", "GROUP", "CAPITAL", "PARTNER", "PARTNERS", "PARTNERSHIP",
+    "TRUST", "BANK", "FUND", "FUNDS", "ENTITY",
+    # Generic business words common in entity names and in report labels
+    "ASSOCIATES", "ENTERPRISES", "VENTURES", "INVESTMENT", "INVESTMENTS",
+    "MANAGEMENT", "SERVICES", "SOLUTIONS", "CONSULTING", "TRADING", "FINANCIAL",
+    "ADVISORS", "EQUITY", "ASSETS", "GLOBAL", "INTERNATIONAL",
+})
+
+# Scripts written without spaces: a name inside them has no word boundary.
+_NO_SPACE_SCRIPTS = ("CJK", "HIRAGANA", "KATAKANA", "THAI", "LAO", "KHMER", "MYANMAR")
+
+_PARTNER_ENV_RE = re.compile(r"^FI_PARTNER_\d+_NAME$")
+
+# DB-sourced names, cached per (db path, file fingerprint).
+_db_names_key: tuple | None = None
+_db_names: tuple[str, ...] = ()
+
+
+def _is_word_char(ch: str) -> bool:
+    import unicodedata
+    return ch.isalnum() or ch == "_" or unicodedata.category(ch).startswith("M")
+
+
+def _is_no_space_script(ch: str) -> bool:
+    import unicodedata
+    try:
+        name = unicodedata.name(ch)
+    except ValueError:
+        return False
+    return name.startswith(_NO_SPACE_SCRIPTS)
+
+
+def _canonical_name(name: object) -> str:
+    return " ".join(str(name).split())
+
+
+def _name_tokens(name: str) -> list[str]:
+    """Individual protected tokens of a name (4+ letters, not generic/placeholder)."""
+    import unicodedata
+    out: list[str] = []
+    for tok in re.split(r"[\s,.;:/&()\"'\-]+", name):
+        if len(tok) < 4 or tok.upper() in _NAME_STOPWORDS:
+            continue
+        # letters / combining marks only — drops ENTITY_A, PARTNER_1, digits
+        if not all(unicodedata.category(c)[0] in "LM" for c in tok):
+            continue
+        out.append(tok)
+    return out
+
+
+def _full_name_is_meaningful(name: str) -> bool:
+    """False for names made only of generic words / initials ("Entity", "Partner A")."""
+    toks = [t for t in re.split(r"[\s,.;:/&()\"'\-]+", name) if t]
+    return any(len(t) > 1 and t.upper() not in _NAME_STOPWORDS and not t.isdigit()
+               for t in toks)
+
+
+def _resolve_db_path_for_names() -> Path | None:
+    try:
+        from ledger_agent.core.database import _resolve_db_path
+        return Path(_resolve_db_path(None)).expanduser().resolve()
+    except Exception:
+        return None
+
+
+def _db_fingerprint(path: Path) -> tuple:
+    parts: list[Any] = [str(path)]
+    for p in (path, Path(str(path) + "-wal")):
+        try:
+            st = p.stat()
+            parts.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            parts.append(None)
+    return tuple(parts)
+
+
+def _load_db_entity_names() -> tuple[str, ...]:
+    """Entity names from the DB ``entities`` table, cached.
+
+    Read-only (``mode=ro``): a missing DB is never created.  Any error falls
+    back to an empty list (env-only protection) and logs at DEBUG without values.
+    The cache key is the DB path plus its file fingerprint, so a change of
+    FI_DB_PATH or a write to the DB invalidates it.
+    """
+    global _db_names_key, _db_names
+    path = _resolve_db_path_for_names()
+    if path is None or not path.is_file():
+        return ()
+    key = _db_fingerprint(path)
+    if _db_names_key == key:
+        return _db_names
+    # Store an empty result first so a re-entrant call (e.g. logging → redact)
+    # cannot recurse into the DB read.
+    _db_names_key, _db_names = key, ()
+    names: tuple[str, ...] = ()
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+        try:
+            rows = conn.execute("SELECT name FROM entities").fetchall()
+        finally:
+            conn.close()
+        names = tuple(sorted({_canonical_name(r[0]) for r in rows if r and r[0]}))
+    except Exception as exc:  # noqa: BLE001 — fail to env-only protection
+        _logging.getLogger("fi.privacy").debug(
+            "protected_names: DB entity read failed (%s); using env names only",
+            type(exc).__name__,
+        )
+        names = ()
+    _db_names = names
+    return names
+
+
+def refresh_protected_names() -> None:
+    """Drop cached protected names (call after entity changes or in tests)."""
+    global _db_names_key, _db_names
+    _db_names_key, _db_names = None, ()
+    _compile_protected.cache_clear()
+
+
+def _env_entity_names(explicit: str = "") -> list[str]:
+    import os
+    names: list[str] = []
+    try:
+        from config import PRIVACY_ENTITY_NAME
+    except Exception:  # noqa: BLE001
+        PRIVACY_ENTITY_NAME = ""  # noqa: N806
+    for n in (explicit, PRIVACY_ENTITY_NAME, os.environ.get("FI_PRIVACY_ENTITY_NAME", "")):
+        if n and n.strip():
+            names.append(_canonical_name(n))
+    return names
+
+
+def _env_partner_names() -> list[str]:
+    import os
+    names = []
+    for key in sorted(os.environ):
+        if _PARTNER_ENV_RE.match(key):
+            val = os.environ.get(key, "")
+            if val and val.strip():
+                names.append(_canonical_name(val))
+    return names
+
+
+def get_protected_names(entity_name: str = "") -> list[tuple[str, str]]:
+    """Return [(kind, canonical full name)] with kind ∈ {"entity", "person"}.
+
+    Values are for in-process matching only — never log, print or persist them.
+    """
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    entities = [*_env_entity_names(entity_name), *_load_db_entity_names()]
+    for kind, names in (("entity", entities), ("person", _env_partner_names())):
+        for n in names:
+            folded = n.casefold()
+            if folded in seen or not _full_name_is_meaningful(n):
+                continue
+            seen.add(folded)
+            out.append((kind, n))
+    return out
+
+
+def _needle_regex(needle: str) -> re.Pattern:
+    body = r"\s+".join(re.escape(p) for p in needle.split())
+    return re.compile(body, re.IGNORECASE | re.UNICODE)
+
+
+@functools.lru_cache(maxsize=64)
+def _compile_protected(
+    names: tuple[tuple[str, str], ...],
+) -> tuple[tuple[re.Pattern, str, str], ...]:
+    """(regex, kind, owner) for every full name and protected token, longest first."""
+    entries: dict[str, tuple[str, str]] = {}
+    for kind, full in names:
+        for needle in (full, *_name_tokens(full)):
+            entries.setdefault(needle.casefold(), (needle, kind + "\x00" + full))
+    ordered = sorted(entries.values(), key=lambda e: len(e[0]), reverse=True)
+    out = []
+    for needle, tag in ordered:
+        kind, owner = tag.split("\x00", 1)
+        out.append((_needle_regex(needle), kind, owner))
+    return tuple(out)
+
+
+def _boundary_ok(text: str, start: int, end: int) -> bool:
+    if start > 0:
+        first, prev = text[start], text[start - 1]
+        if _is_word_char(prev) and not (_is_no_space_script(first)
+                                        or _is_no_space_script(prev)):
+            return False
+    if end < len(text):
+        last, nxt = text[end - 1], text[end]
+        if _is_word_char(nxt) and not (_is_no_space_script(last)
+                                       or _is_no_space_script(nxt)):
+            return False
+    return True
+
+
+def _find_protected_spans(
+    text: str, entity_name: str = "",
+) -> list[tuple[int, int, str, str]]:
+    """Non-overlapping (start, end, kind, owner) matches of protected names."""
+    names = tuple(get_protected_names(entity_name))
+    if not names or not text:
+        return []
+    taken: list[tuple[int, int, str, str]] = []
+    for pat, kind, owner in _compile_protected(names):
+        for m in pat.finditer(text):
+            s, e = m.span()
+            if not _boundary_ok(text, s, e):
+                continue
+            if any(s < te and ts < e for ts, te, _k, _o in taken):
+                continue
+            taken.append((s, e, kind, owner))
+    taken.sort()
+    return taken
+
+
+def _protected_token(kind: str, owner: str) -> str:
+    if kind == "entity":
+        return ENTITY_TOKEN
+    return _stable_token("PERSON", owner.casefold())
+
+
+def _redact_protected_names(text: str, entity_name: str = "") -> tuple[str, RedactionMap, int]:
+    """Replace protected names with tokens.  Returns (text, mapping, hit count)."""
+    spans = _find_protected_spans(text, entity_name)
+    if not spans:
+        return text, {}, 0
+    mapping: RedactionMap = {}
+    pieces: list[str] = []
+    pos = 0
+    for s, e, kind, owner in spans:
+        token = _protected_token(kind, owner)
+        pieces.append(text[pos:s])
+        pieces.append(token)
+        mapping[token] = text[s:e]
+        pos = e
+    pieces.append(text[pos:])
+    return "".join(pieces), mapping, len(spans)
+
+
+def contains_protected_name(text: str) -> bool:
+    """True if any protected full name or protected token occurs in text."""
+    return bool(_find_protected_spans(text))
 
 
 def _detect_iban(text: str) -> list[tuple[str, str]]:
@@ -661,11 +932,18 @@ _ALL_DETECTORS = [
     "entity_name", "person_name", "counterparty",
 ]
 
+# "entity_name" enables protected-name redaction (DB entity names + env
+# entity/partner names, P-04).  Unknown scopes fall back to _ALL_DETECTORS, so
+# every egress scope gets it; the remote-backend scopes are listed explicitly.
 _SCOPE_DETECTORS: dict[str, list[str]] = {
-    "openai":       _ALL_DETECTORS,
-    "gemini":       _ALL_DETECTORS,
-    "ai_context":   _ALL_DETECTORS,
-    "mcp_response": _ALL_DETECTORS,
+    "openai":            _ALL_DETECTORS,
+    "openai_compatible": _ALL_DETECTORS,
+    "gemini":            _ALL_DETECTORS,
+    "anthropic":         _ALL_DETECTORS,
+    "ollama":            _ALL_DETECTORS,
+    "ai_classification": _ALL_DETECTORS,
+    "ai_context":        _ALL_DETECTORS,
+    "mcp_response":      _ALL_DETECTORS,
     "memory_file":  [
         "api_key", "ssn", "ein", "itin", "credit_card", "routing",
         "account", "iban", "swift", "email", "phone",
@@ -704,9 +982,7 @@ def redact(
     Raises PrivacyLeakError if API keys are found (should never occur —
     defence-in-depth above config.py's build-time secret guard).
     """
-    from config import AI_EGRESS_MODE, AI_EGRESS_MODE_ACK, PRIVACY_ENTITY_NAME
-
-    eff_entity = entity_name or PRIVACY_ENTITY_NAME
+    from config import AI_EGRESS_MODE, AI_EGRESS_MODE_ACK
 
     # ── passthrough mode ──────────────────────────────────────────────────────
     if AI_EGRESS_MODE == "passthrough":
@@ -731,6 +1007,14 @@ def redact(
                 f"API key detected in outbound payload (scope={scope!r}). "
                 "This must never reach a remote service — check config.py."
             )
+
+    # Protected names (entity names from the DB + env entity/partner names) run
+    # FIRST, with Unicode word boundaries, before any heuristic detector — an
+    # exact name match wins over the person/counterparty heuristics (P-04).
+    name_map: RedactionMap = {}
+    name_hits = 0
+    if "entity_name" in detectors:
+        text, name_map, name_hits = _redact_protected_names(text, entity_name)
 
     if "ssn" in detectors:
         replacements.extend(_detect_ssn(text))
@@ -770,9 +1054,6 @@ def redact(
         replacements.extend(_detect_mac(text))
     if "url_creds" in detectors:
         replacements.extend(_detect_url_creds(text))
-    # entity_name must run BEFORE person_name — exact match wins over heuristic
-    if "entity_name" in detectors and eff_entity:
-        replacements.extend(_detect_entity_name(text, eff_entity))
     if "person_name" in detectors:
         replacements.extend(_detect_person_names(text))
     if "counterparty" in detectors:
@@ -789,7 +1070,7 @@ def redact(
             seen_originals.add(orig)
             deduped.append((orig, token))
 
-    mapping: RedactionMap = {}
+    mapping: RedactionMap = dict(name_map)
     safe = text
     for orig, token in deduped:
         if orig in safe:
@@ -806,7 +1087,7 @@ def redact(
                 f"(scope={scope!r}). Extend detector coverage."
             )
 
-    _log_egress_event(scope, len(deduped), "pass")
+    _log_egress_event(scope, len(deduped) + name_hits, "pass")
     return safe, mapping
 
 
@@ -867,8 +1148,11 @@ def audit_egress(payload: Any) -> None:
     """
     if isinstance(payload, (dict, list)):
         text = json.dumps(payload, default=str)
+        # Unescaped copy so non-ASCII protected names are visible to the scan.
+        text_unicode = json.dumps(payload, default=str, ensure_ascii=False)
     else:
         text = str(payload)
+        text_unicode = text
 
     # API keys → always fatal
     for pat in _API_KEY_PATTERNS:
@@ -898,6 +1182,14 @@ def audit_egress(payload: Any) -> None:
     # private-key blocks should NEVER appear in an outbound payload
     if "-----BEGIN " in text and "PRIVATE KEY-----" in text:
         violations.append("private_key_block")
+    # Protected entity / partner names (P-04).  Category only — never the value.
+    try:
+        if contains_protected_name(text_unicode):
+            violations.append("protected_name")
+    except Exception as exc:  # noqa: BLE001 — fail closed
+        raise PrivacyLeakError(
+            "audit_egress: protected-name check failed. Blocked."
+        ) from exc
 
     if violations:
         raise PrivacyLeakError(

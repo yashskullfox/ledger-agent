@@ -25,6 +25,7 @@ from decimal import Decimal
 
 from config import AUTO_CLASSIFY_THRESHOLD, LOCAL_CONFIDENCE_THRESHOLD
 from ledger_agent.core.database import COARepo, TransactionRepo
+from ledger_agent.core.intelligence import owner_draws
 from ledger_agent.core.intelligence.memory import get_memory
 from ledger_agent.core.logging_setup import get_logger
 from ledger_agent.core.models import COAEntry, Transaction
@@ -69,6 +70,13 @@ def classify_transaction(
 
     desc_up = txn.description.upper()
     amt = float(txn.amount)
+
+    # C-04 / D2: an outflow to an owner's own account (last-4 listed in the private
+    # config) is an owner draw (3040), not a transfer. Deliberately not remembered:
+    # fuzzy memory would spread the code to transfers to other accounts.
+    if owner_draws.is_listed_owner_draw(txn):
+        owner_draws.apply_owner_draw_rule(txn)
+        return txn
 
     if "PAYROLL" in desc_up and amt < 0:
         if "TAX" in desc_up:
@@ -224,6 +232,9 @@ def classify_batch(
         prior_code = txn.coa_code or ""
         txn = classify_transaction(txn, coa_entries, prompt_fn)
         new_code = txn.coa_code or ""
+        # C-04 / D2: tag outgoing transfers to unlisted outside accounts
+        # (owner_draw_candidate); listed owner draws were recoded above.
+        owner_rule = owner_draws.apply_owner_draw_rule(txn) if new_code else None
 
         if new_code and new_code != UNCLASSIFIED_CODE:
             if new_code != prior_code:
@@ -234,10 +245,17 @@ def classify_batch(
 
         # R-65 / ARCH-27: persist with classifier metadata
         if txn.id and new_code:
+            if owner_rule == "draw":
+                xfer_flag: bool | None = False  # a draw leaves the entity: clear the flag
+            else:
+                xfer_flag = True if txn.is_transfer else None  # add-only otherwise
             TransactionRepo.update_coa_with_meta(
                 txn.id, txn.coa_code, txn.coa_name,
                 CLASSIFIER_VERSION, confidence,
+                is_transfer=xfer_flag,
             )
+            if owner_rule:
+                _persist_owner_draw_fields(txn)
 
             # R-66: emit classifier.assigned or classifier.reassigned
             if _audit:
@@ -260,6 +278,23 @@ def classify_batch(
                     )
 
     return transactions, auto, prompted
+
+
+def _persist_owner_draw_fields(txn: Transaction) -> None:
+    """Persist the tags / transaction type set by the owner-draw rule (C-04).
+
+    ``update_coa_with_meta`` stores neither, and the rows were inserted before
+    classification ran.
+    """
+    import json
+
+    from ledger_agent.core.database import get_conn
+
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE transactions SET tags=?, transaction_type=? WHERE id=?",
+            (json.dumps(txn.tags), txn.transaction_type.value, txn.id),
+        )
 
 
 def coa_choices_for_prompt(coa_entries: list[COAEntry]) -> list[tuple[str, str]]:

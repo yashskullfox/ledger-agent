@@ -192,6 +192,28 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "audit_year",
+        "description": (
+            "Run the CPA-style self-audit of the fiscal year's figures: statement "
+            "tie-out, month-to-month account continuity, period coverage, unclassified "
+            "and unknown COA codes, internal-transfer matching, owner-draw candidates, "
+            "K-1 to Form 1065 allocation, and balance-sheet vs Form 1065 income. "
+            "Returns an overall status (pass / warn / fail) and per-check status, "
+            "summary and details (accounts referenced by opaque id and type only).  "
+            "Not tax advice."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "fiscal_year": {
+                    "type": "integer",
+                    "description": "Four-digit fiscal year (e.g. 2026).",
+                },
+            },
+            "required": ["fiscal_year"],
+        },
+    },
+    {
         "name": "reconcile_year",
         "description": (
             "Run inter-account transfer reconciliation for the fiscal year. "
@@ -247,6 +269,10 @@ def call_tool(name: str, arguments: dict, *, allow_pii: bool = False) -> str:
         year = int(arguments["fiscal_year"])
         summary = api.build_customer_summary(year)
         return _ok(summary, allow_pii=allow_pii)
+
+    if name == "audit_year":
+        year = int(arguments["fiscal_year"])
+        return _ok(api.audit_year(year), allow_pii=allow_pii)
 
     if name == "reconcile_year":
         year = int(arguments["fiscal_year"])

@@ -54,7 +54,7 @@ def main() -> int:
         print(f"ERROR: {truth_path} not found. Run extract_filing_reference.py first.",
               file=sys.stderr)
         return 2
-    truth = json.loads(truth_path.read_text())
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
     sch_l = truth.get("schedule_l", {})
 
     # Run pipeline
@@ -141,7 +141,7 @@ def main() -> int:
             {**{k: (str(v) if isinstance(v, Decimal) else v) for k, v in s.items()}}
             for s in last_snap.values()
         ],
-    }, indent=2))
+    }, indent=2), encoding="utf-8")
     print(f"\n  full report: {out.relative_to(REPO_ROOT)}")
     return 0
 

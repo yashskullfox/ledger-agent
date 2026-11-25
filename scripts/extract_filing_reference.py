@@ -425,7 +425,7 @@ def main() -> int:
         "partners": [asdict(p) for p in truth.partners],
         "notes": truth.notes,
     }
-    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(f"WROTE {out_path.relative_to(repo_root)}  ({out_path.stat().st_size} bytes)")
     print_masked_summary(truth)
     return 0

@@ -14,6 +14,8 @@ Verifies:
 3. Bridge server_info exposes "customer_summary" in its method manifest.
 4. "Not tax advice" disclaimer is present across all 4 forms.
 5. Error handling for missing parameters in Bridge.
+6. G-01: ``audit_year`` overall status and per-check statuses are identical across
+   all 4 forms (A api.audit_year, B ``ledger audit --no-prompt``, C MCP tool, D bridge).
 """
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ import config
 import ledger_agent.core.api as api
 import ledger_agent.core.config as core_config
 from ledger_agent.bridge.jsonrpc_stdio import _dispatch
-from ledger_agent.cli.main import cmd_summary
+from ledger_agent.cli.main import cmd_audit, cmd_summary
 from ledger_agent.core.database import (
     AccountRepo,
     EntityRepo,
@@ -201,13 +203,58 @@ def test_customer_summary_four_way_parity(
 
     # 2. Confidence flags match identically
     assert a_flags == b_flags == c_flags == d_flags
-    assert "CLOSE_READY" in a_flags
+    # Fixture holds only January 2026 → figures are provisional (month-to-date basis),
+    # so the year must NOT be reported as close-ready.
+    assert "PROVISIONAL_PERIOD_PARTIAL_QUARTER" in a_flags
+    assert "CLOSE_READY" not in a_flags
 
     # 3. Disclaimer matches canonical disclaimer across all 4 forms
     assert a_disclaimer == NOT_TAX_ADVICE_DISCLAIMER
     assert b_disclaimer == NOT_TAX_ADVICE_DISCLAIMER
     assert c_disclaimer == NOT_TAX_ADVICE_DISCLAIMER
     assert d_disclaimer == NOT_TAX_ADVICE_DISCLAIMER
+
+
+def test_audit_year_four_way_parity(
+    synthetic_db: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """G-01: identical audit status and per-check statuses across all 4 forms."""
+    year = 2026
+
+    def _statuses(rep: dict) -> tuple[str, list[tuple[str, str]]]:
+        return rep["status"], [(c["name"], c["status"]) for c in rep["checks"]]
+
+    # Form A: Python library API
+    form_a = api.audit_year(year)
+
+    # Form B: CLI ``ledger audit <year> --no-prompt`` (exit 1 only on overall fail)
+    capsys.readouterr()
+    rc = cmd_audit([str(year), "--no-prompt"])
+    form_b = json.loads(capsys.readouterr().out)
+    assert rc == (1 if form_a["status"] == "fail" else 0)
+
+    # Form C: MCP tool (default privacy path — statuses must survive redaction)
+    form_c = json.loads(call_tool("audit_year", {"fiscal_year": year}))
+
+    # Form D: Bridge JSON-RPC stdio dispatch
+    capsys.readouterr()
+    _dispatch({"jsonrpc": "2.0", "id": "audit-1", "method": "audit_year",
+               "params": {"fiscal_year": year}})
+    resp_d = json.loads(capsys.readouterr().out.strip())
+    assert "result" in resp_d, f"Bridge returned error: {resp_d.get('error')}"
+    form_d = resp_d["result"]
+
+    assert _statuses(form_a) == _statuses(form_b) == _statuses(form_c) == _statuses(form_d)
+    # January-only fixture: coverage is partial, so the audit cannot be a clean pass.
+    assert dict(_statuses(form_a)[1])["period_coverage"] == "warn"
+    assert form_a["status"] in ("warn", "fail")
+    for rep in (form_a, form_b, form_c, form_d):
+        assert rep["disclaimer"] == NOT_TAX_ADVICE_DISCLAIMER
+
+    # The summary reflects the same audit outcome.
+    flags = api.build_customer_summary(year).confidence_flags
+    expected = {"fail": "AUDIT_FAIL", "warn": "AUDIT_WARN"}.get(form_a["status"])
+    assert (expected in flags) if expected else not any(f.startswith("AUDIT_") for f in flags)
 
 
 def test_bridge_server_info_includes_customer_summary(
@@ -221,6 +268,7 @@ def test_bridge_server_info_includes_customer_summary(
     assert resp["id"] == 100
     methods = resp["result"]["methods"]
     assert "customer_summary" in methods
+    assert "audit_year" in methods
     assert "generate_balance_sheet" in methods
     assert "ping" in methods
     assert "server_info" in methods

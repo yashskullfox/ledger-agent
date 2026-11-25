@@ -72,6 +72,11 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
           .redirectOutput(ProcessBuilder.Redirect.PIPE)
           .redirectError(ProcessBuilder.Redirect.INHERIT);
         pb.environment().put("PYTHONUNBUFFERED", "1");
+        // Force UTF-8 for the JSON-RPC pipes and file I/O regardless of the
+        // platform locale (Windows defaults to cp1252, which breaks non-ASCII
+        // frames and stray print()s).
+        pb.environment().put("PYTHONUTF8", "1");
+        pb.environment().put("PYTHONIOENCODING", "utf-8");
         String auditDisabled = System.getenv("FI_AUDIT_DISABLED");
         if (auditDisabled != null) {
             pb.environment().put("FI_AUDIT_DISABLED", auditDisabled);
@@ -214,6 +219,8 @@ public class PythonBridge implements AutoCloseable, InitializingBean, Disposable
             if (unix2.toFile().exists()) return unix2.toString();
             Path win = pythonHome.resolve("python.exe");
             if (win.toFile().exists()) return win.toString();
+            Path winVenv = pythonHome.resolve("Scripts").resolve("python.exe");
+            if (winVenv.toFile().exists()) return winVenv.toString();
         }
         for (String candidate : new String[]{"python3", "python"}) {
             try {

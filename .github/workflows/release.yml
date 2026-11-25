@@ -189,7 +189,7 @@ jobs:
 
       - name: Smoke-test MCP tools/list (13 privacy tests + tools count)
         run: |
-          python -m pytest tests/integration/test_mcp_privacy.py -q
+          python -m pytest tests/unit/test_mcp_privacy_unit.py -q
           python -c "
           from ledger_agent.mcp.tools import TOOL_SCHEMAS
           assert len(TOOL_SCHEMAS) == 7, f'Expected 7 tools, got {len(TOOL_SCHEMAS)}'
@@ -478,7 +478,7 @@ jobs:
         run: |
           python -m pytest \
             tests/architecture/test_core_purity.py \
-            tests/integration/test_mcp_privacy.py \
+            tests/unit/test_mcp_privacy_unit.py \
             -q --tb=short
 
   # ╔════════════════════════════════════════════════════════════════════════════

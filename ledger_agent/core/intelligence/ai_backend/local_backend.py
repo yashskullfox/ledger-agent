@@ -227,16 +227,16 @@ class LocalBackend(AIBackend):
             coa_name: str,
             is_transfer: bool,
     ) -> None:
-        """Track confirmations and nudge user to commit memory updates."""
+        """Track confirmations and log a periodic progress note."""
         _usage_counts[coa_code] = _usage_counts.get(coa_code, 0) + 1
         count = _usage_counts[coa_code]
         if count in _COMMIT_THRESHOLDS:
             try:
                 _log.info(
-                    "Classification memory tip: %d transactions confirmed under '%s'. "
-                    "Consider committing: git add data/db/classification_memory.json && "
-                    "git commit -m 'chore: update classification memory (%d rules)'",
-                    count, coa_name, count,
+                    "Classification memory: %d transactions confirmed under '%s'. "
+                    "Rules are saved locally in the data directory (gitignored; "
+                    "never commit it -- it is derived from real transactions).",
+                    count, coa_name,
                 )
             except Exception:
                 pass

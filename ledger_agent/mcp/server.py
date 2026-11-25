@@ -179,6 +179,7 @@ def serve_stdio() -> None:
 
 
 def serve_http(host: str = "127.0.0.1", port: int = 7337) -> None:
+    """Start the HTTP transport.  Requires FI_MCP_HTTP_TOKEN (see transport_http)."""
     from ledger_agent.mcp.transport_http import serve_http as _http
 
     def _dispatch_sync(request: dict) -> dict:
@@ -198,7 +199,11 @@ def main() -> None:
         description="ledger-agent MCP server",
     )
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="HTTP bind address (default 127.0.0.1; non-loopback needs "
+             "FI_MCP_HTTP_ALLOW_REMOTE=1)",
+    )
     parser.add_argument("--port", type=int, default=7337)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--method", default=None, help=argparse.SUPPRESS)
@@ -216,7 +221,12 @@ def main() -> None:
         pass
 
     if args.transport == "http":
-        serve_http(host=args.host, port=args.port)
+        from ledger_agent.mcp.transport_http import HTTPTransportConfigError
+        try:
+            serve_http(host=args.host, port=args.port)
+        except HTTPTransportConfigError as exc:
+            sys.stderr.write(f"ledger-agent-mcp: {exc}\n")
+            raise SystemExit(2) from None
     else:
         serve_stdio()
 

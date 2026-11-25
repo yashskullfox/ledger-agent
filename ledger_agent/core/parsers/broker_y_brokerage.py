@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ledger_agent.core.exceptions import ParserGap
+from ledger_agent.core.intelligence.owner_draws import apply_owner_draw_rule
 from ledger_agent.core.models import (
     AccountSnapshot,
     ParsedStatement,
@@ -31,6 +32,20 @@ try:
     from private.institutions import BANK_X as _BANK_X_CFG  # type: ignore
 except ImportError:
     _BANK_X_CFG = {"detect": []}
+
+
+_CONT_STOP_RE = re.compile(r"^\s*(?:\d{2}/\d{2}\b|Total\b)", re.IGNORECASE)
+
+
+def _continuation(text: str, pos: int, max_lines: int = 2) -> str:
+    """Wrapped description lines after a matched withdrawal row (e.g. a masked
+    destination account on the next line). Stops at the next dated row or a Total."""
+    out: list[str] = []
+    for line in text[pos:].lstrip("\r\n").splitlines()[:max_lines]:
+        if not line.strip() or _CONT_STOP_RE.match(line):
+            break
+        out.append(line.strip())
+    return " ".join(out)
 
 
 @ParserRegistry.register
@@ -408,7 +423,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
                 amt_str = m.group(2) or m.group(3)
                 amt = self.parse_amount(amt_str) if amt_str else None
                 if d and amt:
-                    txns.append(Transaction(
+                    txn = Transaction(
                         account_id="",
                         date=d,
                         description="Transfer Out – Bank X",
@@ -419,7 +434,10 @@ class BrokerYBrokerageParser(BaseStatementParser):
                         is_transfer=True,
                         coa_code="9000",
                         coa_name="Inter-Account Transfer",
-                    ))
+                    )
+                    # C-04 / D2: transfer to an owner's own account → 3040 draw
+                    apply_owner_draw_rule(txn, context=_continuation(text, m.end()))
+                    txns.append(txn)
         if txns:
             return txns
 
@@ -448,7 +466,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
                         re.IGNORECASE,
                     )
                 )
-                txns.append(Transaction(
+                txn = Transaction(
                     account_id="",
                     date=d,
                     description=desc,
@@ -459,7 +477,10 @@ class BrokerYBrokerageParser(BaseStatementParser):
                     is_transfer=is_xfer,
                     coa_code="9000" if is_xfer else "5080",
                     coa_name="Inter-Account Transfer" if is_xfer else "Bank & Broker Fees",
-                ))
+                )
+                # C-04 / D2: transfer to an owner's own account → 3040 draw
+                apply_owner_draw_rule(txn, context=_continuation(sec, m.end()))
+                txns.append(txn)
         return txns
 
     _MARGIN_RE = re.compile(

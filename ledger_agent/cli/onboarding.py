@@ -149,7 +149,7 @@ def _cache_key(pdf_path: Path) -> str:
 def load_discovery_cache(cache_path: Path) -> dict:
     if cache_path.exists():
         try:
-            return json.loads(cache_path.read_text())
+            return json.loads(cache_path.read_text(encoding="utf-8"))
         except Exception:
             pass
     return {}
@@ -157,7 +157,7 @@ def load_discovery_cache(cache_path: Path) -> dict:
 
 def save_discovery_cache(cache_path: Path, cache: dict) -> None:
     try:
-        cache_path.write_text(json.dumps(cache, indent=2))
+        cache_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -513,7 +513,7 @@ def _load_last_dir(data_dir: Path) -> Path | None:
     marker = data_dir / ".last_statements_dir"
     if marker.exists():
         try:
-            raw = marker.read_text().strip()
+            raw = marker.read_text(encoding="utf-8").strip()
             if raw:
                 return Path(raw)
         except Exception:
@@ -523,7 +523,7 @@ def _load_last_dir(data_dir: Path) -> Path | None:
 
 def _save_last_dir(data_dir: Path, folder: Path) -> None:
     try:
-        (data_dir / ".last_statements_dir").write_text(str(folder))
+        (data_dir / ".last_statements_dir").write_text(str(folder), encoding="utf-8")
     except Exception:
         pass
 
@@ -754,11 +754,11 @@ def _print_no_pdfs(scan_dir: Path, no_prompt: bool) -> None:
 
 
 def _show_post_import_report() -> None:
-    """After ingestion, render balance sheet + tax for the most recent period."""
+    """After ingestion, render the latest month's balance sheet (that month's P&L only)
+    and the fiscal year's PTET estimate from ``api.pte_estimate`` (card Q-02)."""
     try:
         from ledger_agent.cli.commands import _get_or_setup_entity
         from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
         from ledger_agent.core.database import SnapshotRepo, init_db
         from ledger_agent.core.reports.renderer import render_balance_sheet
 
@@ -773,7 +773,24 @@ def _show_post_import_report() -> None:
         period = periods[0]
         bs = BalanceSheetBuilder(entity.id, period).build()
         render_balance_sheet(bs)
-        est = TaxEstimator(entity.name, int(period[:4])).estimate_from_balance_sheet(bs)
-        render_tax_estimate(est)
+        _show_year_tax_estimate(int(period[:4]))
     except Exception as exc:
         log.warning("Post-import report failed", extra={"error": str(exc)})
+
+
+def _show_year_tax_estimate(year: int) -> None:
+    """Print ``api.pte_estimate(year)`` (basis-labelled), or say why there is none.
+
+    Never projects a single month: the estimate's own basis line says which months
+    it covers.
+    """
+    from ledger_agent.core import api
+    from ledger_agent.core.reports.renderer import render_pte_estimate
+
+    try:
+        est = api.pte_estimate(year)
+    except ValueError as exc:
+        print(f"\nℹ️  No tax estimate for FY{year}: {exc}")
+        return
+    print()
+    render_pte_estimate(est)

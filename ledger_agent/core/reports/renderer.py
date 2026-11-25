@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import re
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -381,66 +382,111 @@ def export_coverage_json(bs: BalanceSheet, out_dir: Path = EXPORTS_DIR) -> Path:
     return fname
 
 
-# ── Tax estimate renderer (moved here from ledger_agent.core.accounting.tax_estimator – ARCH-02) ──
+# ── Tax estimate renderer (card Q-02: renders ``api.pte_estimate`` only) ──────────────
 
-def render_tax_estimate(est) -> None:  # type: ignore[override]
-    """Print a Rich-formatted tax estimate table to stdout.
+def _pte_get(est, name: str, default=None):
+    """Read a field from a ``PTEEstimate`` dataclass or its ``asdict`` form."""
+    if isinstance(est, dict):
+        return est.get(name, default)
+    return getattr(est, name, default)
 
-    Accepts a ``TaxEstimate`` object from ``accounting.tax_estimator``.
-    Imported lazily so callers without Rich still get plain-text output.
+
+def _usd(value) -> str:
+    return f"${Decimal(str(value or 0)):,.2f}"
+
+
+def pte_basis_line(est) -> str:
+    """First line of every tax view: the period basis of the estimate.
+
+    ``est`` is an ``api.PTEEstimate`` (or its ``dataclasses.asdict`` form), e.g.
+    ``Basis: quarter_to_date through 2026-06 (6/12 months complete)``.
     """
-    try:
-        from rich.console import Console
-        from rich.panel import Panel
-        from rich.table import Table
+    return (
+        f"Basis: {_pte_get(est, 'basis', 'full_year')} through "
+        f"{_pte_get(est, 'through_period', '')} "
+        f"({_pte_get(est, 'months_covered', 12)}/12 months complete)"
+    )
 
-        console = Console()
-        console.print(Panel(
-            f"[bold yellow]Tax Estimate – {est.entity_name}[/bold yellow]\n"
-            f"[dim]Period: {est.period}  |  "
-            f"Effective rate: {est.effective_rate}%[/dim]",
-            border_style="yellow",
-        ))
 
-        tbl = Table(show_header=True, header_style="bold cyan")
-        tbl.add_column("Component", style="white", min_width=30)
-        tbl.add_column("Annual Amount", style="yellow", justify="right", min_width=16)
-        tbl.add_column("Quarterly Payment", style="green", justify="right", min_width=16)
+def pte_missing_statement_count(est) -> int:
+    """Total number of missing account-months behind a non-full-year basis."""
+    missing = _pte_get(est, "missing_statements", None) or {}
+    return sum(len(months or []) for months in missing.values())
 
-        for label, annual, quarterly in [
-            ("Net Income (annualized)", est.net_income, est.net_income / 4),
-            ("Self-Employment Tax (15.3%)", est.se_tax, est.se_tax / 4),  # redaction: allow (statutory SE tax rate)
-            ("Federal Income Tax (~22%)", est.federal_income_tax, est.federal_income_tax / 4),  # redaction: allow (illustrative bracket)
-            ("State Income Tax", est.state_income_tax, est.state_income_tax / 4),
-        ]:
-            tbl.add_row(label, f"${annual:,.2f}", f"${quarterly:,.2f}")
 
-        tbl.add_section()
-        tbl.add_row(
-            "[bold]TOTAL ESTIMATED TAX[/bold]",
-            f"[bold]${est.total_annual_tax:,.2f}[/bold]",
-            f"[bold]${est.total_annual_tax / 4:,.2f}[/bold]",
+def format_pte_estimate(est) -> list[str]:
+    """Plain-text lines for an ``api.PTEEstimate`` (entity-level state PTET, card Q-04).
+
+    Every figure is read from ``est`` — nothing is recomputed here, so the CLI, the
+    legacy menu, onboarding and quick-scan all show exactly what ``api.pte_estimate``
+    returns (R-51 four-form parity).
+    """
+    from ledger_agent.core.accounting.tax_estimator import get_quarterly_due_date
+
+    year = int(_pte_get(est, "fiscal_year", 0) or 0)
+    basis = _pte_get(est, "basis", "full_year")
+    lines = [pte_basis_line(est)]
+    if basis != "full_year":
+        missing = _pte_get(est, "missing_statements", None) or {}
+        lines.append(
+            f"Missing statements: {pte_missing_statement_count(est)} account-month(s) "
+            f"across {sum(1 for m in missing.values() if m)} account(s) — "
+            "import them for full-year figures."
         )
-        console.print(tbl)
-        console.print("\n[bold cyan]Quarterly Payment Schedule[/bold cyan]")
-        for pmt in est.quarterly_payments:
-            console.print(
-                f"  [yellow]{pmt.quarter}[/yellow]  "
-                f"Due: [dim]{pmt.due_date}[/dim]  →  "
-                f"[green]${pmt.amount:,.2f}[/green]"
-            )
-        console.print()
-        for note in est.notes:
-            console.print(f"  [dim]{note}[/dim]")
-        console.print(f"\n  [dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
 
-    except ImportError:
-        print(f"\n=== Tax Estimate – {est.entity_name} ({est.period}) ===")
-        print(f"Net Income (annual): ${est.net_income:,.2f}")
-        print(f"Total Tax:           ${est.total_annual_tax:,.2f}")
-        print(f"Effective Rate:      {est.effective_rate}%")
-        for pmt in est.quarterly_payments:
-            print(f"  {pmt.quarter}  {pmt.due_date}: ${pmt.amount:,.2f}")
-        for note in est.notes:
-            print(f"  {note}")
-        print(f"\n⚠️  {NOT_TAX_ADVICE_DISCLAIMER}\n")
+    def money(name: str) -> str:
+        return _usd(_pte_get(est, name, 0))
+
+    lines += [
+        "",
+        f"Entity-level state PTET estimate — FY{year}",
+        f"  Entity taxable income (actual to date): {money('ytd_net_income'):>16}",
+        f"  Entity taxable income (annual):         {money('net_income'):>16}",
+        f"  Annual PTET:                            {money('total_annual_tax'):>16}",
+        f"  Effective rate:                         {str(_pte_get(est, 'effective_rate', 0)):>15}%",
+        f"  Quarterly installment:                  {money('quarterly_payment'):>16}",
+        f"  Required to date:                       {money('required_to_date'):>16}",
+        "",
+        "Quarterly schedule",
+    ]
+    for p in _pte_get(est, "quarterly_payments", None) or []:
+        quarter = p.get("quarter", "")
+        try:
+            due = f"{p.get('due_date', '')} ({get_quarterly_due_date(quarter, year).isoformat()})"
+        except ValueError:
+            due = str(p.get("due_date", ""))
+        lines.append(
+            f"  {quarter:<3} due {due:<36} "
+            f"{_usd(p.get('amount', 0)):>14}  "
+            f"paid {_usd(p.get('paid_amount', 0)):>14}  "
+            f"{p.get('status', '')}"
+        )
+    lines += [
+        "",
+        f"  Paid YTD:            {money('paid_ytd'):>16}",
+        f"  Remaining balance:   {money('remaining_balance'):>16}",
+    ]
+    disclaimer = _pte_get(est, "disclaimer", None) or NOT_TAX_ADVICE_DISCLAIMER
+    notes = [
+        # ``notes`` is a "; "-joined list; split only where a new note starts (not on a
+        # "; " inside one note, which is always followed by lower-case text).
+        n.strip() for n in re.split(r"; (?![a-z])", str(_pte_get(est, "notes", "") or ""))
+        if n.strip() and disclaimer not in n
+    ]
+    if notes:
+        lines += ["", "Notes"]
+        lines += [f"  - {n}" for n in notes]
+    lines += ["", f"⚠️  {disclaimer}"]
+    return lines
+
+
+def render_pte_estimate(est) -> None:
+    """Print an ``api.PTEEstimate`` (see ``format_pte_estimate``) to stdout."""
+    lines = format_pte_estimate(est)
+    if _RICH:
+        out = Console()
+        for i, line in enumerate(lines):
+            style = "bold yellow" if i == 0 else ("dim" if line.startswith("⚠️") else None)
+            out.print(line, style=style, markup=False, highlight=False, soft_wrap=True)
+    else:
+        print("\n".join(lines))

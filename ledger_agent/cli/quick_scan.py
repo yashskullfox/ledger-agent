@@ -14,7 +14,7 @@ What it does:
   3. Imports any new statements (skips duplicates unless --force)
   4. Runs interactive multiple-choice classification for unclassified txns
   5. Displays the balance sheet for all imported periods
-  6. Displays the tax obligation estimate (annualized)
+  6. Displays the fiscal year's PTET estimate (api.pte_estimate, basis-labelled)
   7. Offers to export context JSON for AI/GitHub consumption
   8. Offers to save exports (CSV / Excel / JSON)
 """
@@ -144,8 +144,10 @@ def cmd_quick_scan(folder: str | None = None, force: bool = False) -> None:
         bs = BalanceSheetBuilder(entity.id, p).build()
         render_balance_sheet(bs)
 
-        # Tax estimate for this period
-        _show_tax_estimate(entity.name, bs, int(p[:4]))
+    # Tax: the fiscal year's api.pte_estimate (card Q-02) — once per year shown,
+    # never a single month projected ×12.
+    for year in sorted({int(p[:4]) for p in report_periods}):
+        _show_tax_estimate(year)
 
     if len(report_periods) > 1:
         from ledger_agent.cli.commands import cmd_mom_summary
@@ -232,12 +234,18 @@ def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> N
     )
 
 
-def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
-    """Print tax estimate for a balance sheet."""
+def _show_tax_estimate(year: int) -> None:
+    """Print the fiscal year's PTET estimate from ``api.pte_estimate`` (basis-labelled)."""
     try:
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
-        est = TaxEstimator(entity_name, year).estimate_from_balance_sheet(bs)
-        render_tax_estimate(est)
+        from ledger_agent.core import api
+        from ledger_agent.core.reports.renderer import render_pte_estimate
+        try:
+            est = api.pte_estimate(year)
+        except ValueError as exc:
+            from ledger_agent.cli.prompts import print_info
+            print_info(f"No tax estimate for FY{year}: {exc}")
+            return
+        render_pte_estimate(est)
     except Exception as exc:
         log.warning("Tax estimate failed", extra={"error": str(exc)})
 

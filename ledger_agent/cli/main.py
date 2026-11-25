@@ -13,10 +13,11 @@ Usage
 -----
     ledger scan [FOLDER] [--no-prompt] [--window START:END]
     ledger balance [YEAR]
-    ledger tax    [YEAR]
+    ledger tax    [YEAR] [--no-prompt]
     ledger form1065 [YEAR]
     ledger k1 [YEAR] [--partner partner_1|partner_2]
     ledger reconcile [YEAR]
+    ledger audit  [YEAR] [--no-prompt]
     ledger export [YEAR] [--format csv|excel|json]
     ledger --version
 """
@@ -27,7 +28,32 @@ import os
 import sys
 from pathlib import Path
 
-from config import NOT_TAX_ADVICE_DISCLAIMER
+
+def _load_dotenv_early() -> None:
+    """Load ``.env`` (CWD first, then the repo root) if python-dotenv is installed.
+
+    Must run before ``config`` is imported: ``ledger_agent.core.config`` reads
+    ``FI_*`` variables at import time, so loading ``.env`` afterwards would be
+    silently ignored. Never overrides variables already set in the environment.
+    """
+    try:
+        from dotenv import find_dotenv, load_dotenv
+    except ImportError:
+        return
+    cwd_env = find_dotenv(usecwd=True)
+    if cwd_env:
+        load_dotenv(cwd_env, override=False)
+    repo_env = Path(__file__).resolve().parent.parent.parent / ".env"
+    if repo_env.is_file():
+        load_dotenv(repo_env, override=False)
+
+
+# Only meaningful while config is still unimported (i.e. a real CLI launch);
+# when imported by tests or other modules, config has already been read.
+if "ledger_agent.core.config" not in sys.modules:
+    _load_dotenv_early()
+
+from config import NOT_TAX_ADVICE_DISCLAIMER, STATEMENTS_DIR  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Bootstrap sys.path so the package works when installed from source checkout
@@ -71,7 +97,7 @@ def cmd_scan(args: list[str]) -> int:
     allow_partial = "--allow-partial" in args
 
     folder = Path(folder_arg).expanduser().resolve() if folder_arg else (
-        Path(os.environ.get("FI_STATEMENTS_DIR", "data/statements")).resolve()
+        Path(os.environ.get("FI_STATEMENTS_DIR") or STATEMENTS_DIR).expanduser().resolve()
     )
 
     api = _import_api()
@@ -117,9 +143,11 @@ def cmd_balance(args: list[str]) -> int:
 
 
 def cmd_tax(args: list[str]) -> int:
-    """Show quarterly tax estimate (or record an external PTE payment via --record-payment)."""
+    """Show the entity-level PTET estimate (``api.pte_estimate``), or record an external
+    PTE payment via ``--record-payment``.  ``--no-prompt`` prints the estimate as JSON."""
     year_arg = next((a for a in args if a.isdigit() and len(a) == 4), None)
     year = int(year_arg) if year_arg else 2024
+    no_prompt = "--no-prompt" in args
 
     api = _import_api()
     if "--record-payment" in args:
@@ -139,37 +167,32 @@ def cmd_tax(args: list[str]) -> int:
                 pass
         try:
             rec = api.record_pte_payment(year, quarter, amount, paid_on=paid_on)
-            _print(
-                f"[green]✓ Recorded PTE payment for FY{year} {rec['quarter']}: "
-                f"${float(rec['amount']):,.2f}[/green]"
+            msg = (
+                f"✓ Recorded PTE payment for FY{year} {rec['quarter']}: "
+                f"${float(rec['amount']):,.2f}"
             )
+            if no_prompt:
+                print(msg, file=sys.stderr)  # stdout carries only the JSON estimate
+            else:
+                _print(f"[green]{msg}[/green]")
         except ValueError as e:
             _print(f"[red]{e}[/red]")
             return 1
 
-    from ledger_agent.core.reports.renderer import render_tax_estimate
     try:
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        from ledger_agent.core.database import EntityRepo, init_db
-        init_db()
-        entities = EntityRepo.list_all()
-        if not entities:
-            _print(f"[yellow]No data for {year}.[/yellow]")
-            return 1
-        entity = entities[0]
         est = api.pte_estimate(year)
-        raw = TaxEstimator(entity.name, year).estimate_from_net_income(est.net_income)
-        render_tax_estimate(raw)
-        if est.paid_ytd > 0:
-            _print(
-                f"  [green]Recorded External PTE Paid YTD:[/green] ${est.paid_ytd:>12,.2f}\n"
-                f"  [yellow]Remaining Estimated Balance:[/yellow]   ${est.remaining_balance:>12,.2f}"
-            )
-        _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
-        return 0
     except ValueError as e:
         _print(f"[red]{e}[/red]")
         return 1
+
+    if no_prompt:
+        import dataclasses
+        print(json.dumps(dataclasses.asdict(est), indent=2, default=str))
+        return 0
+
+    from ledger_agent.core.reports.renderer import render_pte_estimate
+    render_pte_estimate(est)  # basis line first; ends with the not-tax-advice disclaimer
+    return 0
 
 
 def cmd_form1065(args: list[str]) -> int:
@@ -280,6 +303,39 @@ def cmd_summary(args: list[str]) -> int:
     return 0
 
 
+def cmd_audit(args: list[str]) -> int:
+    """CPA-style self-audit of the year's figures (``api.audit_year``).
+
+    Exit code 0 for pass/warn, 1 when the audit fails or cannot run.
+    ``--no-prompt`` prints the audit report as JSON on stdout.
+    """
+    year_arg = next((a for a in args if a.isdigit() and len(a) == 4), None)
+    year = int(year_arg) if year_arg else 2024
+    no_prompt = "--no-prompt" in args
+
+    api = _import_api()
+    try:
+        report = api.audit_year(year)
+    except ValueError as e:
+        _print(f"[red]{e}[/red]")
+        return 1
+
+    if no_prompt:
+        print(json.dumps(report, indent=2, default=str))
+        return 1 if report["status"] == "fail" else 0
+
+    colors = {"pass": "green", "warn": "yellow", "fail": "red", "not_applicable": "dim"}
+    overall = report["status"]
+    oc = colors.get(overall, "")
+    _print(f"\n[bold cyan]Self-audit — {report['fiscal_year']}[/bold cyan]: "
+           f"[{oc}]{overall.upper()}[/{oc}]")
+    for c in report["checks"]:
+        cc = colors.get(c["status"], "")
+        _print(f"  {c['name']:24} [{cc}]{c['status'].upper():15}[/{cc}] {c['summary']}")
+    _print(f"\n[dim]⚠️  {NOT_TAX_ADVICE_DISCLAIMER}[/dim]\n")
+    return 1 if overall == "fail" else 0
+
+
 def cmd_reconcile(args: list[str]) -> int:
     """Run year-end reconciliation."""
     year_arg = next((a for a in args if a.isdigit()), None)
@@ -315,6 +371,7 @@ _COMMANDS: dict[str, tuple] = {
     "k1":        (cmd_k1,        "k",  "Show Schedule K-1"),
     "reconcile": (cmd_reconcile, "r",  "Run reconciliation"),
     "summary":   (cmd_summary,   "su", "Customer outcome summary (W27)"),
+    "audit":     (cmd_audit,     "a",  "CPA-style self-audit of the year"),
 }
 
 
@@ -327,12 +384,8 @@ def _help() -> None:
 
 def app() -> None:
     """Main entrypoint for the ``ledger`` shell command."""
-    # Load .env if present
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
+    # Load .env if present (no-op for keys already set; see _load_dotenv_early)
+    _load_dotenv_early()
 
     args = sys.argv[1:]
     if not args or args[0] in ("-h", "--help"):

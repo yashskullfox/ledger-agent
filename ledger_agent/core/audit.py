@@ -25,7 +25,8 @@ Public API
 
 Environment
 -----------
-    FI_AUDIT_DIR              Override audit dir (default: <repo>/data/audit)
+    FI_AUDIT_DIR              Override audit dir (default: <FI_DATA_DIR>/audit,
+                              i.e. <repo>/data/audit)
     FI_AUDIT_RETENTION_DAYS   Days to keep prior run logs (default: 7)
     FI_AUDIT_DISABLED         If "1", audit is a no-op (CI only)
 """
@@ -40,9 +41,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ledger_agent.core.config import DATA_DIR
+
 # ── Configuration ────────────────────────────────────────────────────────────
 
-_DEFAULT_AUDIT_DIR = Path(__file__).resolve().parent.parent / "data" / "audit"
+_DEFAULT_AUDIT_DIR = DATA_DIR / "audit"
 _AUDIT_DIR = Path(os.environ.get("FI_AUDIT_DIR", str(_DEFAULT_AUDIT_DIR)))
 _RETENTION_DAYS = int(os.environ.get("FI_AUDIT_RETENTION_DAYS", "7"))
 _DISABLED = os.environ.get("FI_AUDIT_DISABLED", "0") == "1"
