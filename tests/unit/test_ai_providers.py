@@ -445,12 +445,6 @@ class TestMultilingual:
         backend.classify_transaction(f"{desc} ACCOUNT {ACCOUNT_DIGITS}", -5.0)
         assert ACCOUNT_DIGITS not in json.dumps(backend._client.calls, ensure_ascii=False)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="privacy.redact() only tokenises account-like digit runs next to an "
-               "account keyword; a bare 12-digit run passes redact() and audit_egress() "
-               "(owner of core/privacy.py to fix)",
-    )
     def test_bare_digit_run_redacted(self, monkeypatch, fake_sdks):
         backend = _compat_backend(monkeypatch)
         backend.classify_transaction(f"Pago de software {ACCOUNT_DIGITS}", -5.0)

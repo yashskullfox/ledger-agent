@@ -29,6 +29,7 @@ import re
 from collections.abc import Iterable
 
 from ledger_agent.core.models import Transaction, TransactionType
+from ledger_agent.core.privacy import ACCOUNT_REF_RE
 
 OWNER_DRAW_CODE = "3040"
 OWNER_DRAW_NAME = "Members Distributions / Owner Draws"
@@ -60,6 +61,9 @@ def _load_listed_last4() -> frozenset[str]:
 OWNER_DRAW_LAST4: frozenset[str] = _load_listed_last4()
 
 # A 4-digit group immediately preceded by an account marker, case-insensitive.
+# The grammar lives in core/privacy.py (ACCOUNT_MARKER_PATTERN / ACCOUNT_REF_RE)
+# so this matcher and the egress firewall (P-05) agree on what an account
+# reference is:
 #   x1234 / XXXX1234 / XXXX-1234   (x not part of a word or number)
 #   *1234 / **1234 / ** 1234   (any run of stars)
 #   ...1234 / …1234
@@ -67,23 +71,7 @@ OWNER_DRAW_LAST4: frozenset[str] = _load_listed_last4()
 #   ending in 1234
 # The group must not be followed by another digit (or "-digit"), so the last 4
 # digits of a longer run, dates (01/15, 2026-01-14) and amounts never match.
-_ACCOUNT_REF_RE = re.compile(
-    r"""
-    (?:
-        (?<![a-z0-9])x+-?
-      | \*+[ -]?
-      | (?:\.{3,}|…)[ ]?
-      | \b(?:acct|account|a/c)
-            (?:\s*(?:no\.?|number|\#))?
-            (?:\s+ending(?:\s+in)?)?
-            [\s:\#-]*
-      | \bending\s+in[\s:\#-]*
-    )
-    (\d{4})
-    (?!\d|-\d)
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
+_ACCOUNT_REF_RE = ACCOUNT_REF_RE
 
 
 def account_refs(text: str) -> list[str]:

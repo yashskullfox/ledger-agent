@@ -87,21 +87,9 @@ LEAK_BY_ID = {leak.id: leak for leak in LEAKS}
 # ── Known gaps (each maps to the card that closes it) ─────────────────────────
 
 # Gaps of privacy.redact() itself — inherited by every path that relies on it.
-REDACT_GAPS: dict[str, str] = {
-    "acct_number_keyword_last4":
-        "P-05: account token <ACCT_xxxNNNN> keeps the last 4 digits",
-    "bare_digit_run":
-        "P-05: bare 8-17 digit run without an account keyword is not redacted",
-    "masked_x_last4": "P-05: masked 'x'+last-4 form is not detected",
-    "masked_asterisk_last4": "P-05: asterisk+last-4 form is not detected",
-    "acct_ending_last4": "P-05: 'acct ending'+last-4 form is not detected",
-    "non_ascii_german": "P-07: person/counterparty detection is ASCII-only",
-    "non_ascii_spanish": "P-07: person/counterparty detection is ASCII-only",
-    "non_ascii_japanese": "P-07: person/counterparty detection is ASCII-only",
-    "non_ascii_hindi": "P-07: person/counterparty detection is ASCII-only",
-    "allowlist_neighbour":
-        "P-07: one allowlisted token exempts the whole all-caps run",
-}
+# Empty since P-07 (Unicode / allowlist-neighbour names): every leak case
+# must pass on every path.  A new known gap goes here as "<case id>": "<card>: …".
+REDACT_GAPS: dict[str, str] = {}
 
 def _params(gaps: dict[str, str]) -> list:
     """One pytest param per leak case; known gaps become strict xfails."""
@@ -341,8 +329,6 @@ def test_backend_payload_has_no_leak(backend_name, leak, sent, entity_db):
 
 CONTEXT_GAPS = {
     **REDACT_GAPS,
-    "entity_name": "P-06: context export never redacts entity / account labels "
-                   "(description part needs P-04)",
 }
 
 
@@ -368,8 +354,6 @@ def test_context_export_has_no_leak(leak, seeded_db):
     _assert_no_leak(leak, _context_egress())
 
 
-@pytest.mark.xfail(strict=True, reason="P-06: context_builder falls back to the raw "
-                                       "description when redact() raises")
 def test_context_export_fails_closed_on_redaction_error(seeded_db, monkeypatch):
     def _boom(*_a, **_kw):
         raise RuntimeError("redactor unavailable")

@@ -8,11 +8,14 @@ both resolve to the same remembered rule.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
 
 from config import MEMORY_FILE
+
+_log = logging.getLogger(__name__)
 
 try:
     from rapidfuzz import fuzz
@@ -86,13 +89,22 @@ class ClassificationMemory:
         Persist a new (or update existing) rule.
         The pattern is redacted via privacy.redact() before writing to disk
         so the on-disk JSON is git-safe — no raw counterparty names (R-46).
+
+        Fail closed (P-06): if redaction fails, the rule is NOT saved — the raw
+        pattern never reaches disk.  The user's confirmation itself still succeeds
+        (nothing is raised); only the remembered rule is skipped.
         """
         # Redact PII from the pattern before persisting (R-46)
         try:
-            from ledger_agent.core.privacy import redact
-            safe_description, _ = redact(description, scope="memory_file")
-        except Exception:
-            safe_description = description  # Never fail a user confirmation
+            from ledger_agent.core import privacy
+            safe_description, _ = privacy.redact(description, scope="memory_file")
+            if not isinstance(safe_description, str):
+                raise TypeError("redact() returned a non-string")
+        except Exception as exc:  # noqa: BLE001 — fail closed: skip, never persist raw
+            _log.warning(
+                "memory rule not saved: pattern redaction failed (%s)", type(exc).__name__
+            )
+            return
 
         desc_norm = self._normalise(safe_description)
         for r in self._rules:

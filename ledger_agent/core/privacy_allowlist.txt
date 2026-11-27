@@ -6,6 +6,9 @@
 # whose presence in a prompt is what makes classification work.
 #
 # Format: one entry per line, case-insensitive matching.
+# Semantics (P-07): an entry exempts only its OWN words, never its neighbours
+# ("<APP> PAYMENT TO <NAME>" keeps <APP>, redacts <NAME>).  A multi-word
+# entry is exempt only when the whole phrase appears.
 # Add your own entries below the "User extensions" section.
 # This file is open-source-reviewable and gitignored personal data-free.
 # ─────────────────────────────────────────────────────────────────────────────

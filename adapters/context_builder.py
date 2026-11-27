@@ -12,6 +12,21 @@ Usage:
 
 The JSON is also what the GitHub/AI consumption mode uses:
     "Pass this file to any AI: https://github.com/your-org/fi/blob/main/context.json"
+
+Privacy (P-06) — the export is egress, so it fails closed:
+  * The entity name is never exported; it is the fixed placeholder ``<ENTITY_NAME>``.
+  * Account and institution names are tokenised exactly like the legacy MCP server
+    (``mcp_server.server._account_tokens`` / ``_account_label_map``):
+    ``<INSTITUTION_n> – <ACCOUNT_n>``.  An account-built balance-sheet line whose
+    label shape is unknown becomes ``<ACCOUNT>``.  Ticker symbols are left as-is
+    (owner decision D6 pending).
+  * Every other free-text field (descriptions, line labels, ``ai_instructions``,
+    entity type/state) goes through ``privacy.redact(scope="ai_context")``.  If
+    redaction raises, the field becomes ``<REDACTED>`` — never the raw text.
+  * ``build_context``, ``save_context`` and ``context_to_prompt`` run
+    ``privacy.audit_egress`` on their output; a failure raises
+    ``ContextExportBlocked`` (categories only, no values) and nothing is written.
+  * Figures (balances, tax numbers) are never passed through redaction.
 """
 from __future__ import annotations
 
@@ -19,6 +34,15 @@ import json
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+
+from ledger_agent.core import privacy
+
+ENTITY_PLACEHOLDER = "<ENTITY_NAME>"
+REDACTED = "<REDACTED>"
+
+
+class ContextExportBlocked(privacy.PrivacyLeakError):
+    """The AI context failed the egress audit; it must not be returned, written or printed."""
 
 
 class _DecimalEncoder(json.JSONEncoder):
@@ -71,14 +95,17 @@ def build_context(
     # Tax: the fiscal year's api.pte_estimate — never this month ×12 (card Q-02)
     tax_estimate = _year_tax_estimate(entity_id, int(period[:4]))
 
-    # Build context
+    # Account / institution labels → stable tokens (shared with the legacy MCP server).
+    label_map, acct_tokens = _account_label_tokens(entity_id)
+
+    # Build context — names never exported; every free-text field redacted (P-06).
     ctx: dict[str, Any] = {
         "schema_version": "2.0",
         "generated_at": _now_iso(),
         "entity": {
-            "name": entity.name,
-            "type": entity.entity_type,
-            "state": entity.state,
+            "name": ENTITY_PLACEHOLDER,
+            "type": _redact_text(entity.entity_type),
+            "state": _redact_text(entity.state),
         },
         "period": period,
         "available_periods": available,
@@ -91,7 +118,7 @@ def build_context(
             "lines": [
                 {
                     "coa_code": line.coa_code,
-                    "label": line.label,
+                    "label": _line_label(line, label_map),
                     "amount": float(line.amount),
                     "type": line.coa_type.value,
                     "is_subtotal": line.is_subtotal,
@@ -107,8 +134,9 @@ def build_context(
             "total_liabilities": float(bs.total_liabilities),
             "debt_to_equity": _safe_div(bs.total_liabilities, bs.total_equity),
         },
-        "ai_instructions": (
-            f"You are analyzing financial data for {entity.name} ({entity.entity_type}), "
+        "ai_instructions": _redact_text(
+            f"You are analyzing financial data for {ENTITY_PLACEHOLDER} "
+            f"({entity.entity_type}), "
             f"period {period}. "
             f"Net income: ${float(bs.net_income):,.2f}. "
             f"Total assets: ${float(bs.total_assets):,.2f}. "
@@ -120,30 +148,19 @@ def build_context(
     # Optionally include transactions — descriptions redacted for AI export (R-46)
     if include_transactions:
         txns = TransactionRepo.list_for_period(period)
-        try:
-            from ledger_agent.core.privacy import redact as _redact
-        except Exception:
-            _redact = None  # type: ignore[assignment]
-
-        txn_records = []
-        for t in txns:
-            desc = t.description
-            if _redact is not None:
-                try:
-                    desc, _ = _redact(desc, scope="ai_context")
-                except Exception:
-                    pass  # Never block export on privacy error
-            txn_records.append({
+        ctx["transactions"] = [
+            {
                 "date": t.date.isoformat(),
-                "description": desc,
+                "description": _redact_text(t.description),
                 "amount": float(t.amount),
                 "coa_code": t.coa_code,
                 "type": t.transaction_type.value if t.transaction_type else None,
                 "is_transfer": t.is_transfer,
-            })
-        ctx["transactions"] = txn_records
+            }
+            for t in txns
+        ]
 
-    # Optionally include positions
+    # Optionally include positions — account label tokenised, ticker kept (D6 pending)
     if include_positions:
         from ledger_agent.core.database import AccountRepo, PositionRepo
         accounts = AccountRepo.list_for_entity(entity_id)
@@ -152,7 +169,7 @@ def build_context(
             positions = PositionRepo.list_for_period(acct.id, period)
             for p in positions:
                 all_positions.append({
-                    "account": f"{acct.institution} – {acct.name}",
+                    "account": _position_account_label(acct.id, acct_tokens),
                     "symbol": p.symbol,
                     "quantity": float(p.quantity),
                     "price": float(p.price_per_unit),
@@ -160,13 +177,19 @@ def build_context(
                 })
         ctx["positions"] = all_positions
 
+    _audit_or_block(ctx)
     return ctx
 
 
 def save_context(ctx: dict[str, Any], path: Path) -> Path:
-    """Save context dict as pretty-printed JSON. Returns the file path."""
+    """Save context dict as pretty-printed JSON. Returns the file path.
+
+    Audits the exact text first; on failure raises ContextExportBlocked and writes
+    nothing (no directory, no file)."""
+    text = json.dumps(ctx, indent=2, cls=_DecimalEncoder)
+    _audit_or_block(text)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(ctx, indent=2, cls=_DecimalEncoder))
+    path.write_text(text)
     return path
 
 
@@ -201,7 +224,67 @@ def context_to_prompt(ctx: dict[str, Any]) -> str:
         if len(ctx["transactions"]) > 20:
             lines.append(f"  … and {len(ctx['transactions']) - 20} more")
 
-    return "\n".join(lines)
+    prompt = "\n".join(lines)
+    _audit_or_block(prompt)
+    return prompt
+
+
+# ── Privacy helpers (P-06) ─────────────────────────────────────────────────────
+
+def _redact_text(text: str | None) -> str | None:
+    """``privacy.redact(scope="ai_context")``; any failure → ``<REDACTED>``, never raw."""
+    if text is None or text == "":
+        return text
+    try:
+        safe, _ = privacy.redact(str(text), scope="ai_context")
+    except Exception:  # noqa: BLE001 — fail closed: drop the field, never the raw text
+        return REDACTED
+    return safe if isinstance(safe, str) else REDACTED
+
+
+def _account_label_tokens(
+        entity_id: str,
+) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+    """(raw account label → token label, account_id → (account, institution) token).
+
+    Reuses the legacy MCP server's tokenisation so both egress paths agree.  On any
+    failure both maps are empty, so every account label falls back to a fixed token."""
+    try:
+        from mcp_server.server import _account_label_map, _account_tokens
+
+        return _account_label_map(entity_id), _account_tokens(entity_id)
+    except Exception:  # noqa: BLE001 — fail closed
+        return {}, {}
+
+
+def _line_label(line: Any, label_map: dict[str, str]) -> str | None:
+    """Balance-sheet line label: account-built labels tokenised, the rest redacted."""
+    from mcp_server.server import _ACCOUNT_FALLBACK, _ACCOUNT_LINE_CODES
+
+    if line.label in label_map:
+        return label_map[line.label]
+    if line.coa_code in _ACCOUNT_LINE_CODES:
+        return _ACCOUNT_FALLBACK  # unknown account label shape → never pass it through
+    return _redact_text(line.label)
+
+
+def _position_account_label(account_id: str, acct_tokens: dict[str, tuple[str, str]]) -> str:
+    tokens = acct_tokens.get(account_id)
+    if tokens is None:
+        return REDACTED
+    acct_tok, inst_tok = tokens
+    return f"{inst_tok} – {acct_tok}"
+
+
+def _audit_or_block(payload: Any) -> None:
+    """``privacy.audit_egress``; any failure → ContextExportBlocked (no values echoed)."""
+    try:
+        privacy.audit_egress(payload)
+    except Exception as exc:  # noqa: BLE001 — fail closed
+        raise ContextExportBlocked(
+            "AI context export aborted: the privacy audit did not pass "
+            f"({type(exc).__name__}); nothing was written or printed."
+        ) from exc
 
 
 def _year_tax_estimate(entity_id: str, year: int) -> dict[str, Any] | None:
