@@ -43,8 +43,21 @@ run.bat scan C:\Users\you\statements
 ```bash
 pip install ledger-agent-mcp
 ledger-agent-mcp                          # stdio transport (default)
-ledger-agent-mcp --transport http         # streamable-HTTP on :7337
 ```
+
+**HTTP transport** (streamable-HTTP on `http://127.0.0.1:7337/mcp`) requires a bearer token of
+at least 32 characters and refuses to start without one. It also needs `uvicorn`
+(`pip install uvicorn`):
+
+```bash
+export FI_MCP_HTTP_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+ledger-agent-mcp --transport http         # binds 127.0.0.1:7337 only
+# client: POST /mcp with "Authorization: Bearer $FI_MCP_HTTP_TOKEN"
+#         and "Content-Type: application/json" (body <= 1 MiB)
+```
+
+The HTTP server sends no CORS headers and rejects browser requests (any `Origin` header → 403,
+`OPTIONS` → 405). Binding a non-loopback `--host` requires `FI_MCP_HTTP_ALLOW_REMOTE=1`.
 
 **Claude Desktop config** (`~/.claude/claude_desktop_config.json`):
 ```json
@@ -68,9 +81,9 @@ No Python, Maven, or any other dependency needed on the user's machine.
 
 ---
 
-## Seven Core Operations
+## Eight Core Operations
 
-All four forms expose the same seven operations (mapped to `ledger_agent.core.api`):
+All four forms expose the same eight operations (mapped to `ledger_agent.core.api`):
 
 | Operation              | CLI         | MCP tool                 | Java bridge                      |
 |------------------------|-------------|--------------------------|----------------------------------|
@@ -81,6 +94,7 @@ All four forms expose the same seven operations (mapped to `ledger_agent.core.ap
 | PTE tax estimate       | `tax`       | `pte_estimate`           | `bridge.pteEstimate()`           |
 | Reconciliation         | `reconcile` | `reconcile_year`         | `bridge.reconcileYear()`         |
 | Customer Summary       | `summary`   | `build_customer_summary` | `bridge.buildCustomerSummary()`  |
+| Self-audit (CPA checks)| `audit`     | `audit_year`             | `bridge.call("audit_year", …)`   |
 
 ---
 
@@ -97,8 +111,9 @@ Commands
   k1        [YEAR]          Schedule K-1 (--partner partner_1|partner_2)
   tax       [YEAR]          Quarterly PTE tax estimate
   reconcile [YEAR]          Inter-account transfer reconciliation
+  audit     [YEAR]          CPA-style self-audit (pass / warn / fail per check)
 
-Aliases: s b f1 k t r
+Aliases: s b f1 k t r su a
 
 Flags
   --no-prompt               CI mode (no interactive prompts, JSON to stdout)
@@ -113,7 +128,7 @@ Legacy pass-through (main.py)
 
 ## MCP Tools (Form C)
 
-Seven tools, one per core operation. Privacy firewall (R-46) applied to every response:
+Eight tools, one per core operation. Privacy firewall (R-46) applied to every response:
 
 | Tool                     | Description                                          |
 |--------------------------|------------------------------------------------------|
@@ -124,8 +139,11 @@ Seven tools, one per core operation. Privacy firewall (R-46) applied to every re
 | `pte_estimate`           | Quarterly estimated tax payments + due dates.        |
 | `reconcile_year`         | Inter-account transfer reconciliation.               |
 | `build_customer_summary` | High-level summary (W27 contract).                   |
+| `audit_year`             | Self-audit: tie-out, continuity, coverage, K-1 tie.  |
 
-Pass `_meta: { allow_pii: true }` in a tool call to bypass the PII redaction filter.
+Pass `_meta: { allow_pii: true }` in a tool call to bypass the PII redaction filter. Over the
+HTTP transport this flag is honoured only when the server was started with `FI_MCP_ALLOW_PII=1`;
+otherwise it is ignored and the response is redacted. The stdio transport is unchanged.
 
 ---
 
@@ -162,7 +180,7 @@ pytest
 pytest tests/architecture/test_core_purity.py -q
 
 # MCP privacy firewall
-pytest tests/integration/test_mcp_privacy.py -q
+pytest tests/unit/test_mcp_privacy_unit.py -q
 
 # CPA parity gate (requires private corpus)
 FI_CPA_CORPUS_PATH=statements/2024.txt \
@@ -196,7 +214,7 @@ ledger-agent/
 ├── pyproject.toml            Root package metadata (v2.1.0)
 ├── ledger_agent/
 │   ├── core/                 Form A — Pure core library
-│   │   ├── api.py            Seven public functions (single source of truth)
+│   │   ├── api.py            Eight public functions (single source of truth)
 │   │   ├── parsers/          PDF parser plugins
 │   │   ├── intelligence/     Classification and AI backend
 │   │   └── accounting/       GAAP building blocks

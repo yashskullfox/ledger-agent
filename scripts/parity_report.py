@@ -54,7 +54,7 @@ def _load_anchors(year: int) -> dict[str, float]:
     if not p.exists():
         return {}
     anchors: dict[str, float] = {}
-    for ln in p.read_text().splitlines():
+    for ln in p.read_text(encoding="utf-8").splitlines():
         s = ln.strip()
         if not s or s.startswith("#") or "=" not in s:
             continue
@@ -70,7 +70,7 @@ def _load_extracted(year: int) -> dict:
     p = REPO_ROOT / "private" / "reference" / f"{year}-truth.json"
     if not p.exists():
         return {}
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 # --------------------------------------------------------------------------- #
@@ -305,7 +305,7 @@ def main() -> int:
         "rows": rows,
         "pipeline_errors": pipeline.get("errors", []),
     }
-    out_path.write_text(json.dumps(payload, indent=2, default=str))
+    out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     print(f"\nfull report: {out_path.relative_to(REPO_ROOT)}")
 
     diff = sum(1 for r in rows if r["status"] == "DIFF")

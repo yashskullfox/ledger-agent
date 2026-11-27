@@ -15,11 +15,20 @@ Environment variables (prefix: FI_):
   FI_LOCAL_CONFIDENCE_THRESHOLD   Chain escalation threshold (0.0-1.0, default 0.65)
   FI_LOG_LEVEL              Logging level: DEBUG/INFO/WARNING/ERROR (default INFO)
   FI_LOG_FORMAT             Logging format: json/rich/plain (default rich)
-  FI_AI_BACKEND             AI backend: local/openai/gemini (default local)
-  FI_OPENAI_API_KEY         OpenAI API key (required if FI_AI_BACKEND=openai)
+  FI_AI_BACKEND             AI backend: local/openai/gemini/anthropic/openai_compatible/ollama
+                            (default local; unknown values warn and use local)
+  FI_OPENAI_API_KEY         OpenAI API key (required if FI_AI_BACKEND=openai;
+                            optional for openai_compatible/ollama)
+  FI_OPENAI_BASE_URL        OpenAI-compatible endpoint URL (optional for openai;
+                            ollama default http://localhost:11434/v1)
   FI_GEMINI_API_KEY         Gemini API key (required if FI_AI_BACKEND=gemini)
-  FI_OPENAI_MODEL           OpenAI model (default gpt-4o-mini)
+  FI_ANTHROPIC_API_KEY      Anthropic API key (required if FI_AI_BACKEND=anthropic;
+                            ANTHROPIC_API_KEY is accepted as a fallback)
+  FI_OPENAI_MODEL           OpenAI model (default gpt-4o-mini; llama3.1 for
+                            openai_compatible/ollama)
   FI_GEMINI_MODEL           Gemini model (default gemini-1.5-flash)
+  FI_ANTHROPIC_MODEL        Anthropic model (default claude-haiku-5-5)
+  FI_ANTHROPIC_EFFORT       Anthropic output_config.effort (default low; none = omit)
   FI_MEMORY_FILE            Override classification memory JSON path
   FI_DEFAULT_ENTITY_NAME    Pre-fill entity name in setup wizard
   FI_DEFAULT_ENTITY_STATE   Pre-fill entity state in setup wizard
@@ -129,26 +138,72 @@ LOCAL_CONFIDENCE_THRESHOLD: float = _env_float("FI_LOCAL_CONFIDENCE_THRESHOLD", 
 MEMORY_FILE = _env_path("FI_MEMORY_FILE", DB_DIR / "classification_memory.json")
 
 # ── AI Backend ────────────────────────────────────────────────────────────────
-AI_BACKEND = _env_str("FI_AI_BACKEND", "local").lower()  # local | openai | gemini
-OPENAI_MODEL = _env_str("FI_OPENAI_MODEL", "gpt-4o-mini")
+# local | openai | gemini | anthropic | openai_compatible | ollama
+# (registry + unknown-value handling: ledger_agent/core/intelligence/ai_backend/__init__.py)
+AI_BACKEND = _env_str("FI_AI_BACKEND", "local").lower()
+
+# Backends that speak the OpenAI protocol to a self-hosted / third-party endpoint.
+OPENAI_COMPATIBLE_BACKENDS = frozenset({"openai_compatible", "ollama"})
+OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
+
+OPENAI_BASE_URL = _env_str("FI_OPENAI_BASE_URL", "")
+OPENAI_MODEL = _env_str(
+    "FI_OPENAI_MODEL",
+    "llama3.1" if AI_BACKEND in OPENAI_COMPATIBLE_BACKENDS else "gpt-4o-mini",
+)
 GEMINI_MODEL = _env_str("FI_GEMINI_MODEL", "gemini-1.5-flash")
+ANTHROPIC_MODEL = _env_str("FI_ANTHROPIC_MODEL", "claude-haiku-5-5")
+ANTHROPIC_EFFORT = _env_str("FI_ANTHROPIC_EFFORT", "low").lower()
+
+# Env var(s) holding the API key for each remote backend (first non-empty wins).
+_AI_KEY_VARS: dict[str, tuple[str, ...]] = {
+    "openai": ("FI_OPENAI_API_KEY",),
+    "gemini": ("FI_GEMINI_API_KEY",),
+    "anthropic": ("FI_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
+    "openai_compatible": ("FI_OPENAI_API_KEY",),
+    "ollama": ("FI_OPENAI_API_KEY",),
+}
 
 
-def ai_api_key() -> str | None:
-    """Return the API key for the configured AI backend, or None."""
-    if AI_BACKEND == "openai":
-        return _env_str("FI_OPENAI_API_KEY") or None
-    if AI_BACKEND == "gemini":
-        return _env_str("FI_GEMINI_API_KEY") or None
+def _first_env(*keys: str) -> str | None:
+    for key in keys:
+        val = _env_str(key)
+        if val:
+            return val
     return None
 
 
-def validate_ai_config() -> None:
-    """Raise ValueError if the selected AI backend is missing its key."""
-    if AI_BACKEND in ("openai", "gemini") and not ai_api_key():
-        var = "FI_OPENAI_API_KEY" if AI_BACKEND == "openai" else "FI_GEMINI_API_KEY"
+def anthropic_api_key() -> str | None:
+    """FI_ANTHROPIC_API_KEY, else ANTHROPIC_API_KEY, else None."""
+    return _first_env(*_AI_KEY_VARS["anthropic"])
+
+
+def openai_compatible_api_key() -> str | None:
+    """Optional key for an OpenAI-compatible endpoint (None → placeholder is sent)."""
+    return _first_env(*_AI_KEY_VARS["openai_compatible"])
+
+
+def ai_api_key(backend: str | None = None) -> str | None:
+    """Return the API key for ``backend`` (default: the configured one), or None."""
+    name = (backend or AI_BACKEND).lower()
+    keys = _AI_KEY_VARS.get(name)
+    return _first_env(*keys) if keys else None
+
+
+def validate_ai_config(backend: str | None = None) -> None:
+    """
+    Raise ValueError if ``backend`` (default: FI_AI_BACKEND) is missing a
+    required API key.  openai_compatible / ollama never require a key.
+    """
+    name = (backend or AI_BACKEND).lower()
+    if name in OPENAI_COMPATIBLE_BACKENDS or name not in _AI_KEY_VARS:
+        return
+    # Zero-arg call for the configured backend keeps ai_api_key() patchable.
+    key = ai_api_key() if name == AI_BACKEND else ai_api_key(name)
+    if not key:
+        var = " or ".join(_AI_KEY_VARS[name])
         raise ValueError(
-            f"FI_AI_BACKEND={AI_BACKEND!r} requires {var} to be set. "
+            f"FI_AI_BACKEND={name!r} requires {var} to be set. "
             "Add it to your .env file (never commit .env to version control)."
         )
 

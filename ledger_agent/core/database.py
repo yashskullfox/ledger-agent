@@ -36,7 +36,7 @@ from ledger_agent.core.models import (
 # v5: transactions.classifier_version, transactions.confidence (ARCH-27)
 # v6: transactions.classification_lock_at
 # v7: pte_payments table (W31 / T7 entity-level external PTE payments)
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def _decimal(v) -> Decimal:
@@ -396,6 +396,13 @@ def init_db(db_path: Path | None = None) -> None:
                 "CREATE INDEX IF NOT EXISTS idx_pte_entity_year "
                 "ON pte_payments(entity_id, fiscal_year)"
             )
+        if current < 8:
+            # v8: classifier-detected transfers (coa 9000) were persisted without the
+            # is_transfer flag, so reconcile_year never saw them. Backfill once.
+            conn.execute(
+                "UPDATE transactions SET is_transfer=1 "
+                "WHERE coa_code='9000' AND (is_transfer IS NULL OR is_transfer=0)"
+            )
         if current < SCHEMA_VERSION:
             conn.execute(
                 "INSERT OR REPLACE INTO schema_meta(key,value) VALUES('version',?)",
@@ -635,10 +642,17 @@ class TransactionRepo:
         classifier_version: str,
         confidence: float,
         db_path: Path | None = None,
+        is_transfer: bool | None = None,
     ) -> None:
-        """R-65/R-66 / ARCH-27: persist classification with audit metadata."""
+        """R-65/R-66 / ARCH-27: persist classification with audit metadata.
+
+        ``is_transfer`` (when given) is persisted too, so classifier-detected internal
+        transfers reach reconcile_year.  Code 9000 always implies a transfer.
+        """
         from datetime import datetime, timezone
         lock_ts = datetime.now(timezone.utc).isoformat()
+        if coa_code == "9000":
+            is_transfer = True
         with get_conn(db_path) as conn:
             conn.execute(
                 "UPDATE transactions"
@@ -647,6 +661,11 @@ class TransactionRepo:
                 " WHERE id=?",
                 (coa_code, coa_name, classifier_version, str(confidence), lock_ts, tx_id),
             )
+            if is_transfer is not None:
+                conn.execute(
+                    "UPDATE transactions SET is_transfer=? WHERE id=?",
+                    (int(bool(is_transfer)), tx_id),
+                )
 
     @staticmethod
     def get_by_id(tx_id: str, db_path: Path | None = None) -> Transaction | None:

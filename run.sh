@@ -12,7 +12,10 @@
 #   ./run.sh k1 [YEAR] [--partner partner_1|partner_2]
 #   ./run.sh reconcile [YEAR]
 #
+#   ./run.sh summary [YEAR] [--no-prompt]
+#
 # Usage (legacy main.py pass-through):
+#   ./run.sh                          # interactive menu (also: ./run.sh menu)
 #   ./run.sh mcp                      # start MCP stdio server
 #   ./run.sh context 2025-01          # export AI context JSON
 #   ./run.sh classify                 # batch-classify transactions
@@ -47,18 +50,28 @@ _find_python() {
     echo >&2 "ERROR: Python >= $PYTHON_MIN not found. Install it and retry."
     exit 1
 }
-if [ ! -f "$VENV_DIR/bin/python" ]; then
-    PYTHON=$(_find_python)
-fi
+# POSIX venvs use bin/python; Windows venvs (e.g. under Git Bash/MSYS) use
+# Scripts/python.exe.
+_venv_python() {
+    if [ -f "$VENV_DIR/bin/python" ]; then
+        echo "$VENV_DIR/bin/python"
+    elif [ -f "$VENV_DIR/Scripts/python.exe" ]; then
+        echo "$VENV_DIR/Scripts/python.exe"
+    fi
+}
 
 # ── 2. Create venv if absent ──────────────────────────────────────────────────
-if [ ! -f "$VENV_DIR/bin/python" ]; then
+VENV_PYTHON="$(_venv_python)"
+if [ -z "$VENV_PYTHON" ]; then
+    PYTHON=$(_find_python)
     echo "📦  Creating virtual environment …"
     "$PYTHON" -m venv "$VENV_DIR"
+    VENV_PYTHON="$(_venv_python)"
+    if [ -z "$VENV_PYTHON" ]; then
+        echo >&2 "ERROR: virtual environment created but no interpreter found in $VENV_DIR"
+        exit 1
+    fi
 fi
-
-VENV_PYTHON="$VENV_DIR/bin/python"
-VENV_PIP="$VENV_DIR/bin/pip"
 
 # ── 3. Install / upgrade dependencies ─────────────────────────────────────────
 # Use requirements.lock if it exists (reproducible), else requirements.txt
@@ -75,8 +88,8 @@ STORED_HASH=$(cat "$CHECKSUM_FILE" 2>/dev/null || echo "")
 
 if [ "$CURRENT_HASH" != "$STORED_HASH" ]; then
     echo "📦  Installing/updating dependencies …"
-    "$VENV_PIP" install -q --upgrade pip
-    "$VENV_PIP" install -q -r "$REQ_FILE"
+    "$VENV_PYTHON" -m pip install -q --upgrade pip
+    "$VENV_PYTHON" -m pip install -q -r "$REQ_FILE"
     echo "$CURRENT_HASH" > "$CHECKSUM_FILE"
 fi
 
@@ -93,24 +106,29 @@ cd "$SCRIPT_DIR"
 
 CMD="${1:-}"
 
+# Keep this command table in sync with run.bat.
 case "$CMD" in
     # New ledger CLI commands (Form B via ledger_agent.cli.main)
-    scan|s|balance|b|tax|t|form1065|f1|k1|k|reconcile|r|summary)
+    scan|s|balance|b|tax|t|form1065|f1|k1|k|reconcile|r|summary|su)
         exec "$VENV_PYTHON" -m ledger_agent.cli.main "$@"
         ;;
-    # Legacy pass-through to main.py
-    ""|menu|mcp|context|classify|memory|setup|import|transactions|onboard|o)
+    # Interactive menu (main.py with no arguments)
+    ""|menu)
+        exec "$VENV_PYTHON" main.py
+        ;;
+    # Legacy pass-through to main.py (commands + their main.py aliases)
+    mcp|context|ctx|classify|c|memory|m|setup|init|import|i|transactions|tx|onboard|o|mom|bs|taxes)
         exec "$VENV_PYTHON" main.py "$@"
         ;;
     --version|-v)
-        "$VENV_PYTHON" -c "from ledger_agent import __version__; print('ledger-agent', __version__)"
+        exec "$VENV_PYTHON" -c "from ledger_agent import __version__; print('ledger-agent', __version__)"
         ;;
     --help|-h)
-        "$VENV_PYTHON" -m ledger_agent.cli.main --help
+        exec "$VENV_PYTHON" -m ledger_agent.cli.main --help
         ;;
     *)
-        # Try ledger CLI first, fall back to main.py
-        exec "$VENV_PYTHON" -m ledger_agent.cli.main "$@" 2>/dev/null \
-            || exec "$VENV_PYTHON" main.py "$@"
+        # Unknown command: let the ledger CLI report it (prints usage, exits 1).
+        # Errors are not hidden and there is no silent fallback to main.py.
+        exec "$VENV_PYTHON" -m ledger_agent.cli.main "$@"
         ;;
 esac

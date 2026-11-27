@@ -292,30 +292,31 @@ def test_render_transactions_rich_and_plain(capsys):
     assert "Office Supplies" in out
 
 
-def test_render_tax_estimate(capsys):
-    from unittest.mock import MagicMock
+def test_render_pte_estimate(capsys):
+    """Q-02: the tax renderer takes an ``api.PTEEstimate`` (the legacy SE/federal
+    ``render_tax_estimate`` was removed); basis line first, figures verbatim."""
+    from ledger_agent.core.api import PTEEstimate
+    from ledger_agent.core.reports.renderer import render_pte_estimate
 
-    from ledger_agent.core.reports.renderer import render_tax_estimate
-
-    est = MagicMock()
-    est.entity_name = "TEST LLC"
-    est.period = "2025"
-    est.effective_rate = "25.0"
-    est.net_income = Decimal("100000.00")
-    est.se_tax = Decimal("15300.00")
-    est.federal_income_tax = Decimal("22000.00")
-    est.state_income_tax = Decimal("5000.00")
-    est.total_annual_tax = Decimal("42300.00")
-
-    pmt = MagicMock()
-    pmt.quarter = "Q1"
-    pmt.due_date = "2025-04-15"
-    pmt.amount = Decimal("10575.00")
-    est.quarterly_payments = [pmt]
-    est.notes = ["Test note"]
-
-    render_tax_estimate(est)
+    est = PTEEstimate(
+        fiscal_year=2025,
+        net_income=Decimal("100000.00"),
+        total_annual_tax=Decimal("5000.00"),
+        effective_rate=Decimal("5.00"),
+        quarterly_payment=Decimal("1250.00"),
+        quarterly_payments=[
+            {"quarter": "Q1", "due_date": "April 15", "amount": 1250.0,
+             "paid_amount": 0.0, "status": "unpaid"},
+        ],
+        notes="Test note",
+        basis="full_year",
+        through_period="2025-12",
+        months_covered=12,
+    )
+    render_pte_estimate(est)
     out = capsys.readouterr().out
-    # Output may be captured via rich console or stdout
-    assert "Tax Estimate" in out or "TEST LLC" in out or True
+    assert out.lstrip().startswith("Basis: full_year through 2025-12 (12/12 months complete)")
+    assert f"${est.total_annual_tax:,.2f}" in out
+    assert "Test note" in out
+    assert "Self-Employment" not in out
 

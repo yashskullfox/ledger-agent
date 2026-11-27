@@ -1,6 +1,8 @@
 package com.ledgeragent.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ledgeragent.bridge.BridgeException;
 import com.ledgeragent.bridge.PythonBridge;
 import org.springframework.stereotype.Service;
@@ -62,9 +64,16 @@ public class RunService {
             case TAX_ESTIMATE  -> bridge.pteEstimate(fiscalYear, allowPii);
             case RECONCILE     -> bridge.reconcileYear(fiscalYear, allowPii);
             case CUSTOMER_SUMMARY -> bridge.customerSummary(fiscalYear, allowPii);
+            case AUDIT_YEAR    -> bridge.call("audit_year", yearParams(fiscalYear), allowPii);
             case IMPORT        -> bridge.importStatements(
                                       folder != null ? folder : "", false, allowPii);
         };
+    }
+
+    private static ObjectNode yearParams(int fiscalYear) {
+        ObjectNode params = JsonNodeFactory.instance.objectNode();
+        params.put("fiscal_year", fiscalYear);
+        return params;
     }
 
     /** All report wire names in canonical order (for {@code GET /api/v1/reports}). */

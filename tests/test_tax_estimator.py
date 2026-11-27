@@ -1,5 +1,9 @@
 """
 tests/test_tax_estimator.py  –  Unit tests for tax estimator
+
+The legacy individual (SE + federal + state) method and its tests (``TestTaxEstimator``,
+``TestRenderTaxEstimate``) were removed by card Q-02: every surface now renders
+``api.pte_estimate`` (see tests/unit/test_cli_tax_pte.py).
 """
 from __future__ import annotations
 
@@ -19,108 +23,81 @@ def default_rates():
     yield
 
 
-class TestTaxEstimator:
-    def test_returns_estimate(self):
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("50000.00")
-        )
-        assert est is not None
-        assert est.total_annual_tax > 0
+class TestEntityPTET:
+    """Q-04 / owner decision D1: entity-level state PTET only."""
 
-    def test_se_tax_calculated(self):
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("10000.00")
-        )
-        # SE tax = 10000 * 0.153 = 1530
-        assert est.se_tax == Decimal("1530.00")
+    def test_taxable_income_includes_schedule_k_items(self):
+        from ledger_agent.core.accounting.tax_estimator import entity_taxable_income
 
-    def test_zero_income_no_tax(self):
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("0.00")
+        ti = entity_taxable_income(
+            ordinary_business_income=Decimal("10000"),
+            net_short_term_capital_gain=Decimal("2000"),
+            net_long_term_capital_gain=Decimal("3000"),
+            dividend_income=Decimal("400"),
+            interest_income=Decimal("100"),
+            investment_interest_expense=Decimal("500"),
         )
+        assert ti == Decimal("15000")
+
+    def test_taxable_income_floors_at_zero(self):
+        from ledger_agent.core.accounting.tax_estimator import entity_taxable_income
+
+        assert entity_taxable_income(Decimal("1000"), Decimal("-5000")) == Decimal("0")
+        assert entity_taxable_income(Decimal("-1000")) == Decimal("0")
+
+    def test_ptet_is_state_rate_times_taxable_income(self):
+        from ledger_agent.core.accounting.tax_estimator import STATE_INCOME_RATE, TaxEstimator
+
+        est = TaxEstimator("TEST LLC", 2025).estimate_entity_ptet(Decimal("40000.00"))
+        expected = (Decimal("40000.00") * STATE_INCOME_RATE).quantize(Decimal("0.01"))
+        assert est.total_annual_tax == expected
+        assert est.state_income_tax == expected
+        # Partners' individual taxes are out of scope.
+        assert est.se_tax == Decimal("0.00")
+        assert est.federal_income_tax == Decimal("0.00")
+        assert est.net_income == Decimal("40000.00")
+        assert est.effective_rate == (STATE_INCOME_RATE * 100).quantize(Decimal("0.01"))
+
+    def test_quarterly_schedule_is_annual_over_four(self):
+        from ledger_agent.core.accounting.tax_estimator import QUARTERLY_DUE_DATES, TaxEstimator
+
+        est = TaxEstimator("TEST LLC", 2025).estimate_entity_ptet(Decimal("48000.00"))
+        q = (est.total_annual_tax / 4).quantize(Decimal("0.01"))
+        assert [p.quarter for p in est.quarterly_payments] == ["Q1", "Q2", "Q3", "Q4"]
+        assert all(p.amount == q for p in est.quarterly_payments)
+        assert [p.due_date for p in est.quarterly_payments] == list(QUARTERLY_DUE_DATES.values())
+
+    @pytest.mark.parametrize("income", ["0", "-2500.00"])
+    def test_zero_or_negative_income_no_tax(self, income):
+        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
+
+        est = TaxEstimator("TEST LLC", 2025).estimate_entity_ptet(Decimal(income))
         assert est.total_annual_tax == Decimal("0.00")
-        assert est.effective_rate == Decimal("0.00")
-
-    def test_quarterly_payments_count(self):
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("100000.00")
-        )
+        assert est.effective_rate == Decimal("0")
+        assert est.net_income == Decimal("0")
+        assert all(p.amount == Decimal("0.00") for p in est.quarterly_payments)
         assert len(est.quarterly_payments) == 4
-
-    def test_quarterly_sum_equals_total(self):
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("48000.00")
-        )
-        quarterly_sum = sum(p.amount for p in est.quarterly_payments)
-        # Allow 0.04 rounding difference (4 quarters x 0.01)
-        assert abs(quarterly_sum - est.total_annual_tax) <= Decimal("0.04")
 
     def test_annualize_factor(self):
         from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        # 1 month = annualize × 12
-        est_monthly = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("5000.00"), annualize_factor=Decimal("12")
-        )
-        est_annual = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("60000.00")
-        )
-        assert abs(est_monthly.total_annual_tax - est_annual.total_annual_tax) < Decimal("1.00")
 
-    def test_notes_not_empty(self):
+        qtd = TaxEstimator("TEST LLC", 2025).estimate_entity_ptet(
+            Decimal("15000.00"), annualize_factor=Decimal("4")
+        )
+        annual = TaxEstimator("TEST LLC", 2025).estimate_entity_ptet(Decimal("60000.00"))
+        assert qtd.net_income == Decimal("60000.00")
+        assert qtd.total_annual_tax == annual.total_annual_tax
+        assert any("annualized" in n for n in qtd.notes)
+
+    def test_notes_state_entity_level_scope(self):
         from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("50000.00")
-        )
-        assert len(est.notes) > 0
 
-    def test_entity_name_preserved(self):
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator
-        est = TaxEstimator("MY COMPANY LLC", 2025).estimate_from_net_income(
-            Decimal("50000.00")
-        )
-        assert est.entity_name == "MY COMPANY LLC"
-
-
-class TestRenderTaxEstimate:
-    def test_renders_without_exception(self, capsys):
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("60000.00")
-        )
-        render_tax_estimate(est)
-        out = capsys.readouterr().out
-        assert "TEST LLC" in out
-        assert "Net Income" in out
-        assert "TOTAL ESTIMATED TAX" in out
-
-    def test_renders_plain_text_fallback_on_import_error(self, monkeypatch, capsys):
-        import builtins
-
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
-
-        est = TaxEstimator("TEST LLC", 2025).estimate_from_net_income(
-            Decimal("60000.00")
-        )
-
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name.startswith("rich"):
-                raise ImportError("No module named 'rich'")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", mock_import)
-
-        render_tax_estimate(est)
-        out = capsys.readouterr().out
-        assert "=== Tax Estimate – TEST LLC (2025) ===" in out
-        assert "Net Income (annual):" in out
-        assert "60,000.00" in out
+        for income in ("50000.00", "0"):
+            notes = " ".join(
+                TaxEstimator("TEST LLC", 2025).estimate_entity_ptet(Decimal(income)).notes
+            )
+            assert "Entity-level state PTET only" in notes
+            assert "partners' individual estimated taxes are not included" in notes
 
 
 class TestExternalPTEPayments:
@@ -175,19 +152,35 @@ class TestExternalPTEPayments:
         assert est_before.paid_ytd == Decimal("0.00")
         assert est_before.remaining_balance == est_before.total_annual_tax
 
-        rec = api.record_pte_payment(2026, "Q1", Decimal("1300.00"), paid_on="2026-04-15", source="MO-PTEAP")
+        # Entity's first activity is March → Jan/Feb are pre-inception, Q1 is complete,
+        # so the estimate is quarter-to-date through 2026-03, annualized ×4.
+        assert est_before.basis == "quarter_to_date"
+        assert est_before.through_period == "2026-03"
+        assert est_before.ytd_net_income == Decimal("20000.00")  # redaction: allow
+        q1_due = Decimal(str(est_before.quarterly_payments[0]["amount"]))
+
+        # A partial payment does not mark the quarter paid.
+        api.record_pte_payment(2026, "Q1", Decimal("100.00"), paid_on="2026-04-01", source="MO-PTEAP")
+        est_partial = api.pte_estimate(2026)
+        q1_partial = next(p for p in est_partial.quarterly_payments if p["quarter"] == "Q1")
+        assert q1_partial["status"] == "partial"
+        assert api.build_customer_summary(2026, as_of="2026-03-31").pte_due_signal[
+            "next_due"
+        ] == "April 15"
+
+        # record_pte_payment stores ONE amount per quarter (re-recording replaces it).
+        rec = api.record_pte_payment(2026, "Q1", q1_due, paid_on="2026-04-15", source="MO-PTEAP")
         assert rec["quarter"] == "Q1"
-        assert rec["amount"] == "1300.00"  # redaction: allow
 
         est_after = api.pte_estimate(2026)
-        assert est_after.paid_ytd == Decimal("1300.00")  # redaction: allow
-        assert est_after.remaining_balance == est_before.total_annual_tax - Decimal("1300.00")  # redaction: allow
+        assert est_after.paid_ytd == q1_due
+        assert est_after.remaining_balance == est_before.total_annual_tax - q1_due
         q1_entry = next(p for p in est_after.quarterly_payments if p["quarter"] == "Q1")
         assert q1_entry["status"] == "paid"
-        assert q1_entry["paid_amount"] == 1300.0  # redaction: allow
+        assert Decimal(str(q1_entry["paid_amount"])) == q1_due
 
         summary = api.build_customer_summary(2026, as_of="2026-03-31")
-        assert summary.pte_due_signal["paid_ytd"] == "1300.00"  # redaction: allow
-        # Q1 is already paid, so next_due advances to Q2 (June 15)
+        assert Decimal(summary.pte_due_signal["paid_ytd"]) == q1_due
+        # Q1 is fully paid, so next_due advances to Q2 (June 15)
         assert summary.pte_due_signal["next_due"] == "June 15"
 

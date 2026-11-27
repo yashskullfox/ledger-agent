@@ -43,7 +43,7 @@ def _load_corpus() -> dict:
         )
         sys.exit(2)
     try:
-        with CORPUS_PATH.open() as f:
+        with CORPUS_PATH.open(encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         print(
@@ -71,7 +71,7 @@ def _staged_files() -> list[Path]:
 def _build_allowlist() -> set:
     tokens = set()
     if ALLOWLIST_FILE.exists():
-        for line in ALLOWLIST_FILE.read_text().splitlines():
+        for line in ALLOWLIST_FILE.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
                 tokens.add(line.lower())

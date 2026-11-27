@@ -14,7 +14,7 @@ logs = sorted(audit_dir.glob("run-*.jsonl"))
 events = Counter()
 skipped_lines = 0
 for log in logs:
-    for line in log.read_text().splitlines():
+    for line in log.read_text(encoding="utf-8").splitlines():
         try:
             events[json.loads(line).get("event", "")] += 1
         except (json.JSONDecodeError, KeyError):

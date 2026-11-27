@@ -354,7 +354,7 @@ class BalanceSheetBuilder:
         #
         # Equity components:
         #   1. Capital contributions (coa_code 3010, credits from all periods)
-        #   2. Distributions (coa_code 3010, debits — negative amounts)
+        #   2. Distributions (coa_code 3010 debits, plus 3040 owner draws — negative amounts)
         #   3. Prior-period retained earnings (net income from all periods except current)
         #   4. Current-period net income (rev – exp computed above)
         #
@@ -365,19 +365,23 @@ class BalanceSheetBuilder:
         from ledger_agent.core.database import get_conn
         with get_conn() as _conn:
             _all_rows = _conn.execute(
-                "SELECT coa_code, amount, is_transfer FROM transactions"
+                "SELECT coa_code, amount, is_transfer, statement_period FROM transactions"
                 " WHERE account_id IN "
                 "(SELECT id FROM accounts WHERE entity_id=?)",
                 (self.entity_id,),
             ).fetchall()
 
         capital_net = Decimal("0")  # net of all 3010 credits/debits (contributions – distributions)
+        distributions = Decimal("0")  # 3040 owner draws through this period (negative)
         for row in _all_rows:
             code = row[0]  # coa_code
             amt = Decimal(str(row["amount"]))  # amount
             # Capital contributions / distributions
             if code == "3010":
                 capital_net += amt  # credits positive, debits negative
+            # C-04: members' distributions / owner draws (3040) reduce equity.
+            elif code == "3040" and (row["statement_period"] or "") <= self.period:
+                distributions += amt  # outflows are negative
             # Retained earnings from other-period revenue/expense transactions
             # (skipped — balance sheet only aggregates current period P&L above;
             #  prior periods would require a full multi-period sweep which is out
@@ -387,12 +391,14 @@ class BalanceSheetBuilder:
         # This is the *residual* (plug for prior periods when multi-period data is absent),
         # but now the CURRENT PERIOD IS NOT double-counted.
         # If the entity has more than one period in the DB, capital_net accumulates properly.
-        retained_earnings_balance = total_assets - total_liab - capital_net - net_income
+        retained_earnings_balance = (
+            total_assets - total_liab - capital_net - distributions - net_income
+        )
         # Clamp tiny floating-point residuals to zero for readability
         if abs(retained_earnings_balance) < Decimal("0.005"):
             retained_earnings_balance = Decimal("0")
 
-        total_equity = capital_net + retained_earnings_balance + net_income
+        total_equity = capital_net + distributions + retained_earnings_balance + net_income
 
         bs.lines.append(BalanceSheetLine("3000", "Members' Equity", Decimal("0"),
                                          COAType.EQUITY, indent=0))
@@ -400,6 +406,11 @@ class BalanceSheetBuilder:
             "3010", "Capital Contributions (net)",
             capital_net, COAType.EQUITY, indent=2,
         ))
+        if distributions:
+            bs.lines.append(BalanceSheetLine(
+                "3040", "Members' Distributions / Owner Draws",
+                distributions, COAType.EQUITY, indent=2,
+            ))
         bs.lines.append(BalanceSheetLine(
             "3020", "Retained Earnings (Prior Periods)",
             retained_earnings_balance, COAType.EQUITY, indent=2,

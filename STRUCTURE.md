@@ -314,7 +314,7 @@ assert len(TOOL_SCHEMAS) == 7
 
 **Privacy test (ARCH-07):**
 ```bash
-pytest tests/integration/test_mcp_privacy.py -q   # 14 tests
+pytest tests/unit/test_mcp_privacy_unit.py -q   # 14 tests
 ```
 
 ---
@@ -441,7 +441,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 pytest -q                                                       # 584 passed, 10 xfailed (2026-11-23, with data/db/financials.db present; integration modules skip without it)
 pytest tests/architecture/test_core_purity.py -q               # ARCH-02 (38)
-pytest tests/integration/test_mcp_privacy.py -q                # ARCH-07 (14)
+pytest tests/unit/test_mcp_privacy_unit.py -q                # ARCH-07 (14)
 pytest -m parity tests/integration/test_2024_cpa_parity.py -q  # ARCH-12 (skip w/o corpus)
 pytest --cov=. --cov-report=term-missing                        # coverage
 ```

@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ledger_agent.core.exceptions import ParserGap
+from ledger_agent.core.intelligence.owner_draws import apply_owner_draw_rule
 from ledger_agent.core.models import (
     AccountSnapshot,
     ParsedStatement,
@@ -532,7 +533,7 @@ class BrokerZParser(BaseStatementParser):
                     coa_code = "4090" if amt > 0 else "5090"
                     coa_name = "Other Income" if amt > 0 else "Other Expense"
 
-                txns.append(Transaction(
+                txn = Transaction(
                     account_id="",
                     date=d,
                     description=desc,
@@ -543,7 +544,10 @@ class BrokerZParser(BaseStatementParser):
                     is_transfer=is_xfer,
                     coa_code=coa_code,
                     coa_name=coa_name,
-                ))
+                )
+                # C-04 / D2: disbursement to an owner's own account → 3040 draw
+                apply_owner_draw_rule(txn)
+                txns.append(txn)
             if txns:
                 return txns
 
@@ -575,7 +579,7 @@ class BrokerZParser(BaseStatementParser):
             else:
                 txn_type = TransactionType.CREDIT if amt > 0 else TransactionType.DEBIT
 
-            legacy_txns.append(Transaction(
+            legacy_txn = Transaction(
                 account_id="",
                 date=txn_date,
                 description=m.group(2).title(),
@@ -584,7 +588,9 @@ class BrokerZParser(BaseStatementParser):
                 transaction_type=txn_type,
                 statement_period=period,
                 is_transfer=("deposit" in txn_kind or "withdrawal" in txn_kind),
-            ))
+            )
+            apply_owner_draw_rule(legacy_txn)  # C-04 / D2
+            legacy_txns.append(legacy_txn)
         return legacy_txns
 
     _INTEREST_LINE_RE = re.compile(

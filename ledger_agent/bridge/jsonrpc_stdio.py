@@ -17,6 +17,7 @@ _TOOL_METHODS = frozenset({
     "pte_estimate",
     "reconcile_year",
     "customer_summary",
+    "audit_year",
 })
 
 
