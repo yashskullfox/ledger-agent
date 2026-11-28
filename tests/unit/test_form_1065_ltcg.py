@@ -29,6 +29,9 @@ def ledger_db(tmp_path, monkeypatch):
     # Point the wash-sale overlay at a file that does not exist so only the
     # synthetic ledger is used unless a test supplies its own CSV.
     monkeypatch.setenv("FI_WASH_SALE_CSV", str(tmp_path / "absent.csv"))
+    import ledger_agent.core.accounting.wash_sale as wash_sale
+
+    monkeypatch.setattr(wash_sale, "_DEFAULT_CSV", tmp_path / "absent-default.csv")
     init_db(db_file)
     EntityRepo.upsert(
         Entity(id="ent-ltcg", name="ENTITY_A", entity_type="LLC", state="MO"), db_file

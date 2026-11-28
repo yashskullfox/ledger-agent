@@ -11,7 +11,7 @@
 |----------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------|---------------------------------------|
 | **A — Core library**       | Pure-Python engine: parsers, classifiers, accounting, tax, reporting. No UI, no network.                | `import ledger_agent.core.api`                    | `pip install ledger-agent-core`       |
 | **B — CLI runner**         | Interactive terminal UI; reads a folder, prompts when needed, writes CSV/JSON exports.                  | `ledger` shell command · `./run.sh`               | `pip install ledger-agent-cli`        |
-| **C — MCP server**         | Spec-compliant MCP (stdio + HTTP). Privacy firewall on every egress.                                    | `ledger-agent-mcp` · `python -m ledger_agent.mcp` | `pip install ledger-agent-mcp`        |
+| **C — MCP server**         | Spec-compliant MCP (stdio + HTTP). Privacy firewall on every egress.                                    | `ledger-agent-mcp` · `python -m ledger_agent.mcp` | `pip install "ledger-agent[http]"`    |
 | **D — Spring Boot webapp** | Self-contained fat jar — Spring Boot + embedded Python bridge. No install needed on the user's machine. | `java -jar ledger-agent-webapp.jar`               | download fat jar from GitHub Releases |
 
 All four forms are built from this single repository and produce **identical numbers** for every report.
@@ -41,15 +41,16 @@ run.bat scan C:\Users\you\statements
 ### Form C — MCP server (AI agents / Claude Desktop)
 
 ```bash
-pip install ledger-agent-mcp
+pip install ledger-agent
 ledger-agent-mcp                          # stdio transport (default)
 ```
 
 **HTTP transport** (streamable-HTTP on `http://127.0.0.1:7337/mcp`) requires a bearer token of
-at least 32 characters and refuses to start without one. It also needs `uvicorn`
-(`pip install uvicorn`):
+at least 32 characters and refuses to start without one. It also needs `uvicorn`, provided by
+the `http` extra (`pip install "ledger-agent[http]"`, or `pip install uvicorn`):
 
 ```bash
+pip install "ledger-agent[http]"
 export FI_MCP_HTTP_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ledger-agent-mcp --transport http         # binds 127.0.0.1:7337 only
 # client: POST /mcp with "Authorization: Bearer $FI_MCP_HTTP_TOKEN"
@@ -136,7 +137,7 @@ Eight tools, one per core operation. Privacy firewall (R-46) applied to every re
 | `generate_balance_sheet` | GAAP-style year-end balance sheet.                   |
 | `generate_form_1065`     | Form 1065 partnership return data.                   |
 | `generate_k1`            | Schedule K-1 for `partner_1` or `partner_2`.           |
-| `pte_estimate`           | Quarterly estimated tax payments + due dates.        |
+| `pte_estimate`           | Entity-level state PTET estimate + quarterly schedule. Optional `basis`: `auto` (default; quarter-to-date unless all 12 months are covered) or `full_year`. |
 | `reconcile_year`         | Inter-account transfer reconciliation.               |
 | `build_customer_summary` | High-level summary (W27 contract).                   |
 | `audit_year`             | Self-audit: tie-out, continuity, coverage, K-1 tie.  |
@@ -160,10 +161,7 @@ otherwise it is ignored and the response is redacted. The stdio transport is unc
 | `FI_AUTO_CLASSIFY_THRESHOLD`    | `85`                    | Fuzzy match score for auto-classification         |
 | `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65`                  | Escalation threshold to remote AI                 |
 | `FI_LOG_LEVEL`                  | `INFO`                  | `DEBUG` / `INFO` / `WARNING` / `ERROR`            |
-| `FI_SE_TAX_RATE`                | `0.153`                 | Self-employment tax rate                          |
-| `FI_FED_INCOME_RATE`            | `0.22`                  | Federal income tax estimate rate                  |
-| `FI_STATE_TAX_RATE`             | `0.05`                  | Missouri PTE tax rate                             |
-| `FI_QBI_DEDUCTION`              | `0.20`                  | Qualified Business Income deduction               |
+| `FI_STATE_TAX_RATE`             | `0.05`                  | Entity-level state PTET rate                      |
 | `LEDGER_PYTHON_HOME`            | —                       | Python home for Form D fat jar runtime extraction |
 
 ---

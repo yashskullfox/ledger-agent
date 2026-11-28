@@ -28,13 +28,11 @@ Copy `.env.example` → `.env` and fill in your values.
 | `FI_ANTHROPIC_EFFORT` | `low` | No | `output_config.effort` sent to Anthropic (`low`/`medium`/`high`); `none` omits it for models that do not support effort |
 | `FI_AUTO_CLASSIFY_THRESHOLD` | `85` | No | Fuzzy match score for auto-classify (0–100) |
 | `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65` | No | AI confidence threshold for escalation (0.0–1.0) |
-| `FI_LOG_LEVEL` | `INFO` | No | Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `FI_LOG_LEVEL` | `INFO` | No | Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. Log output on stderr is always redacted; the bridge needs `FI_BRIDGE_DEBUG=1` for `DEBUG` |
 | `FI_LOG_FORMAT` | `rich` | No | Log format: `rich`, `json`, `plain` |
+| `FI_BRIDGE_DEBUG` | `0` | No | Set to `1` to let the JSON-RPC bridge (Form D) honour `FI_LOG_LEVEL=DEBUG`. Without it the bridge refuses DEBUG, caps its logging at INFO and logs one WARNING (no values), because the Java process inherits the bridge's stderr. Even with it, every log line (message, arguments, traceback, stack, extra fields) is redacted before it reaches stderr (P-14) |
 | `FI_FISCAL_YEAR_START_MM` | `1` | No | Fiscal year start month (1 = January) |
-| `FI_SE_TAX_RATE` | `0.153` | No | Self-employment tax rate |   # redaction: allow
-| `FI_FED_INCOME_RATE` | `0.22` | No | Federal income tax effective rate |   # redaction: allow
-| `FI_STATE_TAX_RATE` | `0.048` | No | State income tax rate |   # redaction: allow
-| `FI_QBI_DEDUCTION` | `0.20` | No | QBI pass-through deduction (IRC §199A) |   # redaction: allow
+| `FI_STATE_TAX_RATE` | `0.05` | No | Entity-level state PTET rate: the PTE estimate is this rate × entity taxable income. The only tax-rate setting (the individual SE / federal / QBI settings were retired) |
 | `FI_AI_EGRESS_MODE` | `redact` | No | PII egress mode: `redact`, `strict`, `mock`, `passthrough` |
 | `FI_AI_EGRESS_MODE_ACK` | _(none)_ | When mode=`passthrough` | Risk acknowledgement string |
 | `FI_PRIVACY_ENTITY_NAME` | _(none)_ | No | Legal entity name to redact in AI payloads |

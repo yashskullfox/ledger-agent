@@ -6,9 +6,9 @@ All heavy logic lives in parsers / intelligence / accounting / reports.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from config import STATEMENTS_DIR
 from ledger_agent.cli.prompts import (
     ask_confirm,
     ask_select,
@@ -20,6 +20,7 @@ from ledger_agent.cli.prompts import (
     prompt_statement_file,
     wizard_entity,
 )
+from ledger_agent.core.config import STATEMENTS_DIR
 from ledger_agent.core.database import (
     AccountRepo,
     EntityRepo,
@@ -31,6 +32,8 @@ from ledger_agent.core.database import (
 )
 from ledger_agent.core.exceptions import ParserNotFoundError
 from ledger_agent.core.models import Account, AccountType, Entity, StatementType
+
+log = logging.getLogger(__name__)
 
 
 def cmd_setup() -> Entity:
@@ -66,6 +69,11 @@ def _get_or_setup_entity() -> Entity | None:
     names = [e.name for e in entities]
     choice = ask_select("Select entity:", choices=names)
     return next((e for e in entities if e.name == choice), entities[0])
+
+
+def _entity_account_ids(entity_id: str) -> list[str]:
+    """Account ids owned by ``entity_id`` (ARCH-30 / R-09 entity isolation scope)."""
+    return [a.id for a in AccountRepo.list_for_entity(entity_id)]
 
 
 def cmd_import(pdf_path: str | None = None) -> None:
@@ -159,10 +167,29 @@ def cmd_import(pdf_path: str | None = None) -> None:
     else:
         print_info("  → All transactions pre-classified.")
 
-    all_txns = TransactionRepo.list_for_period(stmt.statement_period)
+    # C-12: the C-03 transfer-candidate pass for the account's entity, after classify
+    # and before the reconcile below (so newly confirmed transfers get reconciled).
+    # Best-effort, as in api.import_statements.
+    if stmt.transactions and acct.entity_id:
+        try:
+            from ledger_agent.core import api
+            n_confirmed = api.confirm_transfer_candidates(acct.entity_id)
+            if n_confirmed:
+                print_success(f"Confirmed {n_confirmed} internal transfer leg(s).")
+        except Exception as xfer_exc:
+            log.warning("Transfer-candidate confirmation skipped: %s", xfer_exc)
+
+    # ARCH-30 / R-09: pair transfers only within the entity that owns the imported
+    # account (not the entity picked above, which a found account may not belong to).
+    all_txns = TransactionRepo.list_for_periods(
+        [stmt.statement_period], account_ids=_entity_account_ids(acct.entity_id)
+    )
     from ledger_agent.core.intelligence.reconciler import reconcile
     matches, unmatched = reconcile(all_txns)
     if matches:
+        # R-03: persist is_reconciled on both legs of every matched pair.
+        from ledger_agent.core.intelligence.reconciler import matched_leg_ids
+        TransactionRepo.mark_reconciled(matched_leg_ids(matches))
         print_success(f"Reconciled {len(matches)} inter-account transfer(s).")
     if unmatched:
         print_warning(f"{len(unmatched)} unmatched transfer(s) – see reconciliation report.")
@@ -235,7 +262,8 @@ def cmd_transactions(period: str | None = None) -> None:
     if not period:
         period = ask_select("Select period:", choices=periods, default=periods[0])
 
-    txns = TransactionRepo.list_for_period(period)
+    # ARCH-30 / R-09: only the selected entity's rows (the CSV export reuses them).
+    txns = TransactionRepo.list_for_periods([period], account_ids=_entity_account_ids(entity.id))
     from ledger_agent.core.reports.renderer import render_transactions
     render_transactions(txns, title=f"Transactions  –  {period}")
 
@@ -246,10 +274,20 @@ def cmd_transactions(period: str | None = None) -> None:
 
 
 def cmd_classify() -> None:
-    """Interactively classify any unclassified transactions."""
+    """Interactively classify the selected entity's unclassified transactions."""
     init_db()
-    from ledger_agent.core.database import TransactionRepo
-    unclassified = TransactionRepo.list_unclassified()
+    # ARCH-30 / R-09: same entity selection as the other commands (one entity → no
+    # prompt; several → "Select entity:"), but never the setup wizard: with no entity
+    # there is nothing to attribute rows to, so fail closed.
+    if not EntityRepo.list_all():
+        print_warning("No entity configured. Nothing to classify.")
+        return
+    entity = _get_or_setup_entity()
+    if not entity:
+        return
+    unclassified = TransactionRepo.list_unclassified(
+        account_ids=_entity_account_ids(entity.id)
+    )
     if not unclassified:
         print_success("All transactions are classified!")
         return

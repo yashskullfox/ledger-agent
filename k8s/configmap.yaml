@@ -28,8 +28,5 @@ data:
   ## FI_DB_PATH comes from the Secret (it may contain a sensitive path)
   FI_AI_BACKEND: "local"          # local | openai | gemini
   FI_AI_EGRESS_MODE: "redact"     # redact | strict | mock | passthrough
-  FI_SE_TAX_RATE: "0.153"
-  FI_FED_INCOME_RATE: "0.22"
   FI_STATE_TAX_RATE: "0.05"
-  FI_QBI_DEDUCTION: "0.20"
   FI_AUTO_CLASSIFY_THRESHOLD: "85"

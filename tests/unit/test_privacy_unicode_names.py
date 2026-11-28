@@ -19,7 +19,7 @@ import re
 
 import pytest
 
-import config as _cfg
+from ledger_agent.core import config as _cfg
 from ledger_agent.core import privacy
 from ledger_agent.core.privacy import audit_egress, redact
 

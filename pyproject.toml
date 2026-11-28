@@ -57,6 +57,9 @@ ai = [
 dotenv = [
     "python-dotenv>=1.2.3",
 ]
+http = [
+    "uvicorn>=0.30.0",
+]
 dev = [
     "pytest>=8.4.2",
     "pytest-cov>=5.0.0",
@@ -71,6 +74,7 @@ all = [
     "anthropic>=0.40.0",
     "tenacity>=8.3.0",
     "python-dotenv>=1.2.3",
+    "uvicorn>=0.30.0",
     "pytest>=8.4.2",
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.12.0",
@@ -88,7 +92,14 @@ Issues = "https://github.com/your-org/ledger-agent/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["tests*", "data*", ".venv*", ".agents*"]
+# private* : a local private/__init__.py (gitignored) would otherwise ship real
+# detection tokens inside a wheel built from a working checkout.
+exclude = ["tests*", "data*", ".venv*", ".agents*", "private*"]
+
+# Non-.py file privacy.py reads at runtime (no MANIFEST.in / setuptools-scm here,
+# so it would be missing from a wheel otherwise).
+[tool.setuptools.package-data]
+"ledger_agent.core" = ["privacy_allowlist.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

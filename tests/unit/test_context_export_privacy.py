@@ -12,6 +12,11 @@ an LLM.  These tests pin that
 * ``ClassificationMemory.remember`` never persists a raw pattern when redaction fails.
 
 Synthetic tmp_path databases and pseudonymous names only; no real data.
+
+P-16: ``generated_at`` is frozen for every test.  With the real clock, its 6 microsecond
+digits contain the synthetic last-4 about 3 times in 10,000 builds, which made the needle
+scan fail intermittently on a timestamp, not on leaked text.  Needle hits are reported
+as category names only, never the scanned text.
 """
 from __future__ import annotations
 
@@ -23,7 +28,7 @@ from decimal import Decimal
 
 import pytest
 
-import config as _cfg
+from ledger_agent.core import config as _cfg
 from ledger_agent.core import privacy
 
 FY = 2026
@@ -38,22 +43,28 @@ CHK = "acct-p06-chk"
 CC = "acct-p06-cc"
 BRK = "acct-p06-brk"
 
-# Lower-cased; none may appear in the export (compared with str.casefold()).
-NEEDLES = (
-    "entity_a",            # entity name (also inside an account name)
-    "testpartner",         # partner name (in a card account name and a description)
-    "bank_x3",             # institution
-    "broker_z",            # institution
-    "reservefund",         # account name
-    MASK_LAST4,            # masked number in an account name and a description
-    ACCT_NUMBER,           # full account number in a description
-)
+# category → needle (lower-cased); none may appear in the export (str.casefold()).
+NEEDLES = {
+    "entity_name": "entity_a",          # also inside an account name
+    "partner_name": "testpartner",      # in a card account name and a description
+    "institution_bank": "bank_x3",
+    "institution_broker": "broker_z",
+    "account_name": "reservefund",
+    "masked_last4": MASK_LAST4,         # in an account name and a description
+    "account_number": ACCT_NUMBER,      # full number in a description
+}
+
+# P-16: fixed export timestamp; its digits hold none of the needles.
+FROZEN_NOW = "2026-01-31T00:00:00+00:00"
 
 ACCOUNT_LABEL_RE = re.compile(r"^<INSTITUTION_\d+> – <ACCOUNT_\d+>$")
 
 
 @pytest.fixture(autouse=True)
 def _privacy_env(monkeypatch):
+    import adapters.context_builder as context_builder
+
+    monkeypatch.setattr(context_builder, "_now_iso", lambda: FROZEN_NOW)  # P-16
     monkeypatch.setattr(_cfg, "AI_EGRESS_MODE", "redact")
     monkeypatch.setattr(_cfg, "PRIVACY_ENTITY_NAME", "")
     monkeypatch.delenv("FI_PRIVACY_ENTITY_NAME", raising=False)
@@ -136,6 +147,15 @@ def p06_db(tmp_path, monkeypatch):
     return db_file
 
 
+@pytest.fixture
+def export_root(tmp_path, monkeypatch):
+    """save_context only writes inside config.DATA_DIR (X-06): point it at tmp_path."""
+    from ledger_agent.core import config as core_config
+
+    monkeypatch.setattr(core_config, "DATA_DIR", tmp_path)
+    return tmp_path
+
+
 def _build():
     from adapters.context_builder import build_context
 
@@ -148,9 +168,15 @@ def _egress_text(ctx) -> str:
     return json.dumps(ctx, ensure_ascii=False, default=str) + "\n" + context_to_prompt(ctx)
 
 
-def _hits(text: str) -> int:
+def _hits(text: str) -> list[str]:
+    """Categories of the needles found in ``text`` (names only, never the values)."""
     folded = text.casefold()
-    return sum(1 for n in NEEDLES if n.casefold() in folded)  # count only, never echo
+    return [cat for cat, needle in NEEDLES.items() if needle.casefold() in folded]
+
+
+def _assert_no_identifier(text: str) -> None:
+    found = _hits(text)  # a local, so a failure shows categories, not the text
+    assert found == [], f"identifier categories in the egress text: {found}"
 
 
 def _lines_by_code(ctx, code: str) -> list[dict]:
@@ -166,10 +192,33 @@ def _boom(*_a, **_kw):
 def test_context_and_prompt_carry_no_identifier(p06_db):
     ctx = _build()
     text = _egress_text(ctx)
-    assert _hits(text) == 0
+    _assert_no_identifier(text)
     assert privacy.contains_account_reference(text) is None
     assert not privacy.contains_protected_name(text)
     privacy.audit_egress(ctx)  # does not raise
+
+
+def test_generated_at_is_frozen(p06_db):
+    """P-16: the export timestamp is fixed, so the needle scan cannot depend on the clock."""
+    assert _build()["generated_at"] == FROZEN_NOW
+    assert _hits(FROZEN_NOW) == []
+
+
+def test_clock_digits_can_match_a_needle_without_a_leak(p06_db, monkeypatch):
+    """P-16 root cause, pinned: real-clock microseconds can hold the synthetic last-4.
+
+    That is a needle hit on the timestamp, not a leaked identifier: the redactor and
+    the audit rightly see no account reference.  Hence the frozen clock above."""
+    import adapters.context_builder as context_builder
+
+    stamp = f"2026-11-28T10:20:30.0{MASK_LAST4}0+00:00"
+    monkeypatch.setattr(context_builder, "_now_iso", lambda: stamp)
+    ctx = _build()  # the real audit passes
+    found = _hits(_egress_text(ctx))
+    assert found == ["masked_last4"]
+    ctx.pop("generated_at")
+    _assert_no_identifier(_egress_text(ctx))
+    assert privacy.contains_account_reference(stamp) is None
 
 
 def test_non_vacuous_seed_does_contain_identifiers(p06_db):
@@ -181,7 +230,8 @@ def test_non_vacuous_seed_does_contain_identifiers(p06_db):
         + [t.description for t in TransactionRepo.list_for_period(PERIOD)]
         + [ENTITY_NAME]
     )
-    assert _hits(raw) == len(NEEDLES)
+    found = _hits(raw)
+    assert found == list(NEEDLES)
 
 
 def test_labels_use_stable_placeholders(p06_db):
@@ -208,24 +258,24 @@ def test_labels_use_stable_placeholders(p06_db):
 
 
 def test_unknown_account_label_shape_falls_back_to_fixed_token(p06_db, monkeypatch):
-    import mcp_server.server as legacy
+    from ledger_agent.core import labels  # P-12: tokeniser moved out of mcp_server
 
-    monkeypatch.setattr(legacy, "_account_label_map", lambda _eid: {})
+    monkeypatch.setattr(labels, "account_label_map", lambda _eid: {})
     ctx = _build()
     for code in ("1010", "1100_acct", "2030"):
         assert [ln["label"] for ln in _lines_by_code(ctx, code)] == ["<ACCOUNT>"]
-    assert _hits(_egress_text(ctx)) == 0
+    _assert_no_identifier(_egress_text(ctx))
 
 
 def test_account_tokeniser_failure_fails_closed(p06_db, monkeypatch):
-    import mcp_server.server as legacy
+    from ledger_agent.core import labels  # P-12: tokeniser moved out of mcp_server
 
-    monkeypatch.setattr(legacy, "_account_tokens", _boom)
+    monkeypatch.setattr(labels, "account_tokens", _boom)
     ctx = _build()
     assert [p["account"] for p in ctx["positions"]] == ["<REDACTED>"]
     for code in ("1010", "1100_acct", "2030"):
         assert [ln["label"] for ln in _lines_by_code(ctx, code)] == ["<ACCOUNT>"]
-    assert _hits(_egress_text(ctx)) == 0
+    _assert_no_identifier(_egress_text(ctx))
 
 
 # ── 2. Redaction error → field dropped, never raw ─────────────────────────────
@@ -244,14 +294,14 @@ def test_redaction_error_drops_every_free_text_field(p06_db, monkeypatch):
                 "Credit Card Payable – <INSTITUTION_")
         else:
             assert ln["label"] == "<REDACTED>"
-    assert _hits(_egress_text(ctx)) == 0
+    _assert_no_identifier(_egress_text(ctx))
 
 
 def test_redaction_returning_non_string_is_dropped(p06_db, monkeypatch):
     monkeypatch.setattr(privacy, "redact", lambda *_a, **_kw: (None, {}))
     ctx = _build()
     assert {t["description"] for t in ctx["transactions"]} == {"<REDACTED>"}
-    assert _hits(_egress_text(ctx)) == 0
+    _assert_no_identifier(_egress_text(ctx))
 
 
 # ── 3. audit_egress failure → export aborted, nothing written ─────────────────
@@ -270,7 +320,7 @@ def test_audit_failure_aborts_build_without_echo(p06_db, monkeypatch):
     assert "nothing was written" in str(exc_info.value)
 
 
-def test_audit_failure_on_save_writes_nothing(p06_db, tmp_path, monkeypatch):
+def test_audit_failure_on_save_writes_nothing(p06_db, tmp_path, export_root, monkeypatch):
     from adapters.context_builder import ContextExportBlocked, save_context
 
     ctx = _build()
@@ -291,7 +341,7 @@ def test_audit_failure_on_prompt_raises(p06_db, monkeypatch):
         context_to_prompt(ctx)
 
 
-def test_real_audit_blocks_a_tampered_context(p06_db, tmp_path):
+def test_real_audit_blocks_a_tampered_context(p06_db, tmp_path, export_root):
     """A context carrying a raw name (e.g. built by hand) is refused by the real audit."""
     from adapters.context_builder import ContextExportBlocked, save_context
 
@@ -303,12 +353,12 @@ def test_real_audit_blocks_a_tampered_context(p06_db, tmp_path):
     assert not out.exists()
 
 
-def test_save_context_writes_the_audited_file(p06_db, tmp_path):
+def test_save_context_writes_the_audited_file(p06_db, tmp_path, export_root):
     from adapters.context_builder import save_context
 
     out = save_context(_build(), tmp_path / "exports" / "ai_context.json")
-    text = out.read_text()
-    assert _hits(text) == 0
+    text = out.read_text(encoding="utf-8")
+    _assert_no_identifier(text)
     assert json.loads(text)["entity"]["name"] == "<ENTITY_NAME>"
 
 

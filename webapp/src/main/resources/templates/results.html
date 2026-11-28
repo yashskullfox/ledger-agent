@@ -163,6 +163,15 @@
           Est: <span th:text="${summary.pte_due_signal.annual_estimate}">—</span>
           &nbsp;|&nbsp;Due: <span th:text="${summary.pte_due_signal.next_due}">—</span>
         </div>
+        <!-- Q-01: period basis of the tax figures. Map indexing (['key']) yields null
+             for keys absent from older payloads, so the line is simply omitted. -->
+        <div class="sub pte-basis" th:if="${summary.pte_due_signal['basis'] != null}">
+          Basis: <span th:text="${summary.pte_due_signal['basis']}">—</span><th:block
+            th:if="${summary.pte_due_signal['through_period'] != null}"> through <span
+            th:text="${summary.pte_due_signal['through_period']}">—</span></th:block><th:block
+            th:if="${summary.pte_due_signal['months_covered'] != null}"> (<span
+            th:text="${summary.pte_due_signal['months_covered']}">—</span>/12 months complete)</th:block>
+        </div>
       </div>
     </div>
 

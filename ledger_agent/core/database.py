@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from config import DB_PATH
+from ledger_agent.core.config import DB_PATH
 from ledger_agent.core.models import (
     Account,
     AccountSnapshot,
@@ -668,6 +668,52 @@ class TransactionRepo:
                 )
 
     @staticmethod
+    def mark_reconciled(tx_ids: list[str], db_path: Path | None = None) -> int:
+        """R-03: set ``is_reconciled=1`` on the given transaction ids (matched transfer
+        legs).  Idempotent; never clears the flag.  Returns the number of rows updated."""
+        ids = list(dict.fromkeys(tid for tid in tx_ids if tid))
+        if not ids:
+            return 0
+        updated = 0
+        with get_conn(db_path) as conn:
+            for start in range(0, len(ids), 500):  # stay under SQLite's variable limit
+                chunk = ids[start:start + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                cur = conn.execute(
+                    f"UPDATE transactions SET is_reconciled=1 WHERE id IN ({placeholders})",
+                    chunk,
+                )
+                updated += cur.rowcount
+        return updated
+
+    @staticmethod
+    def set_tags(tx_id: str, tags: Sequence[str], db_path: Path | None = None) -> None:
+        """Replace the tag list of one transaction (C-03)."""
+        with get_conn(db_path) as conn:
+            conn.execute(
+                "UPDATE transactions SET tags=? WHERE id=?", (json.dumps(list(tags)), tx_id)
+            )
+
+    @staticmethod
+    def list_transfer_legs(
+        account_ids: Sequence[str],
+        candidate_tag: str,
+        db_path: Path | None = None,
+    ) -> list[Transaction]:
+        """Rows of the given accounts that are internal transfers (``is_transfer=1``)
+        or carry ``candidate_tag`` (C-03 transfer candidates)."""
+        if not account_ids:
+            return []
+        placeholders = ",".join("?" for _ in account_ids)
+        with get_conn(db_path) as conn:
+            rows = conn.execute(
+                f"SELECT * FROM transactions WHERE account_id IN ({placeholders})"
+                " AND (is_transfer=1 OR tags LIKE ?) ORDER BY date, id",
+                [*account_ids, f'%"{candidate_tag}"%'],
+            ).fetchall()
+        return [TransactionRepo._row_to_model(r) for r in rows]
+
+    @staticmethod
     def get_by_id(tx_id: str, db_path: Path | None = None) -> Transaction | None:
         with get_conn(db_path) as conn:
             row = conn.execute(
@@ -716,13 +762,50 @@ class TransactionRepo:
         return [TransactionRepo._row_to_model(r) for r in rows]
 
     @staticmethod
-    def list_unclassified(db_path: Path | None = None) -> list[Transaction]:
+    def list_unclassified(
+        db_path: Path | None = None,
+        account_ids: Sequence[str] | None = None,
+    ) -> list[Transaction]:
+        """Unclassified rows; ``account_ids`` (if given) scopes them to those accounts."""
+        query = "SELECT * FROM transactions WHERE (coa_code='' OR coa_code IS NULL)"
+        params: list = []
+        if account_ids is not None:
+            if not account_ids:
+                return []
+            query += f" AND account_id IN ({','.join('?' for _ in account_ids)})"
+            params.extend(account_ids)
+        query += " ORDER BY date"
+        with get_conn(db_path) as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [TransactionRepo._row_to_model(r) for r in rows]
+
+    @staticmethod
+    def list_recent(
+        account_ids: Sequence[str],
+        limit: int,
+        db_path: Path | None = None,
+    ) -> list[Transaction]:
+        """The ``limit`` most recent rows (by date, newest first) of the given accounts."""
+        if not account_ids or limit <= 0:
+            return []
+        placeholders = ",".join("?" for _ in account_ids)
         with get_conn(db_path) as conn:
             rows = conn.execute(
-                "SELECT * FROM transactions WHERE (coa_code='' OR coa_code IS NULL)"
-                " ORDER BY date"
+                f"SELECT * FROM transactions WHERE account_id IN ({placeholders})"
+                " ORDER BY date DESC LIMIT ?",
+                [*account_ids, limit],
             ).fetchall()
         return [TransactionRepo._row_to_model(r) for r in rows]
+
+    @staticmethod
+    def latest_period(db_path: Path | None = None) -> str | None:
+        """The latest non-empty ``statement_period`` with any transaction, or None."""
+        with get_conn(db_path) as conn:
+            row = conn.execute(
+                "SELECT MAX(statement_period) FROM transactions"
+                " WHERE statement_period IS NOT NULL AND statement_period != ''"
+            ).fetchone()
+        return row[0] if row and row[0] else None
 
     @staticmethod
     def _row_to_model(row: sqlite3.Row) -> Transaction:

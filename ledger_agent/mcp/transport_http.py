@@ -27,8 +27,8 @@ opens, so it must not behave like a public API):
 * Every rejection emits the audit event ``mcp.http.rejected`` (reason and
   status only, never header or body values).
 
-Requires ``uvicorn`` to serve (``pip install uvicorn``); the ASGI app itself
-is stdlib-only.
+Requires ``uvicorn`` to serve (``pip install "ledger-agent[http]"`` or
+``pip install uvicorn``); the ASGI app itself is stdlib-only.
 
 Usage::
 
@@ -369,7 +369,8 @@ def serve_http(host: str = "127.0.0.1", port: int = 7337, dispatch_fn=None) -> N
         import uvicorn  # type: ignore[import]
     except ImportError:
         raise RuntimeError(
-            "HTTP transport requires 'uvicorn'.  Install with: pip install uvicorn"
+            "HTTP transport requires 'uvicorn'.  Install with: "
+            "pip install \"ledger-agent[http]\"  (or: pip install uvicorn)"
         ) from None
 
     app = _build_app(dispatch_fn, token=token, allow_pii=allow_pii)

@@ -32,6 +32,7 @@ This module performs no network I/O itself and imports no HTTP library
 from __future__ import annotations
 
 import json
+import math
 import re
 from abc import abstractmethod
 from collections.abc import Callable, Iterable
@@ -173,7 +174,8 @@ def validate_classification(
     Normalise and validate a classification dict from a remote model.
 
     Raises ValueError if coa_code is missing or not a known COA code, or if
-    confidence is not numeric.  Confidence is clamped to [0.0, 1.0].
+    confidence is not numeric (NaN and +/-inf count as non-numeric).
+    Confidence is clamped to [0.0, 1.0].
     """
     if not isinstance(result, dict):
         raise ValueError("classification is not a JSON object")
@@ -198,7 +200,7 @@ def validate_classification(
         confidence = float(conf_raw)
     except (TypeError, ValueError) as exc:
         raise ValueError("confidence must be numeric") from exc
-    if confidence != confidence:  # NaN
+    if math.isnan(confidence) or math.isinf(confidence):
         raise ValueError("confidence must be numeric")
     confidence = max(0.0, min(1.0, confidence))
 
@@ -279,7 +281,7 @@ class RemoteAIBackend(AIBackend):
 
     @staticmethod
     def _egress_mode() -> str:
-        from config import AI_EGRESS_MODE  # read at call time (tests mutate it)
+        from ledger_agent.core.config import AI_EGRESS_MODE  # read at call time (tests mutate it)
         return AI_EGRESS_MODE
 
     def _redact(self, text: str) -> tuple[str, dict[str, str]]:

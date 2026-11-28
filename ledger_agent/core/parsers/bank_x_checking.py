@@ -19,6 +19,7 @@ import re
 from decimal import Decimal
 from pathlib import Path
 
+from ledger_agent.core.intelligence.classifier import TRANSFER_CANDIDATE_TAG
 from ledger_agent.core.models import (
     AccountSnapshot,
     ParsedStatement,
@@ -33,6 +34,34 @@ try:
     from private.institutions import BANK_X as _CFG  # type: ignore
 except ImportError:
     _CFG = {"detect": [], "intra_xfer_keywords": []}
+
+# C-13 (mirrors C-03 in bank_x2 / bank_x4): a money-movement rail word.  Letter
+# boundaries keep "WIRELESS" / "WIRED" out; "TRANSFER" may carry a glued suffix.
+_RAIL_RE = re.compile(
+    r"(?<![^\W\d_])(?:ZELLE|TRANSFER|WIRE(?:\s*(?:TRANSFER|INCOMING|OUTGOING|IN|OUT))?"
+    r"(?![^\W\d_]))"
+)
+# A rail row naming a fee ("WIRE TRANSFER FEE") is a bank charge, not a transfer.
+_FEE_RE = re.compile(r"(?<![^\W\d_])FEES?(?![^\W\d_])")
+# Wording that names the entity's own counterparty account (card payoff).
+_OWN_ACCOUNT_CUES = ("CREDIT CARD",)
+
+
+def _transfer_flags(desc: str) -> tuple[bool, bool]:
+    """C-13: ``(is_rail, internal)`` for one Bank X row.
+
+    Internal on its own only with an own-account cue: the private
+    ``intra_xfer_keywords`` (any row) or a card-payoff phrase on a rail row.  Other
+    ZELLE / WIRE / TRANSFER rows are ``transfer_candidate`` rows: not internal and not
+    coded here; ``api.import_statements`` promotes them only when the opposite leg is
+    in another account of the same entity.
+    """
+    up = desc.upper()
+    kw = _CFG.get("intra_xfer_keywords", []) or []
+    if any(k.upper() in up for k in kw):
+        return True, True
+    is_rail = bool(_RAIL_RE.search(up)) and not _FEE_RE.search(up)
+    return is_rail, is_rail and any(c in up for c in _OWN_ACCOUNT_CUES)
 
 
 @ParserRegistry.register
@@ -168,14 +197,22 @@ class BankXCheckingParser(BaseStatementParser):
             d = self.parse_date(raw_date, year)
             amt = self.parse_amount(amt_str)
             if d and amt is not None:
+                txn_type = self._classify_debit_type(desc)
+                is_rail, internal = (
+                    _transfer_flags(desc) if txn_type == TransactionType.DEBIT else (False, False)
+                )
+                if is_rail:
+                    txn_type = TransactionType.TRANSFER_OUT
                 txns.append(Transaction(
                     account_id="",
                     date=d,
                     description=self._clean_desc(desc),
                     raw_description=desc,
                     amount=-abs(amt),  # debits are negative
-                    transaction_type=self._classify_debit_type(desc),
+                    transaction_type=txn_type,
                     statement_period=self.period_from_date(d),
+                    is_transfer=internal,
+                    tags=[TRANSFER_CANDIDATE_TAG] if is_rail and not internal else [],
                 ))
         return txns
 
@@ -200,14 +237,12 @@ class BankXCheckingParser(BaseStatementParser):
             end_pattern=r"Total\s*deposits",
         )
         txns = []
-        kw = _CFG.get("intra_xfer_keywords", []) or []
         for raw_date, desc, amt_str in self._parse_tx_lines(section):
             d = self.parse_date(raw_date, year)
             amt = self.parse_amount(amt_str)
             if d and amt is not None:
-                desc_upper = desc.upper()
-                is_intra = any(k in desc_upper for k in kw)
-                txn_type = TransactionType.TRANSFER_IN if is_intra else TransactionType.CREDIT
+                is_rail, internal = _transfer_flags(desc)
+                txn_type = TransactionType.TRANSFER_IN if is_rail else TransactionType.CREDIT
                 txns.append(Transaction(
                     account_id="",
                     date=d,
@@ -216,7 +251,8 @@ class BankXCheckingParser(BaseStatementParser):
                     amount=abs(amt),  # credits are positive
                     transaction_type=txn_type,
                     statement_period=self.period_from_date(d),
-                    is_transfer=(txn_type == TransactionType.TRANSFER_IN),
+                    is_transfer=internal,
+                    tags=[TRANSFER_CANDIDATE_TAG] if is_rail and not internal else [],
                 ))
         return txns
 

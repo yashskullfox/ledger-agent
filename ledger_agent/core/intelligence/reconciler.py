@@ -1,13 +1,24 @@
 """
 intelligence/reconciler.py  –  Cross-account reconciliation
 ─────────────────────────────────────────────────────────────
-Identifies transfers between accounts (e.g. Broker Y → Bank X)
-and marks matching transactions is_transfer=True so they are
-excluded from the P&L and balance sheet is correct.
+Pairs the two legs of an internal transfer between two accounts of the
+same entity (e.g. Broker Y → Bank X).
 
-Algorithm:
-  For each TRANSFER_OUT in brokerage account, look for a matching
-  TRANSFER_IN in bank accounts within ±3 days and same absolute amount.
+Algorithm (R-03):
+  For each TRANSFER_OUT leg, look for a TRANSFER_IN leg that
+    * sits in a DIFFERENT account (two legs in one account are not a transfer
+      between the entity's accounts — usually a reversal or a refund),
+    * has the same absolute amount, and
+    * is dated within ±``MATCH_WINDOW_DAYS`` days (ACH / weekend settlement lag).
+  The closest-dated candidate wins; ties keep input order.  Each leg is used once.
+
+Entity scoping: ``Transaction`` carries no entity id, so callers must pass the
+legs of ONE entity only (``api.reconcile_year`` and the CLI post-import reconcile
+both read entity-scoped transactions — ARCH-30 / R-09).
+
+``reconcile`` is a pure function: it neither mutates its input nor skips legs that
+are already ``is_reconciled`` (re-running it gives the same pairs).  Callers that
+want the result stored call ``TransactionRepo.mark_reconciled`` on the matched ids.
 """
 from __future__ import annotations
 
@@ -15,32 +26,36 @@ from typing import NamedTuple
 
 from ledger_agent.core.models import Transaction, TransactionType
 
+# Maximum settlement lag, in calendar days, between the two legs of a transfer.
+# Seven days covers a weekend plus a holiday on a slow ACH.
+MATCH_WINDOW_DAYS = 7
+
 
 class ReconciliationMatch(NamedTuple):
-    outgoing: Transaction  # brokerage TRANSFER_OUT
-    incoming: Transaction  # bank     TRANSFER_IN
+    outgoing: Transaction  # TRANSFER_OUT leg
+    incoming: Transaction  # TRANSFER_IN leg (a different account of the same entity)
     delta_days: int  # settlement lag (usually 0-2)
 
 
 def reconcile(
         all_transactions: list[Transaction],
-        tolerance_days: int = 7,
+        tolerance_days: int = MATCH_WINDOW_DAYS,
 ) -> tuple[list[ReconciliationMatch], list[Transaction]]:
     """
-    Match TRANSFER_OUT ↔ TRANSFER_IN pairs across accounts.
+    Match TRANSFER_OUT ↔ TRANSFER_IN pairs across different accounts.
+
+    ``all_transactions`` must belong to a single entity.  Non-transfer rows are
+    ignored.  The input objects are not modified.
 
     Returns:
-        (matches, unmatched_transfers)
+        (matches, unmatched_transfers) — unmatched holds every TRANSFER_OUT /
+        TRANSFER_IN leg that found no counterpart.
     """
     outgoing = [
-        t for t in all_transactions
-        if t.transaction_type in (TransactionType.TRANSFER_OUT,)
-           and not t.is_reconciled
+        t for t in all_transactions if t.transaction_type == TransactionType.TRANSFER_OUT
     ]
     incoming = [
-        t for t in all_transactions
-        if t.transaction_type in (TransactionType.TRANSFER_IN,)
-           and not t.is_reconciled
+        t for t in all_transactions if t.transaction_type == TransactionType.TRANSFER_IN
     ]
 
     matches: list[ReconciliationMatch] = []
@@ -51,10 +66,11 @@ def reconcile(
         for inc in incoming:
             if inc.id in matched_ids:
                 continue
-            # Same absolute amount?
+            # Both legs in one account (or account unknown) → not an inter-account transfer.
+            if not out.account_id or out.account_id == inc.account_id:
+                continue
             if abs(out.amount) != abs(inc.amount):
                 continue
-            # Within tolerance window?
             delta = abs((inc.date - out.date).days)
             if delta > tolerance_days:
                 continue
@@ -65,20 +81,15 @@ def reconcile(
             delta_days, matched_inc = best
             matched_ids.add(matched_inc.id)
             matched_ids.add(out.id)
-            # Mark both sides reconciled
-            out.is_reconciled = True
-            out.is_transfer = True
-            matched_inc.is_reconciled = True
-            matched_inc.is_transfer = True
             matches.append(ReconciliationMatch(out, matched_inc, delta_days))
 
-    unmatched = [
-        t for t in outgoing + incoming
-        if t.id not in matched_ids
-                   and t.transaction_type in (TransactionType.TRANSFER_OUT, TransactionType.TRANSFER_IN)
-    ]
-
+    unmatched = [t for t in outgoing + incoming if t.id not in matched_ids]
     return matches, unmatched
+
+
+def matched_leg_ids(matches: list[ReconciliationMatch]) -> list[str]:
+    """Ids of both legs of every match (for ``TransactionRepo.mark_reconciled``)."""
+    return [tid for m in matches for tid in (m.outgoing.id, m.incoming.id)]
 
 
 def print_reconciliation_report(

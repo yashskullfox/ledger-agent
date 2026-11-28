@@ -221,6 +221,73 @@ class ResultsIT {
                         org.hamcrest.Matchers.containsString("File Form 1065 for fiscal year 2024.")));
     }
 
+    // ── Q-01: PTE card shows the period basis ────────────────────────────────
+
+    /** {@link #CUSTOMER_SUMMARY_JSON} with a quarter-to-date pte_due_signal (Q-01 fields). */
+    private static String summaryWithPteBasis(String basis, String throughPeriod, int monthsCovered) {
+        return CUSTOMER_SUMMARY_JSON.replace(
+                "\"next_due\": \"Q1 2025\"",
+                "\"next_due\": \"Q1 2025\","
+                        + "\"basis\": \"" + basis + "\","
+                        + "\"through_period\": \"" + throughPeriod + "\","
+                        + "\"months_covered\": " + monthsCovered + ","
+                        + "\"required_to_date\": \"370.00\","
+                        + "\"overdue_quarters\": []");
+    }
+
+    private String renderSummary(String json) throws Exception {
+        JsonNode summaryJson = mapper.readTree(json);
+        when(runService.dispatch(eq(ReportType.CUSTOMER_SUMMARY), eq(2024), anyString(), anyBoolean()))
+                .thenReturn(summaryJson);
+        return mvc.perform(post("/run")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("report", "customer_summary")
+                        .param("fiscalYear", "2024")
+                        .param("folder", "/tmp/statements"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("results"))
+                .andExpect(model().attribute("success", true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+    }
+
+    @Test
+    @DisplayName("Q-01: PTE card shows quarter-to-date basis, through month and months covered")
+    void runCustomerSummary_pteCardShowsQuarterToDateBasis() throws Exception {
+        String html = renderSummary(summaryWithPteBasis("quarter_to_date", "2024-06", 6));
+
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("class=\"sub pte-basis\""),
+                "PTE card must render the basis line");
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("Basis: <span>quarter_to_date</span>"),
+                "basis value missing");
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("through <span>2024-06</span>"),
+                "through month missing");
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("(<span>6</span>/12 months complete)"),
+                "months covered missing");
+    }
+
+    @Test
+    @DisplayName("Q-01: PTE card shows full-year basis")
+    void runCustomerSummary_pteCardShowsFullYearBasis() throws Exception {
+        String html = renderSummary(summaryWithPteBasis("full_year", "2024-12", 12));
+
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("Basis: <span>full_year</span>"));
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("through <span>2024-12</span>"));
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("(<span>12</span>/12 months complete)"));
+    }
+
+    @Test
+    @DisplayName("Q-01: payload without basis fields still renders; basis line omitted")
+    void runCustomerSummary_oldPayloadOmitsBasisLine() throws Exception {
+        String html = renderSummary(CUSTOMER_SUMMARY_JSON);
+
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("PTE Due"));
+        org.junit.jupiter.api.Assertions.assertFalse(html.contains("class=\"sub pte-basis\""),
+                "basis line must be omitted when pte_due_signal has no basis");
+        org.junit.jupiter.api.Assertions.assertFalse(html.contains("months complete"));
+    }
+
     // ── Error cases ──────────────────────────────────────────────────────────
 
     @Test

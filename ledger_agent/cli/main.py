@@ -53,7 +53,7 @@ def _load_dotenv_early() -> None:
 if "ledger_agent.core.config" not in sys.modules:
     _load_dotenv_early()
 
-from config import NOT_TAX_ADVICE_DISCLAIMER, STATEMENTS_DIR  # noqa: E402
+from ledger_agent.core.config import NOT_TAX_ADVICE_DISCLAIMER, STATEMENTS_DIR  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Bootstrap sys.path so the package works when installed from source checkout
@@ -292,6 +292,19 @@ def cmd_summary(args: list[str]) -> int:
                f"  (remaining est: {float(pte['remaining_balance']):,.2f})")
     if pte["status"] == "likely_due":
         _print(f"  Next payment due:     {pte['next_due']}")
+    # Q-01: period basis of the tax figures (same wording as ``ledger tax``).
+    from ledger_agent.core.reports.renderer import pte_basis_line, pte_missing_statement_count
+    _print(f"  {pte_basis_line(pte)}")
+    if pte.get("basis", "full_year") != "full_year":
+        # pte_due_signal carries no per-account detail; the count comes from the same
+        # engine call the summary used (api.pte_estimate, default basis).
+        try:
+            n_missing = pte_missing_statement_count(api.pte_estimate(year))
+        except ValueError:
+            n_missing = None
+        if n_missing is not None:
+            _print(f"  [yellow]Missing statements:   {n_missing} account-month(s) — "
+                   "import them for full-year figures.[/yellow]")
     _print("\n[bold]Confidence:[/bold]")
     for flag in s.confidence_flags:
         flag_color = "red" if flag.startswith("NOT_") else "green"

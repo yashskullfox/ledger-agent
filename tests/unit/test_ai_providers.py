@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import config as _cfg
+from ledger_agent.core import config as _cfg
 from ledger_agent.core import privacy
 from ledger_agent.core.intelligence import ai_backend
 from ledger_agent.core.intelligence.ai_backend import _remote
@@ -456,3 +456,90 @@ class TestMultilingual:
         assert isinstance(result["coa_code"], str)
         chained = ChainedBackend(remote=_anthropic_backend(monkeypatch), threshold=0.99)
         assert chained.classify_transaction(desc, -1.0)["coa_code"]
+
+
+# ── X-07: CodeQL quality fixes ────────────────────────────────────────────────
+
+NON_FINITE_CONFIDENCE = ["nan", "NaN", float("nan"), "inf", "-inf", float("inf"), float("-inf")]
+
+
+class TestNonFiniteConfidence:
+    @pytest.mark.parametrize("given", NON_FINITE_CONFIDENCE)
+    def test_validate_rejects_nan_and_inf(self, given):
+        with pytest.raises(ValueError, match="confidence must be numeric"):
+            validate_classification({"coa_code": "5010", "confidence": given}, 0.8)
+
+    @pytest.mark.parametrize("reply", [
+        '{"coa_code": "5010", "confidence": "nan"}',
+        '{"coa_code": "5010", "confidence": NaN}',
+        '{"coa_code": "5010", "confidence": "inf"}',
+        '{"coa_code": "5010", "confidence": "-inf"}',
+        '{"coa_code": "5010", "confidence": Infinity}',
+        '{"coa_code": "5010", "confidence": -Infinity}',
+    ])
+    def test_non_finite_confidence_falls_back_to_local(self, monkeypatch, fake_sdks, reply):
+        backend = _compat_backend(monkeypatch)
+        backend._client.reply = reply
+        desc = "ZZQX UNKNOWN MERCHANT"
+        assert backend.classify_transaction(desc, -5.0) == \
+            LocalBackend().classify_transaction(desc, -5.0)
+        assert len(backend._client.calls) == 1
+
+
+class TestOpenAIInitChain:
+    def test_compatible_init_runs_parent_init(self, monkeypatch, fake_sdks):
+        from ledger_agent.core.intelligence.ai_backend import openai_backend
+
+        seen: list[str] = []
+        real = openai_backend.OpenAIBackend.__init__
+
+        def _spy(self) -> None:
+            seen.append(type(self).__name__)
+            real(self)
+
+        monkeypatch.setattr(openai_backend.OpenAIBackend, "__init__", _spy)
+        _compat_backend(monkeypatch)
+        assert seen == ["OpenAICompatibleBackend"]
+
+    def test_compatible_client_kwargs_unchanged(self, monkeypatch, fake_sdks):
+        backend = _compat_backend(monkeypatch)
+        assert backend._client.init_kwargs == {
+            "api_key": "not-needed",
+            "base_url": _cfg.OLLAMA_DEFAULT_BASE_URL,
+            "timeout": 60.0,
+        }
+        assert backend._model == _cfg.OPENAI_MODEL
+        assert backend._scope == "openai_compatible"
+        assert backend._token_param == "max_tokens"
+        assert backend.backend_name == "openai_compatible"
+
+    def test_compatible_explicit_default_base_url(self, monkeypatch, fake_sdks):
+        backend = _compat_backend(monkeypatch, default_base_url="http://vllm.example:8000/v1")
+        assert backend._client.init_kwargs["base_url"] == "http://vllm.example:8000/v1"
+
+    def test_compatible_uses_its_own_key(self, monkeypatch, fake_sdks):
+        monkeypatch.setenv("FI_OPENAI_API_KEY", "compat-key-not-real")
+        from ledger_agent.core.intelligence.ai_backend.openai_backend import (
+            OpenAICompatibleBackend,
+        )
+        backend = OpenAICompatibleBackend()
+        assert backend._client.init_kwargs["api_key"] == "compat-key-not-real"
+
+    def test_openai_client_kwargs_unchanged(self, monkeypatch, fake_sdks):
+        monkeypatch.setenv("FI_OPENAI_API_KEY", "test-key-not-real")
+        monkeypatch.setattr(_cfg, "AI_BACKEND", "openai")
+        from ledger_agent.core.intelligence.ai_backend.openai_backend import OpenAIBackend
+        backend = OpenAIBackend()
+        # api_key comes from config.ai_api_key() exactly as before (resolved per FI_AI_BACKEND).
+        assert backend._client.init_kwargs == {"api_key": _cfg.ai_api_key(), "timeout": 30.0}
+        assert backend._model == _cfg.OPENAI_MODEL
+        assert backend._scope == "openai"
+        assert backend._token_param == "max_completion_tokens"
+
+    def test_missing_sdk_raises_import_error(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "openai", None)
+        from ledger_agent.core.intelligence.ai_backend.openai_backend import (
+            OpenAICompatibleBackend,
+        )
+        with pytest.raises(ImportError):
+            OpenAICompatibleBackend()

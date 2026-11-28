@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import LOCAL_CONFIDENCE_THRESHOLD as _DEFAULT_THRESHOLD
+from ledger_agent.core.config import LOCAL_CONFIDENCE_THRESHOLD as _DEFAULT_THRESHOLD
 from ledger_agent.core.intelligence.ai_backend.base import AIBackend
 from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend
 

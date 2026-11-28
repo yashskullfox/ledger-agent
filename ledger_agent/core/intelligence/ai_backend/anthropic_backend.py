@@ -53,7 +53,7 @@ class AnthropicBackend(RemoteAIBackend):
 
     def __init__(self) -> None:
         anthropic = _import_anthropic()
-        from config import ANTHROPIC_EFFORT, ANTHROPIC_MODEL, anthropic_api_key
+        from ledger_agent.core.config import ANTHROPIC_EFFORT, ANTHROPIC_MODEL, anthropic_api_key
 
         self._client = anthropic.Anthropic(
             api_key=anthropic_api_key(),

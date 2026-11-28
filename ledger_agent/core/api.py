@@ -228,6 +228,8 @@ def import_statements(
         EntityRepo.upsert(entity)
 
     pdf_files = sorted(folder.rglob("*.pdf"))
+    # C-03: entities whose accounts received rows in this run (transfer-candidate pass).
+    touched_entities: set[str] = set()
     for pdf_path in pdf_files:
         try:
             raw_text = BaseStatementParser.extract_text(pdf_path)
@@ -272,6 +274,8 @@ def import_statements(
                 for t in stmt.transactions:
                     t.account_id = acct.id
                 TransactionRepo.bulk_insert(stmt.transactions)
+                if acct.entity_id:
+                    touched_entities.add(acct.entity_id)
 
                 # V9 fix: classify unclassified transactions and persist the
                 # coa_code back to the DB immediately.  classify_batch() calls
@@ -353,7 +357,103 @@ def import_statements(
             report.failed += 1
             report.failed_files.append(pdf_path.name)
 
+    # C-03: after every statement is in (both legs of a transfer may sit in different
+    # PDFs), confirm transfer candidates whose opposite leg is in another account of
+    # the same entity.  Import path only — never run from read / report paths.
+    for entity_id in sorted(touched_entities):
+        try:
+            n_confirmed = _confirm_transfer_candidates(entity_id)
+            if n_confirmed:
+                log.info("Confirmed %d internal transfer leg(s) by opposite-leg match",
+                         n_confirmed)
+        except Exception as xfer_exc:
+            log.warning("Transfer-candidate confirmation skipped: %s", xfer_exc)
+
     return report
+
+
+def confirm_transfer_candidates(entity_id: str) -> int:
+    """C-12: public import-time entry point for the C-03 transfer-candidate pass.
+
+    For import paths that insert and classify on their own (the CLI ``cmd_import`` and
+    quick scan).  Call it once per affected entity after classification and before
+    any post-import reconcile.  Entity-scoped and idempotent; returns the number of
+    rows promoted to 9000.  Never call it from read / report paths.
+    """
+    return _confirm_transfer_candidates(entity_id)
+
+
+def _confirm_transfer_candidates(entity_id: str) -> int:
+    """C-03: promote ``transfer_candidate`` rows that have an opposite leg.
+
+    Parsers emit generic ZELLE / WIRE / TRANSFER rows without an own-account cue as
+    candidates (``is_transfer=False``), and the classifier codes them like any other
+    row.  Here, entity-scoped (ARCH-30), the reconciler looks for the opposite leg:
+
+    1. Existing internal transfers (``is_transfer=1``) are paired among themselves
+       first, so a candidate never takes a leg that already has its partner.
+    2. Candidates are then paired with each other and with the still-unpaired
+       transfers: same absolute amount, different account of this entity, within
+       ``MATCH_WINDOW_DAYS``.
+
+    Each matched candidate becomes 9000 / ``is_transfer=True`` (and loses any
+    ``owner_draw_candidate`` tag: it stayed inside the entity).  Unmatched candidates
+    keep the classifier's result.  Rows coded 3040 (owner draw / distribution) are
+    never promoted.  Idempotent: a promoted row is an internal transfer on the next
+    run and is paired in step 1.  Returns the number of rows promoted.
+    """
+    from dataclasses import replace
+
+    from ledger_agent.core.database import AccountRepo, TransactionRepo
+    from ledger_agent.core.intelligence.classifier import (
+        CLASSIFIER_VERSION,
+        TRANSFER_CANDIDATE_TAG,
+    )
+    from ledger_agent.core.intelligence.owner_draws import OWNER_DRAW_CANDIDATE_TAG
+    from ledger_agent.core.intelligence.reconciler import reconcile
+    from ledger_agent.core.models import TransactionType
+
+    account_ids = [a.id for a in AccountRepo.list_for_entity(entity_id)]
+    rows = TransactionRepo.list_transfer_legs(account_ids, TRANSFER_CANDIDATE_TAG)
+    if not rows:
+        return 0
+
+    def _as_leg(t):
+        # The reconciler pairs by type; type each leg by its sign (some stored
+        # 9000 rows are typed debit/credit).  Copies only: rows are not mutated.
+        kind = TransactionType.TRANSFER_OUT if t.amount < 0 else TransactionType.TRANSFER_IN
+        return replace(t, transaction_type=kind)
+
+    transfers = [_as_leg(t) for t in rows if t.is_transfer]
+    candidates = [
+        _as_leg(t) for t in rows
+        if not t.is_transfer and t.coa_code != "3040"
+        and TRANSFER_CANDIDATE_TAG in (t.tags or [])
+    ]
+    if not candidates:
+        return 0
+
+    paired, _ = reconcile(transfers)
+    taken = {t.id for m in paired for t in (m.outgoing, m.incoming)}
+    pool = candidates + [t for t in transfers if t.id not in taken]
+    matches, _ = reconcile(pool)
+
+    candidate_ids = {t.id for t in candidates}
+    promoted = 0
+    for m in matches:
+        for leg in (m.outgoing, m.incoming):
+            if leg.id not in candidate_ids:
+                continue
+            TransactionRepo.update_coa_with_meta(
+                leg.id, "9000", "Inter-Account Transfer",
+                CLASSIFIER_VERSION, 1.0, is_transfer=True,
+            )
+            if OWNER_DRAW_CANDIDATE_TAG in (leg.tags or []):
+                TransactionRepo.set_tags(
+                    leg.id, [tag for tag in leg.tags if tag != OWNER_DRAW_CANDIDATE_TAG]
+                )
+            promoted += 1
+    return promoted
 
 
 def generate_balance_sheet(fiscal_year: int, period: str | None = None):
@@ -518,21 +618,26 @@ def generate_form_1065(fiscal_year: int, through_period: str | None = None) -> F
     #   1. private/wash_sale_adjustments.csv  (authoritative — from 1099-B)
     #   2. computed from own ledger (SELL@loss + position deltas ±30d)
     #   3. zero (WARNING logged by the module)
-    from ledger_agent.core.accounting.wash_sale import total_disallowed
-    ws_adjustment = total_disallowed(
+    # C-10: each disallowed loss goes back to the line its loss was booked on —
+    # long-term (5075) → net LTCG, short-term / term_unknown → net STCG.
+    from ledger_agent.core.accounting.wash_sale import disallowed_by_term
+    ws_short, ws_long = disallowed_by_term(
         entity_id=entity.id,
         fiscal_year=fiscal_year,
     )
     if through_period is not None and not through_period.endswith("-12"):
         # Annual 1099-B wash-sale figures cannot be apportioned to a partial year.
-        ws_adjustment = Decimal("0")
-    if ws_adjustment:
-        net_stcg += ws_adjustment
-        log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_adjustment)
+        ws_short = ws_long = Decimal("0")
 
     gross_pft = income - cogs
     ordinary = gross_pft - deductions
     net_ltcg = _compute_net_ltcg(txns)
+    if ws_short:
+        net_stcg += ws_short
+        log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_short)
+    if ws_long:
+        net_ltcg += ws_long
+        log.info("W16 wash-sale disallowance applied: +%s to net_ltcg", ws_long)
 
     f = Form1065(
         fiscal_year=fiscal_year,
@@ -1058,6 +1163,10 @@ def build_customer_summary(
         if c.get("status") == audit_status and audit_status in ("warn", "fail")
     ]
 
+    # R-03: internal-transfer legs with no counterpart in another account (read-only;
+    # only the count reaches the summary — no descriptions, dates or amounts).
+    unmatched_transfer_legs = reconcile_year(fiscal_year).unmatched
+
     flags: list[str] = []
     _wash_csv_present = _wash_sale_csv_present()
     if f1065.net_short_term_capital_gain != 0 or f1065.net_long_term_capital_gain != 0:
@@ -1082,10 +1191,14 @@ def build_customer_summary(
         flags.append("AUDIT_FAIL")
     elif audit_status == "warn":
         flags.append("AUDIT_WARN")
+    if unmatched_transfer_legs:
+        flags.append("UNMATCHED_TRANSFERS")
     flags.append("CLOSE_READY_W26")
-    # AUDIT_WARN alone does not block close-readiness; AUDIT_FAIL always does.
+    # AUDIT_WARN / UNMATCHED_TRANSFERS (both warnings) do not block close-readiness;
+    # AUDIT_FAIL always does.
     if "AUDIT_FAIL" not in flags and all(
-        f.startswith("CLOSE_READY") or f == "AUDIT_WARN" for f in flags
+        f.startswith("CLOSE_READY") or f in ("AUDIT_WARN", "UNMATCHED_TRANSFERS")
+        for f in flags
     ):
         flags.append("CLOSE_READY")
 
@@ -1137,6 +1250,12 @@ def build_customer_summary(
             "Self-audit warnings: " + ", ".join(audit_problem_checks)
             + " — run `ledger audit " + str(fiscal_year) + "` to review."
         )
+    if unmatched_transfer_legs:
+        next_actions.append(
+            f"{unmatched_transfer_legs} internal transfer leg(s) have no matching "
+            "counterpart — check the other account's statement or whether it is a "
+            "third-party payment."
+        )
     if pte_status == "likely_due" and next_due != "N/A":
         next_actions.append(
             f"Estimated quarterly tax payment due: {next_due}"
@@ -1172,12 +1291,19 @@ def audit_year(fiscal_year: int) -> dict:
     return out
 
 
-def reconcile_year(fiscal_year: int) -> ReconcileReport:
-    from ledger_agent.core.database import init_db
-    from ledger_agent.core.intelligence.reconciler import reconcile
+def reconcile_year(fiscal_year: int, *, persist: bool = False) -> ReconcileReport:
+    """Pair the active entity's internal-transfer legs for ``fiscal_year`` (R-03).
+
+    Only legs of the entity picked by ``_entity_and_periods`` are read (ARCH-30), and
+    two legs pair only when they sit in different accounts (see ``reconciler``).
+
+    Read-only by default, so report paths (MCP, bridge, summary, parity tests) never
+    write.  ``persist=True`` stores ``is_reconciled=1`` on both legs of every match.
+    """
+    from ledger_agent.core.database import TransactionRepo, init_db
+    from ledger_agent.core.intelligence.reconciler import matched_leg_ids, reconcile
 
     init_db()
-    entity, _ = _entity_and_periods(fiscal_year)
     txns = _transactions_for_year(fiscal_year)
     transfers = [t for t in txns if t.is_transfer]
 
@@ -1185,6 +1311,8 @@ def reconcile_year(fiscal_year: int) -> ReconcileReport:
         return ReconcileReport(fiscal_year=fiscal_year)
 
     matched_list, unmatched_txns = reconcile(transfers)
+    if persist and matched_list:
+        TransactionRepo.mark_reconciled(matched_leg_ids(matched_list))
     total_xfer = sum(abs(Decimal(str(t.amount))) for t in transfers)
     issues = [
         f"Unmatched transfer {t.date} {t.description!r} ${t.amount}"

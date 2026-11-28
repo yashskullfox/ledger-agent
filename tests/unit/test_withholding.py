@@ -50,6 +50,51 @@ class TestFindMisclassified:
         assert "t2" not in ids
 
 
+class TestKeywordWordBoundaries:
+    """C-01: withholding keywords match whole words, not substrings."""
+
+    @pytest.mark.parametrize("description", [
+        "FIRST NATIONAL BANK",      # irs ⊂ first
+        "FOREIGN AFFAIRS COUNCIL",  # irs ⊂ affairs
+        "OFFICE CHAIRS",            # irs ⊂ chairs
+        "THEIRS BOUTIQUE",          # irs ⊂ theirs
+        "REDISTRIBUTION FEE",       # distribution ⊂ redistribution
+        "",
+        None,
+    ])
+    def test_substring_does_not_match(self, description):
+        from ledger_agent.core.accounting.withholding import matches_withholding_keyword
+        assert matches_withholding_keyword(description) is False
+
+    @pytest.mark.parametrize("description", [
+        "IRS USATAXPYMT",
+        "ACH CORP DEBIT USATAXPYMT",
+        "irs treas 310",
+        "IRS2024 PAYMENT",          # reference digits glued on
+        "Q1 ESTIMATED TAX",
+        "ESTIMATED  TAXES",         # extra whitespace, plural
+        "OWNER DRAWS",
+        "member draw",
+        "PARTNER DISTRIBUTIONS",
+    ])
+    def test_intended_keywords_match(self, description):
+        from ledger_agent.core.accounting.withholding import matches_withholding_keyword
+        assert matches_withholding_keyword(description) is True
+
+    def test_find_skips_substring_lookalikes(self, iso_db):
+        _seed(iso_db)
+        con = sqlite3.connect(str(iso_db))
+        # Coded as tax expense, but the description only CONTAINS "irs".
+        con.execute("INSERT INTO transactions(id,account_id,date,description,amount,transaction_type,coa_code,statement_period,is_transfer,created_at) VALUES('t3','a1','2024-03-03','FIRST STATE SERVICES','-50.00','debit','5055','2024-03',0,'2024-03-03')")
+        con.execute("INSERT INTO transactions(id,account_id,date,description,amount,transaction_type,coa_code,statement_period,is_transfer,created_at) VALUES('t4','a1','2024-03-04','Q2 ESTIMATED TAXES','-60.00','debit','5055','2024-03',0,'2024-03-04')")
+        con.commit()
+        con.close()
+        from ledger_agent.core.accounting.withholding import find_misclassified_withholding
+        ids = find_misclassified_withholding("e1", 2024)
+        assert "t3" not in ids
+        assert set(ids) == {"t1", "t4"}
+
+
 class TestReclassify:
     @pytest.fixture(autouse=True)
     def setup(self, iso_db):

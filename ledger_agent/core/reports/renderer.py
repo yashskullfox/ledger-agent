@@ -13,9 +13,8 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from config import EXPORTS_DIR, REPORT_DATE_FMT
 from ledger_agent.core.accounting.balance_sheet import BalanceSheet
-from ledger_agent.core.config import NOT_TAX_ADVICE_DISCLAIMER
+from ledger_agent.core.config import EXPORTS_DIR, NOT_TAX_ADVICE_DISCLAIMER, REPORT_DATE_FMT
 from ledger_agent.core.models import COAType, Transaction
 
 try:

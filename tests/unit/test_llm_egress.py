@@ -34,7 +34,7 @@ from typing import Any
 
 import pytest
 
-import config as _cfg
+from ledger_agent.core import config as _cfg
 from ledger_agent.core import privacy
 from ledger_agent.core.intelligence import ai_backend
 
