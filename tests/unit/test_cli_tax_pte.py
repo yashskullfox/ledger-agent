@@ -92,7 +92,9 @@ def _new_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> Path:
     from ledger_agent.core.database import EntityRepo, init_db
     from ledger_agent.core.models import Entity
 
-    monkeypatch.setattr(wash_sale, "total_disallowed", lambda *a, **kw: Decimal("0"))
+    monkeypatch.setattr(
+        wash_sale, "disallowed_by_term", lambda *a, **kw: (Decimal("0"), Decimal("0"))
+    )
     db_file = tmp_path / name
     monkeypatch.setenv("FI_DB_PATH", str(db_file))
     init_db(db_file)

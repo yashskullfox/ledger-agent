@@ -15,11 +15,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def default_rates():
-    """Ensure tax rate env vars are at predictable defaults for tests."""
-    os.environ["FI_SE_TAX_RATE"] = "0.153"
-    os.environ["FI_FED_INCOME_RATE"] = "0.22"
+    """Ensure the PTET rate env var is at its predictable default for tests."""
     os.environ["FI_STATE_TAX_RATE"] = "0.05"
-    os.environ["FI_QBI_DEDUCTION"] = "0.20"
     yield
 
 

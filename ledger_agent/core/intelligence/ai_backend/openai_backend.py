@@ -60,14 +60,40 @@ class OpenAIBackend(RemoteAIBackend):
     _token_param = "max_completion_tokens"
 
     def __init__(self) -> None:
+        # The SDK import comes first so a missing package fails before config is read.
         openai = _import_openai()
-        from config import OPENAI_BASE_URL, OPENAI_MODEL, ai_api_key
+        self._init_client(openai, **self._client_settings())
 
-        kwargs: dict[str, Any] = {"api_key": ai_api_key(), "timeout": 30.0}
-        if OPENAI_BASE_URL:
-            kwargs["base_url"] = OPENAI_BASE_URL
+    def _client_settings(self) -> dict[str, Any]:
+        """Return ``api_key`` / ``base_url`` / ``model`` / ``timeout`` for the client.
+
+        Subclasses override this hook to change how settings are resolved; the
+        client itself is always built by ``_init_client``.
+        """
+        from ledger_agent.core.config import OPENAI_BASE_URL, OPENAI_MODEL, ai_api_key
+
+        return {
+            "api_key": ai_api_key(),
+            "base_url": OPENAI_BASE_URL or None,
+            "model": OPENAI_MODEL,
+            "timeout": 30.0,
+        }
+
+    def _init_client(
+            self,
+            openai: Any,
+            *,
+            api_key: str | None,
+            base_url: str | None,
+            model: str,
+            timeout: float,
+    ) -> None:
+        """Build the SDK client; ``base_url`` is passed only when set."""
+        kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
+        if base_url:
+            kwargs["base_url"] = base_url
         self._client = openai.OpenAI(**kwargs)
-        self._model = OPENAI_MODEL
+        self._model = model
         log.info(f"{self._label} backend initialised", extra={"model": self._model})
 
     @property
@@ -119,22 +145,24 @@ class OpenAICompatibleBackend(OpenAIBackend):
     _token_param = "max_tokens"
 
     def __init__(self, default_base_url: str | None = None) -> None:
-        openai = _import_openai()
-        from config import (
+        self._default_base_url = default_base_url
+        super().__init__()
+
+    def _client_settings(self) -> dict[str, Any]:
+        """Endpoint: FI_OPENAI_BASE_URL, else ``default_base_url``, else the Ollama default."""
+        from ledger_agent.core.config import (
             OLLAMA_DEFAULT_BASE_URL,
             OPENAI_BASE_URL,
             OPENAI_MODEL,
             openai_compatible_api_key,
         )
 
-        base_url = OPENAI_BASE_URL or default_base_url or OLLAMA_DEFAULT_BASE_URL
-        self._client = openai.OpenAI(
-            api_key=openai_compatible_api_key() or NO_KEY_PLACEHOLDER,
-            base_url=base_url,
-            timeout=60.0,
-        )
-        self._model = OPENAI_MODEL
-        log.info(f"{self._label} backend initialised", extra={"model": self._model})
+        return {
+            "api_key": openai_compatible_api_key() or NO_KEY_PLACEHOLDER,
+            "base_url": OPENAI_BASE_URL or self._default_base_url or OLLAMA_DEFAULT_BASE_URL,
+            "model": OPENAI_MODEL,
+            "timeout": 60.0,
+        }
 
     @property
     def backend_name(self) -> str:

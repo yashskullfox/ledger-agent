@@ -16,6 +16,7 @@ unclassified           transactions with no / suspense COA code (9999, 5999)
 unknown_coa_codes      transactions coded with a code missing from the chart of accounts
 transfer_matching      internal transfers pair up across the entity's own accounts
 owner_draw_candidates  outgoing transfers to unlisted outside accounts (possible owner draws)
+trade_term_unknown     realised trades whose holding term the statement did not state
 k1_allocation          partner P/L % sum to 100 % and K-1 lines sum to Form 1065
 income_consistency     balance-sheet net income vs Form 1065 book income
 
@@ -32,6 +33,7 @@ TOLERANCE = Decimal("0.01")
 # opening balance — both are reported as not_applicable for the tie-out.
 TIEOUT_TYPES = {"checking", "savings"}
 SUSPENSE_CODES = {"9999", "5999"}
+TERM_UNKNOWN_TAG = "term_unknown"  # set by the brokerage parsers (C-02)
 
 
 @dataclass
@@ -202,21 +204,15 @@ def check_transfer_matching(txns) -> CheckResult:
     """Pair internal-transfer legs with ``reconciler.reconcile``.
 
     ``reconcile`` returns ``(matches, unmatched)`` where each match is a
-    ``ReconciliationMatch(outgoing, incoming, delta_days)`` NamedTuple.  It only
-    considers ``TRANSFER_OUT`` / ``TRANSFER_IN`` legs that are not already
-    ``is_reconciled``, and it mutates the legs it matches — so it runs on copies,
-    with the reconciled flag cleared, to keep the audit read-only and complete.
-    A matched pair whose two legs sit in the same account is not a transfer
-    between the entity's accounts; it is counted and reported.
+    ``ReconciliationMatch(outgoing, incoming, delta_days)`` NamedTuple.  Since R-03
+    it is pure (no mutation, already-``is_reconciled`` legs are still paired) and
+    never pairs two legs in the same account — such legs come back unmatched.  The
+    same-account guard below is kept as a defensive check.
     """
-    import dataclasses
-
     from ledger_agent.core.intelligence.reconciler import reconcile
     from ledger_agent.core.models import TransactionType
 
-    transfers = [
-        dataclasses.replace(t, is_reconciled=False) for t in txns if t.is_transfer
-    ]
+    transfers = [t for t in txns if t.is_transfer]
     if not transfers:
         return CheckResult("transfer_matching", "not_applicable", "No internal transfers.")
     matched, unmatched = reconcile(transfers)
@@ -286,6 +282,21 @@ def check_owner_draw_candidates(txns) -> CheckResult:
         "each is an owner draw (add its last 4 digits to OWNER_DRAW_ACCOUNTS in the "
         "private config) or a payment.",
         details,
+    )
+
+
+def check_trade_term_unknown(txns) -> CheckResult:
+    """C-02: realised trades booked short-term only because the statement gave no
+    holding term — a long-term lot among them would be misreported on Schedule K."""
+    items = [t for t in txns if TERM_UNKNOWN_TAG in (t.tags or [])]
+    by_code: dict[str, int] = {}
+    for t in items:
+        by_code[t.coa_code or "none"] = by_code.get(t.coa_code or "none", 0) + 1
+    return CheckResult(
+        "trade_term_unknown", "warn" if items else "pass",
+        f"{len(items)} realised trade(s) with no holding term on the statement, booked "
+        "short-term — confirm against the 1099-B.",
+        [{"coa_code": k, "count": v} for k, v in sorted(by_code.items())],
     )
 
 
@@ -370,6 +381,7 @@ def run_self_audit(fiscal_year: int) -> AuditReport:
     report.checks.append(check_unclassified(txns))
     report.checks.append(check_transfer_matching(txns))
     report.checks.append(check_owner_draw_candidates(txns))
+    report.checks.append(check_trade_term_unknown(txns))
     report.checks.append(check_k1_allocation(fiscal_year, f1065))
     report.checks.append(check_income_consistency(bs, f1065))
 

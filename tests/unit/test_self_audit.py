@@ -285,7 +285,7 @@ def test_transfer_matching_pass_across_accounts():
 
 
 def test_transfer_matching_already_reconciled_legs_still_counted_and_not_mutated():
-    """reconcile() skips is_reconciled legs and mutates its input; the audit must not."""
+    """Already-reconciled legs are still paired, and the audit never mutates its input."""
     from ledger_agent.core.accounting.self_audit import check_transfer_matching
 
     legs = _xfer_pair(CHK, CHK2, reconciled=True)
@@ -305,19 +305,20 @@ def test_transfer_matching_unmatched_leg_warns():
     assert r.details[0]["kind"] == "unmatched" and r.details[0]["account_id"] == CHK
 
 
-def test_transfer_matching_same_account_pair_is_counted_and_reported():
-    """Fix (b): reconcile() returns ReconciliationMatch(outgoing, incoming, delta_days)."""
+def test_transfer_matching_same_account_legs_are_unmatched():
+    """R-03: reconcile() never pairs two legs in one account — both come back unmatched."""
     from ledger_agent.core.accounting.self_audit import check_transfer_matching
 
     legs = _xfer_pair(CHK, CHK) + _xfer_pair(CHK, CHK2, amount="200.00")
     r = check_transfer_matching(legs)
     assert r.status == "warn"
-    assert "1 pair(s) matched within the same account" in r.summary
-    assert r.summary.startswith("1 transfer pair(s) matched across accounts")
-    same = [d for d in r.details if d["kind"] == "same_account_pair"]
-    assert same == [{"kind": "same_account_pair", "account_id": CHK, "period": f"{FY}-01",
-                     "out_date": f"{FY}-01-10", "in_date": f"{FY}-01-11",
-                     "amount": "500.00"}]
+    assert r.summary.startswith("1 transfer pair(s) matched across accounts, 2 unmatched")
+    assert "within the same account" not in r.summary
+    assert not [d for d in r.details if d["kind"] == "same_account_pair"]
+    unmatched = [d for d in r.details if d["kind"] == "unmatched"]
+    assert [(d["account_id"], d["amount"]) for d in unmatched] == [
+        (CHK, "-500.00"), (CHK, "500.00"),
+    ]
 
 
 def test_transfer_matching_reports_untyped_transfer_legs():
@@ -420,8 +421,8 @@ def test_income_consistency_warn():
 
 CHECK_NAMES = [
     "statement_tieout", "account_continuity", "unknown_coa_codes", "period_coverage",
-    "unclassified", "transfer_matching", "owner_draw_candidates", "k1_allocation",
-    "income_consistency",
+    "unclassified", "transfer_matching", "owner_draw_candidates", "trade_term_unknown",
+    "k1_allocation", "income_consistency",
 ]
 
 

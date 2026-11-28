@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-import config as _cfg
+from ledger_agent.core import config as _cfg
 from ledger_agent.core import privacy
 
 FY = 2026

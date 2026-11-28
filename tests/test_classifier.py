@@ -221,6 +221,38 @@ class TestPriorityRules:
             "pass-through LLC has no entity income tax; EFTPS deposits are Form 941 payroll tax"
         )
 
+    def test_vendor_refund_keeps_expense_code(self, coa_entries, db, monkeypatch):
+        """C-01: an inflow from an expense vendor is a refund on the same code (contra)."""
+        from ledger_agent.core.intelligence import classifier
+
+        class _NoMemory:
+            def lookup(self, *_a, **_k):  # C-14: (description, amount, own_account_cue=)
+                return None
+
+            def remember(self, *_a, **_k):
+                return None
+
+        monkeypatch.setattr(classifier, "get_memory", lambda: _NoMemory())
+        txn = self._make_txn("AMAZON.COM*ZZ00 REFUND", "25.00")
+        result = classifier.classify_transaction(txn, coa_entries)
+        assert result.coa_code == "5061"
+
+    def test_owner_draws_not_software(self, coa_entries, db, monkeypatch):
+        """C-01: 'DRAWS' contains 'AWS' but is not an AWS software charge."""
+        from ledger_agent.core.intelligence import classifier
+
+        class _NoMemory:
+            def lookup(self, *_a, **_k):  # C-14: (description, amount, own_account_cue=)
+                return None
+
+            def remember(self, *_a, **_k):
+                return None
+
+        monkeypatch.setattr(classifier, "get_memory", lambda: _NoMemory())
+        txn = self._make_txn("OWNER DRAWS ZQXJ", "-500.00")
+        result = classifier.classify_transaction(txn, coa_entries)
+        assert result.coa_code != "5010"
+
     def test_payroll_credit_not_triggered(self, coa_entries, db):
         """A positive (credit) that contains 'payroll' is not a salary deduction."""
         from ledger_agent.core.intelligence.classifier import classify_transaction
@@ -253,12 +285,11 @@ class TestLocalBackend:
         assert result["coa_code"] == "5010"
 
     @pytest.mark.parametrize("description", [
-        # Exercises the generic TRANSFER\s*(IN|OUT|TO|FROM) rule in local_backend._RULES
-        "TRANSFER IN FROM SAVINGS",
-        # Exercises the ZELLE\s*TO|ZELLE\s*FROM rule in local_backend._RULES
-        "ZELLE TO RECIPIENT",
-        # Exercises the WIRE\s*(IN|OUT|TRANSFER) rule in local_backend._RULES
-        "WIRE TRANSFER OUTGOING",
+        # C-13: the local transfer rule needs rail wording plus an own-account
+        # marker (card payoff); TRANSFER / ZELLE / WIRE wording alone is not enough.
+        "TRANSFER IN FROM CREDIT CARD",
+        "ZELLE TO CREDIT CARD",
+        "WIRE TRANSFER OUTGOING CREDIT CARD",
     ])
     def test_classifies_transfer(self, description):
         from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend
@@ -266,6 +297,18 @@ class TestLocalBackend:
         result = backend.classify_transaction(description, 1000.00)
         assert result["is_transfer"] is True
         assert result["coa_code"] == "9000"
+
+    @pytest.mark.parametrize("description,wrong_code", [
+        ("OWNER DRAWS MARCH", "5010"),      # C-01: AWS ⊂ DRAWS
+        ("GROUPS DINNER", "5061"),          # C-01: UPS ⊂ GROUPS
+        ("DELTA DENTAL PREMIUM", "5100"),   # C-01: bare DELTA
+        ("TEAMSTERS LOCAL DUES", "5010"),   # C-01: TEAMS ⊂ TEAMSTERS
+        ("TWITTERING BIRDS CAFE", "5031"),  # C-01: TWITTER ⊂ TWITTERING
+    ])
+    def test_substring_does_not_fire_rule(self, description, wrong_code):
+        from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend
+        result = LocalBackend().classify_transaction(description, -10.00)
+        assert result["coa_code"] != wrong_code
 
     def test_backend_name(self):
         from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend

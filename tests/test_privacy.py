@@ -61,11 +61,13 @@ def default_egress_mode(monkeypatch):
     monkeypatch.setenv("FI_AI_EGRESS_MODE", "redact")
     monkeypatch.delenv("FI_AI_EGRESS_MODE_ACK", raising=False)
     monkeypatch.delenv("FI_PRIVACY_ENTITY_NAME", raising=False)
-    # Force config to re-read env (config uses module-level reads)
-    import config as _cfg
-    _cfg.AI_EGRESS_MODE = "redact"
-    _cfg.AI_EGRESS_MODE_ACK = ""
-    _cfg.PRIVACY_ENTITY_NAME = ""
+    # Force config to re-read env (config uses module-level reads).
+    # monkeypatch.setattr (not plain assignment) so the canonical config is restored
+    # after each test, including tests below that assign these attributes directly.
+    from ledger_agent.core import config as _cfg
+    monkeypatch.setattr(_cfg, "AI_EGRESS_MODE", "redact")
+    monkeypatch.setattr(_cfg, "AI_EGRESS_MODE_ACK", "")
+    monkeypatch.setattr(_cfg, "PRIVACY_ENTITY_NAME", "")
     yield
 
 
@@ -361,7 +363,7 @@ class TestDetectorAPIKey:
 
 class TestDetectorEntityName:
     def test_entity_name_direct(self, monkeypatch):
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.PRIVACY_ENTITY_NAME = "Acme Holdings LLC"
         try:
             out = _safe("Payment from Acme Holdings LLC for services")
@@ -371,7 +373,7 @@ class TestDetectorEntityName:
             _cfg.PRIVACY_ENTITY_NAME = ""
 
     def test_entity_name_case_insensitive(self, monkeypatch):
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.PRIVACY_ENTITY_NAME = "Test Corp"
         try:
             out = _safe("Invoice to TEST CORP")
@@ -380,7 +382,7 @@ class TestDetectorEntityName:
             _cfg.PRIVACY_ENTITY_NAME = ""
 
     def test_no_entity_name_no_redaction(self):
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.PRIVACY_ENTITY_NAME = ""
         out = _safe("Payment to Acme Corp")
         assert "<ENTITY_NAME>" not in out
@@ -499,7 +501,7 @@ class TestAuditEgress:
 class TestMockMode:
     def test_openai_mock_returns_stub(self, monkeypatch):
         monkeypatch.setenv("FI_AI_EGRESS_MODE", "mock")
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.AI_EGRESS_MODE = "mock"
 
         from ledger_agent.core.intelligence.ai_backend.openai_backend import OpenAIBackend
@@ -519,7 +521,7 @@ class TestMockMode:
 
     def test_gemini_mock_returns_stub(self, monkeypatch):
         monkeypatch.setenv("FI_AI_EGRESS_MODE", "mock")
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.AI_EGRESS_MODE = "mock"
 
         from ledger_agent.core.intelligence.ai_backend.gemini_backend import GeminiBackend
@@ -540,7 +542,7 @@ class TestMockMode:
 class TestStrictMode:
     def test_strict_blocks_unredacted_digit_run(self, monkeypatch):
         monkeypatch.setenv("FI_AI_EGRESS_MODE", "strict")
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.AI_EGRESS_MODE = "strict"
 
         # A 7-digit number is below the P-05 bare-run detector (8+ digits),
@@ -550,7 +552,7 @@ class TestStrictMode:
 
     def test_strict_allows_clean_text(self, monkeypatch):
         monkeypatch.setenv("FI_AI_EGRESS_MODE", "strict")
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.AI_EGRESS_MODE = "strict"
 
         # Clean text with amounts < 7 digits should pass
@@ -563,7 +565,7 @@ class TestStrictMode:
 class TestPassthroughMode:
     def test_passthrough_without_ack_raises(self, monkeypatch):
         monkeypatch.setenv("FI_AI_EGRESS_MODE", "passthrough")
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.AI_EGRESS_MODE = "passthrough"
         _cfg.AI_EGRESS_MODE_ACK = ""
 
@@ -573,7 +575,7 @@ class TestPassthroughMode:
     def test_passthrough_with_ack_returns_unchanged(self, monkeypatch):
         monkeypatch.setenv("FI_AI_EGRESS_MODE", "passthrough")
         monkeypatch.setenv("FI_AI_EGRESS_MODE_ACK", "I_understand_the_risk")
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.AI_EGRESS_MODE = "passthrough"
         _cfg.AI_EGRESS_MODE_ACK = "I_understand_the_risk"
 
@@ -640,7 +642,7 @@ class TestMemoryRedaction:
         R-46 memory_file scope: PAYMENT TO JOHN DOE → PAYMENT TO <PERSON_001>
         The on-disk JSON must not contain the real person name.
         """
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         mem_path = tmp_path / "memory.json"
         monkeypatch.setattr(_cfg, "MEMORY_FILE", mem_path)
 
@@ -666,7 +668,7 @@ class TestMemoryRedaction:
 
     def test_innocuous_pattern_unchanged(self, tmp_path, monkeypatch):
         """Patterns with no PII should persist verbatim."""
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         mem_path = tmp_path / "memory2.json"
         monkeypatch.setattr(_cfg, "MEMORY_FILE", mem_path)
 
@@ -736,7 +738,7 @@ class TestPrivacyStatus:
         assert status["detector_categories"] == 25
 
     def test_egress_mode_reflects_config(self, monkeypatch):
-        import config as _cfg
+        from ledger_agent.core import config as _cfg
         _cfg.AI_EGRESS_MODE = "mock"
         status = privacy_status()
         assert status["egress_mode"] == "mock"

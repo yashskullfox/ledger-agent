@@ -151,6 +151,16 @@ class TestStartup:
         assert fake_uvicorn[0]["host"] == "127.0.0.1"
         assert fake_uvicorn[0]["port"] == 7337
 
+    def test_missing_uvicorn_hint_names_http_extra(self, monkeypatch):
+        monkeypatch.setenv("FI_MCP_HTTP_TOKEN", TOKEN)
+        monkeypatch.setitem(sys.modules, "uvicorn", None)  # import -> ImportError
+        with pytest.raises(RuntimeError) as ei:
+            th.serve_http(dispatch_fn=_Recorder())
+        msg = str(ei.value)
+        assert 'pip install "ledger-agent[http]"' in msg
+        assert "pip install uvicorn" in msg
+        assert TOKEN not in msg
+
     @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "::", "example.com"])
     def test_non_loopback_refused_without_allow_remote(self, host, monkeypatch, fake_uvicorn):
         monkeypatch.setenv("FI_MCP_HTTP_TOKEN", TOKEN)

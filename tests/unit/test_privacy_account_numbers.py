@@ -22,7 +22,7 @@ import re
 
 import pytest
 
-import config as _cfg
+from ledger_agent.core import config as _cfg
 from ledger_agent.core import privacy
 from ledger_agent.core.intelligence import owner_draws
 from ledger_agent.core.privacy import (
@@ -176,11 +176,23 @@ def test_phone_with_context_keeps_phone_token():
     assert "<PHONE_" in out and "<ACCT_" not in out
 
 
-def test_log_scope_keeps_keyword_gated_detector_only():
-    """``log`` is local (stderr / audit files): no bare-run detector there."""
+def test_log_scope_has_full_account_firewall():
+    """P-15: ``log`` now runs the bare-run and masked-reference detectors too.
+
+    Before P-15 this test asserted that ``log`` (stderr / audit files) left a
+    bare 8-digit run unchanged.  stderr is inherited by the Java webapp (P-14),
+    so it is egress: a bare run and a masked reference are tokenised in ``log``
+    exactly as in the egress scopes; the negatives (dates, amounts, years) still
+    pass through.
+    """
     out, _ = redact(f"ACH DEBIT ACCOUNT {FULL}", scope="log")
     _assert_digit_free(out, FULL)
-    assert redact("event 73645512 done", scope="log")[0] == "event 73645512 done"  # redaction: allow
+    out, _ = redact("event 73645512 done", scope="log")  # redaction: allow
+    assert "73645512" not in out and "<ACCT_" in out  # redaction: allow
+    out, _ = redact(f"paid from x{LAST4}", scope="log")
+    _assert_digit_free(out, LAST4)
+    for text in ("statement 20260115 closed", "total $12345678.90", "year 2026"):  # redaction: allow
+        assert redact(text, scope="log")[0] == text
 
 
 # ── negatives ────────────────────────────────────────────────────────────────

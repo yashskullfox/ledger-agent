@@ -22,9 +22,8 @@ figure, ``estimate_from_net_income`` / ``estimate_from_balance_sheet``) was remo
 Q-02 once every surface routed its tax figures through ``api.pte_estimate``.
 
 Rates (approximate – consult a tax professional for actual filings):
-  State PTET rate              : FI_STATE_TAX_RATE
-  FI_SE_TAX_RATE / FI_FED_INCOME_RATE / FI_QBI_DEDUCTION are still read below but no
-  estimate uses them since Q-02 (inert; kept so documented settings stay importable).
+  State PTET rate              : FI_STATE_TAX_RATE (the only rate setting; the individual
+                                 SE / federal / QBI settings were retired by card Q-06)
 
 Output: TaxEstimate dataclass with quarterly payment schedule.
 """
@@ -55,10 +54,7 @@ def _env_decimal(key: str, default: str) -> Decimal:
         return Decimal(default)
 
 
-SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # statutory SE rate
-FEDERAL_INCOME_RATE = _env_decimal("FI_FED_INCOME_RATE", "0.22")  # default federal effective rate
-STATE_INCOME_RATE = _env_decimal("FI_STATE_TAX_RATE", "0.05")  # default state effective rate
-QBI_DEDUCTION_RATE = _env_decimal("FI_QBI_DEDUCTION", "0.20")  # default QBI deduction
+STATE_INCOME_RATE = _env_decimal("FI_STATE_TAX_RATE", "0.05")  # entity-level state PTET rate
 
 # IRS Q-dates (approximate – actual dates vary by year)
 QUARTERLY_DUE_DATES = {
@@ -213,9 +209,11 @@ class TaxEstimator:
         notes = [
             scope_note,
             f"⚠️  {NOT_TAX_ADVICE_DISCLAIMER}",
-            f"State PTET rate: {float(STATE_INCOME_RATE) * 100:.2f}% of entity taxable income "
-            "(ordinary business income + net ST/LT capital gain + dividends + interest "
-            "− investment interest, floored at 0).",
+            (
+                f"State PTET rate: {float(STATE_INCOME_RATE) * 100:.2f}% of entity taxable income "
+                "(ordinary business income + net ST/LT capital gain + dividends + interest "
+                "− investment interest, floored at 0)."
+            ),
         ]
         if annualize_factor != Decimal("1"):
             notes.insert(

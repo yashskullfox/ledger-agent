@@ -13,7 +13,7 @@ import sqlite3
 
 import pytest
 
-import config as _cfg
+from ledger_agent.core import config as _cfg
 from ledger_agent.core import privacy
 from ledger_agent.core.privacy import PrivacyLeakError, audit_egress, redact
 

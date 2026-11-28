@@ -161,7 +161,9 @@ def test_update_coa_with_meta_none_leaves_non_transfer_unflagged(xfer_db):
 def test_classify_batch_persists_detected_transfer(xfer_db):
     from ledger_agent.core.intelligence.classifier import classify_batch
 
-    _insert(xfer_db, "t5", "TRANSFER * SYNTHETIC SWEEP")
+    # C-14: an own-account cue (brokerage sweep); generic "TRANSFER *" wording on an
+    # unflagged row is no longer an internal transfer.
+    _insert(xfer_db, "t5", "BKG SVC LLC Z SYNTHETIC SWEEP")
     classify_batch([_get("t5")])
 
     stored = _get("t5")

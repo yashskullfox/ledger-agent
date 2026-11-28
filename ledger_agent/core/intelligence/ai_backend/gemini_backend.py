@@ -42,7 +42,7 @@ class GeminiBackend(RemoteAIBackend):
                 "google-generativeai not installed. "
                 "Run: pip install ledger-agent[gemini]"
             ) from exc
-        from config import GEMINI_MODEL, ai_api_key
+        from ledger_agent.core.config import GEMINI_MODEL, ai_api_key
         genai.configure(api_key=ai_api_key())
         # The model object is bound to one system instruction, so the per-call
         # system prompt is folded into the content (see _build_payload).

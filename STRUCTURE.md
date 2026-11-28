@@ -76,7 +76,7 @@ ledger-agent/
 │   │   ├── accounting/       Financial statement builders
 │   │   │   ├── balance_sheet.py      BalanceSheetBuilder → GAAP-style balance sheet
 │   │   │   ├── continuity.py         Prior-period equity continuity & retained earnings
-│   │   │   ├── tax_estimator.py      Quarterly 1040-ES estimator (SE + federal + state + QBI)
+│   │   │   ├── tax_estimator.py      Quarterly entity-level state PTET estimator
 │   │   │   ├── wash_sale.py          Wash-sale disallowance calculation & 1099-B adjustment
 │   │   │   └── withholding.py        Partner estimated-tax reclassification to equity draws
 │   │   │
@@ -426,10 +426,7 @@ skipped **silently**, so if a new parser never matches, import it directly to se
 | `FI_AUTO_CLASSIFY_THRESHOLD` | `85` | Memory fuzzy-match threshold |
 | `FI_LOCAL_CONFIDENCE_THRESHOLD` | `0.65` | Escalation threshold to remote AI |
 | `FI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-| `FI_SE_TAX_RATE` | `0.153` | Self-employment tax rate |
-| `FI_FED_INCOME_RATE` | `0.22` | Federal income tax rate |
-| `FI_STATE_TAX_RATE` | `0.05` | Missouri PTE rate |
-| `FI_QBI_DEDUCTION` | `0.20` | QBI deduction |
+| `FI_STATE_TAX_RATE` | `0.05` | Entity-level state PTET rate |
 | `LEDGER_PYTHON_HOME` | — | Extracted Python home for Form D fat jar |
 
 ---

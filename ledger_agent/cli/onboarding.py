@@ -661,7 +661,7 @@ def cmd_onboard(
         0  – complete (no gaps) or all gaps filled.
         2  – gaps remain (non-interactive / user skipped).
     """
-    from config import DATA_DIR, STATEMENTS_DIR
+    from ledger_agent.core.config import DATA_DIR, STATEMENTS_DIR
 
     try:
         from rich.console import Console

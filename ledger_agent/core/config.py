@@ -32,10 +32,7 @@ Environment variables (prefix: FI_):
   FI_MEMORY_FILE            Override classification memory JSON path
   FI_DEFAULT_ENTITY_NAME    Pre-fill entity name in setup wizard
   FI_DEFAULT_ENTITY_STATE   Pre-fill entity state in setup wizard
-  FI_SE_TAX_RATE            Self-employment tax rate (default 0.153)
-  FI_FED_INCOME_RATE        Federal effective income tax rate (default 0.22)
-  FI_STATE_TAX_RATE         State income tax rate (default 0.05)
-  FI_QBI_DEDUCTION          QBI deduction rate (default 0.20)
+  FI_STATE_TAX_RATE         Entity-level state PTET rate (default 0.05)
   FI_STATEMENTS_DIR         Override default statements folder (data/statements/)
   FI_STATEMENT_GLOB         Glob pattern for statement files (default *.pdf)
   FI_AI_EGRESS_MODE         PII firewall: redact|strict|mock|passthrough (default redact)

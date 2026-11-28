@@ -48,6 +48,27 @@ def _continuation(text: str, pos: int, max_lines: int = 2) -> str:
     return " ".join(out)
 
 
+TERM_UNKNOWN_TAG = "term_unknown"
+
+
+def _trade_coding(term: str, gain_loss: Decimal, symbol: str) -> tuple[str, str, list[str]]:
+    """C-02: COA code, name and tags for a realised trade.
+
+    Long-term → 4011 / 5075 (Schedule K only); short-term → 4010 / 5070.  A trade whose
+    term the statement does not state is booked short-term and tagged ``term_unknown``
+    so the self-audit can count it.
+    """
+    gain = gain_loss >= 0
+    if term == "long":
+        code, name = ("4011", "Long-Term Capital Gain") if gain else ("5075", "Long-Term Capital Loss")
+        return code, name, ["long", "realised", symbol]
+    code, name = ("4010", "Realised Trading Gains") if gain else ("5070", "Realised Trading Losses")
+    tags = ["short", "realised", symbol]
+    if term != "short":
+        tags.append(TERM_UNKNOWN_TAG)
+    return code, name, tags
+
+
 @ParserRegistry.register
 class BrokerYBrokerageParser(BaseStatementParser):
     PARSER_ID = "broker_y_brokerage"
@@ -75,6 +96,7 @@ class BrokerYBrokerageParser(BaseStatementParser):
         trades = self._parse_trades(raw_text, period, year)
 
         for t in trades:
+            code, name, tags = _trade_coding(t.term, t.gain_loss, t.symbol)
             txns.append(Transaction(
                 account_id="",
                 date=t.settlement_date or date(int(period[:4]), int(period[5:7]), 1),
@@ -83,9 +105,9 @@ class BrokerYBrokerageParser(BaseStatementParser):
                 amount=t.gain_loss,
                 transaction_type=TransactionType.SELL,
                 statement_period=period,
-                coa_code="4010" if t.gain_loss >= 0 else "5070",
-                coa_name="Realised Trading Gains" if t.gain_loss >= 0 else "Realised Trading Losses",
-                tags=[t.term, "realised", t.symbol],
+                coa_code=code,
+                coa_name=name,
+                tags=tags,
             ))
 
         return ParsedStatement(
@@ -275,6 +297,13 @@ class BrokerYBrokerageParser(BaseStatementParser):
         re.IGNORECASE,
     )
 
+    def _add_gl(self, by_term: dict[str, Decimal], gl_m: re.Match) -> None:
+        """Add one "<Term>-term gain|loss: $X" label to the per-term running total."""
+        term = gl_m.group(1).lower()
+        gl_val = self.parse_amount(gl_m.group(3)) or Decimal("0")
+        signed = gl_val if gl_m.group(2).lower() == "gain" else -gl_val
+        by_term[term] = by_term.get(term, Decimal("0")) + signed
+
     def _parse_trades(self, text: str, period: str, year: int) -> list[RealisedTrade]:
         trades: list[RealisedTrade] = []
         lines = text.splitlines()
@@ -291,16 +320,14 @@ class BrokerYBrokerageParser(BaseStatementParser):
             if not d:
                 continue
 
-            net_gl = Decimal("0")
-            term = "short"
+            # C-02: the statement states the term on each label ("Short-term gain:",
+            # "Long-term loss:").  One sale can carry both; book each term separately.
+            by_term: dict[str, Decimal] = {}
 
             suffix = line[m.end():]
             inline_found = False
             for gl_m in self._GL_RE.finditer(suffix):
-                term = gl_m.group(1).lower()
-                gl_type = gl_m.group(2).lower()
-                gl_val = self.parse_amount(gl_m.group(3)) or Decimal("0")
-                net_gl += gl_val if gl_type == "gain" else -gl_val
+                self._add_gl(by_term, gl_m)
                 inline_found = True
 
             if not inline_found:
@@ -312,26 +339,23 @@ class BrokerYBrokerageParser(BaseStatementParser):
                         break
                     gl_m = self._GL_RE.search(next_line)
                     if gl_m:
-                        term = gl_m.group(1).lower()
-                        gl_type = gl_m.group(2).lower()
-                        gl_val = self.parse_amount(gl_m.group(3)) or Decimal("0")
-                        net_gl += gl_val if gl_type == "gain" else -gl_val
-
-            if net_gl == 0:
-                continue
+                        self._add_gl(by_term, gl_m)
 
             first_word = desc_raw.split()[0] if desc_raw else "UNKNWN"
             symbol = first_word[:6].upper()
 
-            trades.append(RealisedTrade(
-                account_id="",
-                statement_period=period,
-                symbol=symbol,
-                description=desc_raw[:120],
-                gain_loss=net_gl,
-                term=term,
-                settlement_date=d,
-            ))
+            for term, net_gl in by_term.items():
+                if net_gl == 0:
+                    continue
+                trades.append(RealisedTrade(
+                    account_id="",
+                    statement_period=period,
+                    symbol=symbol,
+                    description=desc_raw[:120],
+                    gain_loss=net_gl,
+                    term=term,
+                    settlement_date=d,
+                ))
 
         return trades
 

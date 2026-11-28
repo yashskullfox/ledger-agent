@@ -31,18 +31,14 @@ def pte_db(tmp_path, monkeypatch):
     from ledger_agent.core.database import EntityRepo, init_db
     from ledger_agent.core.models import Entity
 
-    for key, val in (
-        ("FI_SE_TAX_RATE", "0.153"),
-        ("FI_FED_INCOME_RATE", "0.22"),
-        ("FI_STATE_TAX_RATE", "0.05"),
-        ("FI_QBI_DEDUCTION", "0.20"),
-    ):
-        monkeypatch.setenv(key, val)
+    monkeypatch.setenv("FI_STATE_TAX_RATE", "0.05")
     # Keep the synthetic Schedule K figures hermetic: a local (gitignored) wash-sale CSV
     # overlay must not add a disallowance to net STCG in full-year runs.
     import ledger_agent.core.accounting.wash_sale as wash_sale
 
-    monkeypatch.setattr(wash_sale, "total_disallowed", lambda *a, **kw: Decimal("0"))
+    monkeypatch.setattr(
+        wash_sale, "disallowed_by_term", lambda *a, **kw: (Decimal("0"), Decimal("0"))
+    )
     db_file = tmp_path / "pte_basis.db"
     monkeypatch.setenv("FI_DB_PATH", str(db_file))
     init_db(db_file)

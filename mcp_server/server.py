@@ -22,6 +22,11 @@ descriptions are regex-redacted, input descriptions are never echoed, and
 errors carry only an opaque ``ref:`` id.  Redaction failure withholds the
 response (fail closed).  There is no allow_pii opt-in here.
 
+Entity isolation (R-08): each request is answered for ONE entity — the optional
+``entity_id`` argument, else the fiscal year's most active entity (the rule of
+``ledger_agent.core.api._entity_and_periods``) — and every read is scoped to that
+entity's accounts.  See _resolve_entity.
+
 Usage:
   python -m mcp_server.server
 
@@ -40,7 +45,6 @@ from __future__ import annotations
 
 import json
 import logging
-import secrets
 import sys
 from pathlib import Path
 from typing import Any
@@ -64,6 +68,13 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Statement period in YYYY-MM format, e.g. '2025-01'.",
                 },
+                "entity_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional entity id (or exact entity name). Default: the entity "
+                        "with the most transactions in the period's year."
+                    ),
+                },
             },
             "required": ["period"],
         },
@@ -85,6 +96,13 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "integer",
                     "description": "Maximum number of transactions to return (default 100).",
                 },
+                "entity_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional entity id (or exact entity name). Default: the entity "
+                        "with the most transactions in the period's year (latest year if none)."
+                    ),
+                },
             },
         },
     },
@@ -101,6 +119,13 @@ TOOLS: list[dict[str, Any]] = [
                 "period": {
                     "type": "string",
                     "description": "Statement period in YYYY-MM format; its year is used.",
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional entity id (or exact entity name). Default: the entity "
+                        "with the most transactions in the period's year."
+                    ),
                 },
             },
             "required": ["period"],
@@ -132,7 +157,15 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Returns all available statement periods present in the database.",
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional entity id (or exact entity name). Default: the entity "
+                        "with the most transactions in the latest year."
+                    ),
+                },
+            },
         },
     },
     {
@@ -142,7 +175,15 @@ TOOLS: list[dict[str, Any]] = [
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional entity id (or exact entity name). Default: the entity "
+                        "with the most transactions in the latest year."
+                    ),
+                },
+            },
         },
     },
     {
@@ -176,8 +217,9 @@ def _bootstrap() -> None:
 #      (entity_name / ein / partner_name), with this server's legacy key
 #      spellings mapped onto those field names (_LEGACY_FIELD_ALIASES).
 # Account and institution names and masked account numbers are replaced with
-# stable tokens by the handlers themselves (_account_tokens), because only they
-# know which labels refer to which account.  Any failure in this pipeline blocks
+# stable tokens by the handlers themselves (ledger_agent.core.labels, shared with
+# the AI context export since P-12), because only they know which labels refer to
+# which account.  Any failure in this pipeline blocks
 # the response (fail closed); there is no allow_pii opt-in on this server.
 
 # Legacy key path (dict keys from the root, list levels skipped) → tools.py field name.
@@ -185,11 +227,6 @@ _LEGACY_FIELD_ALIASES: dict[tuple[str, ...], str] = {
     ("entity",): "entity_name",          # get_balance_sheet / get_tax_estimate / list_periods
     ("entity", "name"): "entity_name",   # get_entity_summary
 }
-
-# Balance-sheet line codes whose label is built from institution + account name.
-_ACCOUNT_LINE_CODES = frozenset({"1010", "1100_acct", "2030"})
-_ACCOUNT_FALLBACK = "<ACCOUNT>"
-_MASKED_TOKEN = "<ACCT_MASKED>"
 
 
 class LegacyRedactionError(RuntimeError):
@@ -224,35 +261,71 @@ def _privatize(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _ref_id() -> str:
-    return secrets.token_hex(4)
+    """Opaque ``ref:`` id: 8 hex chars with at least one letter (P-15)."""
+    from ledger_agent.core.privacy import new_error_ref
+    return new_error_ref()
 
 
-def _account_tokens(entity_id: str) -> dict[str, tuple[str, str]]:
-    """account_id → (account token, institution token), stable for one DB state."""
+# ── Entity isolation (R-08 / ARCH-30) ─────────────────────────────────────────
+#
+# Every handler that reads entity data resolves ONE target entity per request
+# (_resolve_entity) and reads only that entity's accounts, snapshots and
+# transactions.  Rule:
+#   1. an explicit ``entity_id`` (alias ``entity``) argument — entity id, or the exact
+#      entity name (case-insensitive); an unknown value → fixed error, never echoed;
+#   2. otherwise the rule of ``api._entity_and_periods``: the entity with the most
+#      transactions in the requested fiscal year (ties → lowest entity id; no
+#      transactions that year → first entity by name).  Tools without a period use the
+#      fiscal year of the latest transaction period; an empty DB → first entity.
+
+UNKNOWN_ENTITY = "Unknown entity."
+TAX_NOT_AVAILABLE = "Tax estimate not available for this entity."
+
+
+class _UnknownEntity(LookupError):
+    """The requested entity does not exist (value deliberately not carried)."""
+
+
+def _year_of(period: Any) -> int | None:
+    head = str(period or "")[:4]
+    return int(head) if len(head) == 4 and head.isdigit() else None
+
+
+def _resolve_entity(args: dict[str, Any], year: int | None) -> Any:
+    """The request's target entity, or None if no entity is configured.
+
+    Raises _UnknownEntity when an explicit entity argument matches nothing."""
+    from ledger_agent.core import api
+    from ledger_agent.core.database import EntityRepo, TransactionRepo
+
+    entities = EntityRepo.list_all()
+    if not entities:
+        return None
+
+    requested = args.get("entity_id") or args.get("entity")
+    if requested:
+        key = str(requested).strip()
+        for e in entities:
+            if e.id == key:
+                return e
+        folded = key.casefold()
+        for e in entities:
+            if e.name.casefold() == folded:
+                return e
+        raise _UnknownEntity
+
+    if year is None:
+        year = _year_of(TransactionRepo.latest_period())
+    if year is None:
+        return entities[0]
+    entity, _periods = api._entity_and_periods(year)
+    return entity
+
+
+def _entity_account_ids(entity_id: str) -> list[str]:
     from ledger_agent.core.database import AccountRepo
 
-    accounts = sorted(AccountRepo.list_for_entity(entity_id), key=lambda a: a.id)
-    institutions = sorted({a.institution for a in accounts})
-    inst_token = {name: f"<INSTITUTION_{i}>" for i, name in enumerate(institutions, 1)}
-    return {
-        a.id: (f"<ACCOUNT_{i}>", inst_token[a.institution])
-        for i, a in enumerate(accounts, 1)
-    }
-
-
-def _account_label_map(entity_id: str) -> dict[str, str]:
-    """Raw balance-sheet account labels (see BalanceSheetBuilder) → tokenised labels."""
-    from ledger_agent.core.database import AccountRepo
-
-    tokens = _account_tokens(entity_id)
-    labels: dict[str, str] = {}
-    for a in AccountRepo.list_for_entity(entity_id):
-        acct_tok, inst_tok = tokens[a.id]
-        labels[f"{a.institution} – {a.name}"] = f"{inst_tok} – {acct_tok}"
-        labels[f"Credit Card Payable – {a.institution} ({a.name})"] = (
-            f"Credit Card Payable – {inst_tok} ({acct_tok})"
-        )
-    return labels
+    return sorted(a.id for a in AccountRepo.list_for_entity(entity_id))
 
 
 # ── Tool handlers ─────────────────────────────────────────────────────────────
@@ -263,23 +336,23 @@ def _handle_get_balance_sheet(args: dict[str, Any]) -> dict[str, Any]:
         return {"error": "period is required"}
 
     from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
-    from ledger_agent.core.database import EntityRepo, init_db
+    from ledger_agent.core.database import init_db
+    from ledger_agent.core.labels import account_label_map, account_line_label
 
     init_db()
-    entities = EntityRepo.list_all()
-    if not entities:
+    try:
+        entity = _resolve_entity(args, _year_of(period))
+    except _UnknownEntity:
+        return {"error": UNKNOWN_ENTITY}
+    if entity is None:
         return {"error": "No entity configured. Run setup first."}
 
-    entity = entities[0]
     bs = BalanceSheetBuilder(entity.id, period).build()
-    label_map = _account_label_map(entity.id)
+    label_map = account_label_map(entity.id)
 
     def _label(line: Any) -> str:
-        if line.label in label_map:
-            return label_map[line.label]
-        if line.coa_code in _ACCOUNT_LINE_CODES:
-            return _ACCOUNT_FALLBACK  # unknown account label shape → never pass it through
-        return line.label
+        token = account_line_label(line, label_map)
+        return line.label if token is None else token
 
     return {
         "entity": bs.entity_name,
@@ -323,19 +396,23 @@ def _handle_list_transactions(args: dict[str, Any]) -> dict[str, Any]:
     period: str | None = args.get("period")
     limit = max(0, int(args.get("limit", 100)))
 
-    from ledger_agent.core.database import TransactionRepo, get_conn, init_db
+    from ledger_agent.core.database import TransactionRepo, init_db
     init_db()
 
+    try:
+        entity = _resolve_entity(args, _year_of(period) if period else None)
+    except _UnknownEntity:
+        return {"error": UNKNOWN_ENTITY}
+    if entity is None:
+        return {"transactions": [], "count": 0}
+    account_ids = _entity_account_ids(entity.id)
+
     if period:
-        txns = TransactionRepo.list_for_period(period)
+        txns = TransactionRepo.list_for_periods([period], account_ids=account_ids)
     else:
-        txns = TransactionRepo.list_unclassified()
+        txns = TransactionRepo.list_unclassified(account_ids=account_ids)
         if not txns:
-            with get_conn() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM transactions ORDER BY date DESC LIMIT ?", (limit,)
-                ).fetchall()
-            txns = [TransactionRepo._row_to_model(r) for r in rows]
+            txns = TransactionRepo.list_recent(account_ids, limit)
 
     records = [_txn_record(t) for t in txns[:limit]]
     return {"transactions": records, "count": len(records)}
@@ -348,13 +425,23 @@ def _handle_get_tax_estimate(args: dict[str, Any]) -> dict[str, Any]:
     year = int(str(period)[:4])
 
     from ledger_agent.core import api
-    from ledger_agent.core.database import EntityRepo, init_db
+    from ledger_agent.core.database import init_db
+    from ledger_agent.core.labels import ACCOUNT_FALLBACK, account_tokens
 
     init_db()
-    entities = EntityRepo.list_all()
-    if not entities:
+    try:
+        entity = _resolve_entity(args, year)
+    except _UnknownEntity:
+        return {"error": UNKNOWN_ENTITY}
+    if entity is None:
         return {"error": "No entity configured."}
-    entity = entities[0]
+
+    # api.pte_estimate always computes the fiscal year's PTE entity (the most active
+    # one); its figures may only be shown for that same entity.
+    pte_entity, _periods = api._entity_and_periods(year)
+    if pte_entity.id != entity.id:
+        return {"entity": entity.name, "period": period, "year": year,
+                "error": TAX_NOT_AVAILABLE}
 
     try:
         est = api.pte_estimate(year)
@@ -362,9 +449,9 @@ def _handle_get_tax_estimate(args: dict[str, Any]) -> dict[str, Any]:
         log.debug("legacy get_tax_estimate: no estimate for %s", year, exc_info=True)
         return {"error": f"No tax estimate for fiscal year {year}: not enough statement data."}
 
-    tokens = _account_tokens(entity.id)
+    tokens = account_tokens(entity.id)
     missing = {
-        tokens.get(acct_id, (_ACCOUNT_FALLBACK, ""))[0]: months
+        tokens.get(acct_id, (ACCOUNT_FALLBACK, ""))[0]: months
         for acct_id, months in (est.missing_statements or {}).items()
     }
     return {
@@ -410,30 +497,35 @@ def _handle_classify_transaction(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _handle_list_periods(args: dict[str, Any]) -> dict[str, Any]:
-    from ledger_agent.core.database import EntityRepo, SnapshotRepo, init_db
+    from ledger_agent.core.database import SnapshotRepo, init_db
     init_db()
 
-    entities = EntityRepo.list_all()
-    if not entities:
+    try:
+        entity = _resolve_entity(args, None)
+    except _UnknownEntity:
+        return {"periods": [], "error": UNKNOWN_ENTITY}
+    if entity is None:
         return {"periods": [], "error": "No entity configured."}
 
-    entity = entities[0]
     snapshots = SnapshotRepo.list_for_entity(entity.id)
     periods = sorted({s.statement_period for s in snapshots}, reverse=True)
     return {"periods": periods, "entity": entity.name}
 
 
 def _handle_get_entity_summary(args: dict[str, Any]) -> dict[str, Any]:
-    from ledger_agent.core.database import AccountRepo, EntityRepo, SnapshotRepo, init_db
+    from ledger_agent.core.database import AccountRepo, SnapshotRepo, init_db
+    from ledger_agent.core.labels import MASKED_TOKEN, account_tokens
     init_db()
 
-    entities = EntityRepo.list_all()
-    if not entities:
+    try:
+        entity = _resolve_entity(args, None)
+    except _UnknownEntity:
+        return {"error": UNKNOWN_ENTITY}
+    if entity is None:
         return {"error": "No entity configured. Run setup first."}
 
-    entity = entities[0]
     accounts = AccountRepo.list_for_entity(entity.id)
-    tokens = _account_tokens(entity.id)
+    tokens = account_tokens(entity.id)
     snapshots = SnapshotRepo.list_for_entity(entity.id)
     periods = sorted({s.statement_period for s in snapshots})
 
@@ -449,7 +541,7 @@ def _handle_get_entity_summary(args: dict[str, Any]) -> dict[str, Any]:
                 "institution": tokens[a.id][1],
                 "type": a.account_type.value if hasattr(a.account_type, "value")
                 else str(a.account_type),
-                "masked": _MASKED_TOKEN if a.account_number_masked else "",
+                "masked": MASKED_TOKEN if a.account_number_masked else "",
             }
             for a in sorted(accounts, key=lambda a: a.id)
         ],

@@ -73,9 +73,9 @@ may leave the host:
                     detector is replaced before a shorter one.
     Scopes          Both detectors run in every egress scope (openai, gemini,
                     anthropic, openai_compatible, ollama, ai_classification,
-                    ai_context, mcp_response, unknown scopes) and in
-                    memory_file.  The ``log`` scope (local stderr / audit files
-                    only, never egress) keeps its keyword-gated account detector.
+                    ai_context, mcp_response, unknown scopes), in memory_file
+                    and in ``log`` (stderr / audit files): stderr is inherited
+                    by the Java webapp, so it is treated as egress (P-15).
     audit_egress()  Blocks any payload that still contains a marker + 4-digit
                     reference ("account_reference") or a bare digit run
                     ("digit_run") — category only, never the value.
@@ -679,6 +679,31 @@ def contains_account_reference(text: str) -> str | None:
     if _bare_digit_runs(text):
         return "digit_run"
     return None
+
+
+# ── Opaque error refs (P-15) ──────────────────────────────────────────────────
+
+_REF_LETTERS = "abcdef"
+
+
+def new_error_ref() -> str:
+    """Fresh opaque id for an error message: 8 lowercase hex chars, >= 1 letter.
+
+    The wire format stays ``ref:XXXXXXXX`` ([0-9a-f]{8}).  An all-digit ref
+    would be tokenised as a bare digit run by the ``log`` scope and could no
+    longer be matched between the client message and stderr, so refs that come
+    out all digits are drawn again (uniform over the letter-bearing hex ids,
+    about 32 bits).  Shared by the bridge and both MCP servers.
+    """
+    import secrets
+
+    for _ in range(16):
+        ref = secrets.token_hex(4)
+        if any(c in _REF_LETTERS for c in ref):
+            return ref
+    # Unreachable in practice ((10/16)**128); keeps the letter guarantee if
+    # ``secrets`` is ever stubbed to return digits only.
+    return secrets.choice(_REF_LETTERS) + ref[1:]
 
 
 def _detect_emails(text: str) -> list[tuple[str, str]]:
@@ -1582,7 +1607,7 @@ def _env_entity_names(explicit: str = "") -> list[str]:
     import os
     names: list[str] = []
     try:
-        from config import PRIVACY_ENTITY_NAME
+        from ledger_agent.core.config import PRIVACY_ENTITY_NAME
     except Exception:  # noqa: BLE001
         PRIVACY_ENTITY_NAME = ""  # noqa: N806
     for n in (explicit, PRIVACY_ENTITY_NAME, os.environ.get("FI_PRIVACY_ENTITY_NAME", "")):
@@ -1855,9 +1880,11 @@ _SCOPE_DETECTORS: dict[str, list[str]] = {
     # so audit/log lines never leak the substance of a record even if a caller
     # forgets to redact first. Person-name remains context-gated (needs titles
     # like "Mr/Ms/Customer:") to keep false-positive noise tolerable.
+    # P-15: partial_account + digit_run added — stderr is inherited by the Java
+    # webapp (P-14), so a log line needs the same account firewall as egress.
     "log": [
         "api_key", "ssn", "ein", "itin", "credit_card", "routing", "account",
-        "iban", "swift", "email", "phone", "address", "zip4",
+        "partial_account", "digit_run", "iban", "swift", "email", "phone", "address", "zip4",
         "driver_license", "passport", "dob",
         "ipv4", "ipv6", "mac", "url_creds",
         "entity_name", "person_name", "counterparty",
@@ -1882,7 +1909,7 @@ def redact(
     Raises PrivacyLeakError if API keys are found (should never occur —
     defence-in-depth above config.py's build-time secret guard).
     """
-    from config import AI_EGRESS_MODE, AI_EGRESS_MODE_ACK
+    from ledger_agent.core.config import AI_EGRESS_MODE, AI_EGRESS_MODE_ACK
 
     # ── passthrough mode ──────────────────────────────────────────────────────
     if AI_EGRESS_MODE == "passthrough":
@@ -2164,7 +2191,7 @@ def privacy_status() -> dict[str, Any]:
     Exposed as an MCP tool so operators can verify firewall status.
     Never includes original values — only token types and counts.
     """
-    from config import AI_EGRESS_MODE
+    from ledger_agent.core.config import AI_EGRESS_MODE
 
     return {
         "egress_mode": AI_EGRESS_MODE,

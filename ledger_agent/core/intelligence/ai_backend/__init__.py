@@ -74,7 +74,7 @@ def _openai_compatible() -> AIBackend:
 
 
 def _ollama() -> AIBackend:
-    from config import OLLAMA_DEFAULT_BASE_URL
+    from ledger_agent.core.config import OLLAMA_DEFAULT_BASE_URL
     from ledger_agent.core.intelligence.ai_backend.openai_backend import (
         OpenAICompatibleBackend,
     )
@@ -117,7 +117,7 @@ def build_backend(name: str) -> AIBackend:
         )
         return _local()
     if key in _REMOTE:
-        from config import validate_ai_config
+        from ledger_agent.core.config import validate_ai_config
         validate_ai_config(key)
     return factory()
 
@@ -133,7 +133,7 @@ def get_backend(force_reload: bool = False) -> AIBackend:
     if _instance is not None and not force_reload:
         return _instance
 
-    from config import AI_BACKEND
+    from ledger_agent.core.config import AI_BACKEND
 
     _instance = build_backend(AI_BACKEND)
     return _instance
