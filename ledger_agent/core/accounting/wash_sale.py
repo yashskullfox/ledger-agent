@@ -37,7 +37,18 @@ Limitations of the computed path:
     - Cost-basis tracking is per-position aggregate, not per-lot.
 
 All computed and CSV values are in USD, positive = amount to add BACK to
-net STCG (making the loss less negative).
+the capital-gain line of the washed loss (making the loss less negative).
+
+Holding term (C-10): a disallowed loss is added back to the line its loss was
+booked on. A loss coded ``5075`` (long-term, C-02) goes back to net LTCG; every
+other loss — ``5070``, uncoded, or tagged ``term_unknown`` — goes back to net
+STCG. ``disallowed_by_term`` returns both parts; ``total_disallowed`` (their sum)
+is kept for existing callers.
+
+The CSV overlay may carry an optional ``term`` column (``long``/``lt``/
+``long-term`` → long; anything else, blank included → short). A CSV without
+that column (the format ``scripts/build_wash_sale_csv.py`` writes today) is
+treated as all short-term, exactly as before C-10.
 """
 from __future__ import annotations
 
@@ -57,6 +68,21 @@ _DEFAULT_CSV = Path(__file__).resolve().parents[3] / "private" / "wash_sale_adju
 # IRS wash-sale window (§1091)
 WINDOW_DAYS = 30  # redaction: allow
 
+TERM_SHORT = "short"
+TERM_LONG = "long"
+# C-02: long-term capital losses are coded 5075; 5070 / term_unknown stay short.
+LONG_TERM_LOSS_CODE = "5075"
+_LONG_TERM_CSV_VALUES = frozenset({"long", "lt", "long-term", "long_term", "long term"})
+
+
+def _term_for_code(coa_code: str | None) -> str:
+    """Holding term of a loss row, from its COA code (matches Form 1065 routing)."""
+    return TERM_LONG if (coa_code or "").strip() == LONG_TERM_LOSS_CODE else TERM_SHORT
+
+
+def _term_from_csv(raw: str | None) -> str:
+    return TERM_LONG if (raw or "").strip().lower() in _LONG_TERM_CSV_VALUES else TERM_SHORT
+
 
 # --------------------------------------------------------------------------- #
 # Data classes                                                                #
@@ -72,6 +98,7 @@ class LossSaleEvent:
     symbol: str
     loss_amount: Decimal   # positive number — magnitude of the loss
     description: str = ""
+    term: str = TERM_SHORT  # "long" only for a 5075-coded loss (C-10)
 
 
 @dataclass
@@ -82,6 +109,7 @@ class WashSaleFinding:
     loss_amount: Decimal
     disallowed_amount: Decimal    # <= loss_amount
     evidence: str                 # human-readable reason
+    term: str = TERM_SHORT        # line the add-back goes to: "short" → STCG, "long" → LTCG
 
 
 @dataclass
@@ -92,6 +120,8 @@ class WashSaleReport:
     total_loss_at_risk: Decimal = Decimal("0")
     findings: list[WashSaleFinding] = field(default_factory=list)
     total_disallowed: Decimal = Decimal("0")
+    disallowed_short: Decimal = Decimal("0")   # add back to net STCG
+    disallowed_long: Decimal = Decimal("0")    # add back to net LTCG
     source: str = "computed"      # "csv" | "computed" | "combined" | "none"
     notes: list[str] = field(default_factory=list)
 
@@ -102,6 +132,8 @@ class WashSaleReport:
             "loss_sales_considered": self.loss_sales_considered,
             "total_loss_at_risk": str(self.total_loss_at_risk),
             "total_disallowed": str(self.total_disallowed),
+            "disallowed_short": str(self.disallowed_short),
+            "disallowed_long": str(self.disallowed_long),
             "source": self.source,
             "findings": [
                 {
@@ -110,6 +142,7 @@ class WashSaleReport:
                     "loss_amount": str(f.loss_amount),
                     "disallowed_amount": str(f.disallowed_amount),
                     "evidence": f.evidence,
+                    "term": f.term,
                 }
                 for f in self.findings
             ],
@@ -125,8 +158,21 @@ class WashSaleReport:
 def load_adjustments(csv_path: Path | None = None) -> dict[str, Decimal]:
     """Load wash-sale disallowance amounts from CSV.
 
-    Returns {ticker: disallowed_loss}. Returns {} if the file is absent —
-    caller must decide whether to fall back to ``compute_from_ledger``.
+    Returns {ticker: disallowed_loss} (summed across terms when the CSV carries a
+    ``term`` column). Returns {} if the file is absent — caller must decide whether
+    to fall back to ``compute_from_ledger``.
+    """
+    result: dict[str, Decimal] = {}
+    for (ticker, _term), amount in load_adjustments_by_term(csv_path).items():
+        result[ticker] = result.get(ticker, Decimal("0")) + amount
+    return result
+
+
+def load_adjustments_by_term(csv_path: Path | None = None) -> dict[tuple[str, str], Decimal]:
+    """Load wash-sale disallowances from CSV keyed by ``(ticker, term)``.
+
+    ``term`` is ``"long"`` or ``"short"``. Without a ``term`` column every row is
+    short-term (the pre-C-10 behaviour). Returns {} if the file is absent.
     """
     env_path = os.environ.get("FI_WASH_SALE_CSV", "").strip()
     candidates: list[Path] = []
@@ -145,19 +191,22 @@ def load_adjustments(csv_path: Path | None = None) -> dict[str, Decimal]:
     return {}
 
 
-def _parse_csv(path: Path) -> dict[str, Decimal]:
-    result: dict[str, Decimal] = {}
+def _parse_csv(path: Path) -> dict[tuple[str, str], Decimal]:
+    """Rows keyed by ``(ticker, term)``; a repeated key keeps the last row (as before)."""
+    result: dict[tuple[str, str], Decimal] = {}
     with path.open(encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
-            ticker = row.get("ticker", "").strip().upper()
-            raw = row.get("disallowed_loss", "").strip()
+            ticker = (row.get("ticker") or "").strip().upper()
+            raw = (row.get("disallowed_loss") or "").strip()
             if not ticker or not raw:
                 continue
             try:
-                result[ticker] = Decimal(raw)
+                amount = Decimal(raw)
             except Exception:
-                log.warning("wash_sale: skipped malformed row: %r", row)
+                log.warning("wash_sale: skipped a malformed CSV row (line %d)", reader.line_num)
+                continue
+            result[(ticker, _term_from_csv(row.get("term")))] = amount
     return result
 
 
@@ -189,7 +238,7 @@ def _load_loss_sales(entity_id: str, fiscal_year: int) -> list[LossSaleEvent]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT t.account_id, t.date, t.statement_period, t.description, "
-            "       t.amount, t.tags "
+            "       t.amount, t.tags, t.coa_code "
             "  FROM transactions t "
             "  JOIN accounts a ON a.id = t.account_id "
             " WHERE a.entity_id = ? "
@@ -223,6 +272,7 @@ def _load_loss_sales(entity_id: str, fiscal_year: int) -> list[LossSaleEvent]:
             symbol=symbol,
             loss_amount=abs(Decimal(str(r["amount"]))),
             description=r["description"] or "",
+            term=_term_for_code(r["coa_code"]),
         ))
     return events
 
@@ -308,11 +358,16 @@ def compute_from_ledger(entity_id: str, fiscal_year: int) -> WashSaleReport:
                 loss_amount=ev.loss_amount,
                 disallowed_amount=ev.loss_amount,  # conservative ceiling
                 evidence=evidence,
+                term=ev.term,
             ))
 
-    report.total_disallowed = sum(
-        (f.disallowed_amount for f in report.findings), Decimal("0")
+    report.disallowed_short = sum(
+        (f.disallowed_amount for f in report.findings if f.term != TERM_LONG), Decimal("0")
     )
+    report.disallowed_long = sum(
+        (f.disallowed_amount for f in report.findings if f.term == TERM_LONG), Decimal("0")
+    )
+    report.total_disallowed = report.disallowed_short + report.disallowed_long
 
     if not report.findings and report.loss_sales_considered:
         report.notes.append(
@@ -368,10 +423,57 @@ def reconcile_computed_vs_csv(entity_id: str, fiscal_year: int,
 # --------------------------------------------------------------------------- #
 
 
+def disallowed_by_term(csv_path: Path | None = None,
+                       entity_id: str | None = None,
+                       fiscal_year: int | None = None) -> tuple[Decimal, Decimal]:
+    """Wash-sale disallowance split by the washed loss's holding term (C-10).
+
+    Returns ``(short, long)``: ``short`` is added back to net STCG, ``long`` to net
+    LTCG. Same source preference as ``total_disallowed``:
+        1. CSV overlay if present (per-row ``term`` column, else all short).
+        2. Computed from own ledger (5075-coded losses → long, others → short).
+        3. ``(0, 0)`` — with a WARNING.
+    """
+    csv_data = load_adjustments_by_term(csv_path)
+    if csv_data:
+        short = sum((a for (_, t), a in csv_data.items() if t != TERM_LONG), Decimal("0"))
+        long_ = sum((a for (_, t), a in csv_data.items() if t == TERM_LONG), Decimal("0"))
+        log.info("wash_sale: using CSV overlay (%d row key(s))", len(csv_data))
+        return short, long_
+
+    if entity_id and fiscal_year:
+        try:
+            report = compute_from_ledger(entity_id, fiscal_year)
+        except Exception as exc:  # noqa: BLE001 — never let this break parity
+            log.warning("wash_sale: computed path failed (%s); using $0", exc)
+            return Decimal("0"), Decimal("0")
+        if report.findings:
+            log.info(
+                "wash_sale: no CSV overlay — using computed disallowance "
+                "(%d finding(s)) from own ledger for FY%d",
+                len(report.findings), fiscal_year,
+            )
+            return report.disallowed_short, report.disallowed_long
+        log.info(
+            "wash_sale: no CSV, computed path found no suspects across "
+            "%d loss sale(s) in FY%d",
+            report.loss_sales_considered, fiscal_year,
+        )
+        return Decimal("0"), Decimal("0")
+
+    log.warning(
+        "wash_sale: no adjustment source (CSV absent, computed path not "
+        "invoked). Capital gains will NOT include wash-sale disallowances. "
+        "Supply private/wash_sale_adjustments.csv at year-end for the "
+        "authoritative 1099-B figures."
+    )
+    return Decimal("0"), Decimal("0")
+
+
 def total_disallowed(csv_path: Path | None = None,
                      entity_id: str | None = None,
                      fiscal_year: int | None = None) -> Decimal:
-    """Total wash-sale disallowance to add back to net STCG.
+    """Total wash-sale disallowance (short + long parts of ``disallowed_by_term``).
 
     Preference order:
         1. CSV overlay if present  (authoritative — from 1099-B).
@@ -381,37 +483,8 @@ def total_disallowed(csv_path: Path | None = None,
 
     Signature is backwards-compatible: callers that only pass ``csv_path``
     (the legacy call) still work; they just skip the computed fallback.
+    ``generate_form_1065`` uses ``disallowed_by_term`` so each part lands on its
+    own capital-gain line.
     """
-    csv_data = load_adjustments(csv_path)
-    if csv_data:
-        log.info("wash_sale: using CSV overlay (%d tickers)", len(csv_data))
-        return sum(csv_data.values(), Decimal("0"))
-
-    if entity_id and fiscal_year:
-        try:
-            report = compute_from_ledger(entity_id, fiscal_year)
-        except Exception as exc:  # noqa: BLE001 — never let this break parity
-            log.warning("wash_sale: computed path failed (%s); using $0", exc)
-            return Decimal("0")
-        if report.findings:
-            log.info(
-                "wash_sale: no CSV overlay — using computed disallowance "
-                "(%d finding(s), $%s total) from own ledger for FY%d",
-                len(report.findings), report.total_disallowed, fiscal_year,
-            )
-            return report.total_disallowed
-        log.info(
-            "wash_sale: no CSV, computed path found no suspects across "
-            "%d loss sale(s) in FY%d",
-            report.loss_sales_considered, fiscal_year,
-        )
-        return Decimal("0")
-
-    log.warning(
-        "wash_sale: no adjustment source (CSV absent, computed path not "
-        "invoked). Net STCG will NOT include wash-sale disallowances. "
-        "Supply private/wash_sale_adjustments.csv at year-end for the "
-        "authoritative 1099-B figures."
-    )
-    return Decimal("0")
-
+    short, long_ = disallowed_by_term(csv_path, entity_id=entity_id, fiscal_year=fiscal_year)
+    return short + long_

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import sys
-import traceback
 
 log = logging.getLogger(__name__)
 
@@ -71,8 +70,63 @@ def _redact_response(payload: dict, *, allow_pii: bool = False) -> dict:
             audit("mcp.redaction.failed",
                   error_type=type(exc).__name__,
                   error_message=str(exc)[:200])
-        log.error("Privacy redaction FAILED (fail-closed): %s", exc)
+        # P-13: the message can carry a value from the payload; it stays on the
+        # exception (and in the redacted audit log), stderr gets the type only.
+        log.error("Privacy redaction FAILED (fail-closed): %s", type(exc).__name__)
         raise PrivacyRedactionError(f"redaction_failed: {exc}") from exc
+
+
+def _new_ref() -> str:
+    """Opaque ``ref:`` id: 8 hex chars with at least one letter (P-15)."""
+    from ledger_agent.core.privacy import new_error_ref
+    return new_error_ref()
+
+
+def _record_internal_error(event: str, where: str, exc: BaseException) -> str:
+    """Log + audit ``exc`` by TYPE and a fresh ref only; return the ref (P-13).
+
+    The exception message and the traceback can carry raw values: the traceback
+    goes to DEBUG only, the message is never logged above DEBUG or sent to a client.
+    """
+    ref = _new_ref()
+    error_type = type(exc).__name__
+    log.warning("MCP: internal error in %s (%s) (ref:%s)", where, error_type, ref)
+    log.debug("MCP: internal error traceback (ref:%s)", ref, exc_info=exc)
+    try:
+        from ledger_agent.core.audit import audit
+        audit(event, where=where, error_type=error_type, ref=ref)
+    except Exception:  # noqa: BLE001 — auditing must not mask the error response
+        pass
+    return ref
+
+
+# P-13: modules whose own ``raise ValueError(...)`` statements build the message
+# from fixed text plus the caller's own arguments (fiscal year, period, folder,
+# tool name) — never from statement or DB data.  Those messages are useful to an
+# MCP client; any other ValueError gets an opaque ``ref:`` instead.
+_CLIENT_SAFE_VALUE_ERROR_MODULES = frozenset({
+    "ledger_agent.core.api",
+    "ledger_agent.mcp.tools",
+})
+
+
+def _client_safe_value_error(exc: ValueError) -> bool:
+    """True only for a plain ``ValueError`` raised by an explicit ``raise``
+    statement in one of ``_CLIENT_SAFE_VALUE_ERROR_MODULES``.
+
+    A ValueError from a builtin conversion (``int()``, ``float()``,
+    ``json.loads``…) or from deeper in core can quote data, so it fails closed.
+    """
+    if type(exc) is not ValueError or exc.__traceback__ is None:
+        return False
+    tb = exc.__traceback__
+    while tb.tb_next is not None:
+        tb = tb.tb_next
+    if tb.tb_frame.f_globals.get("__name__") not in _CLIENT_SAFE_VALUE_ERROR_MODULES:
+        return False
+    import linecache
+    line = linecache.getline(tb.tb_frame.f_code.co_filename, tb.tb_lineno).strip()
+    return line.startswith("raise ValueError(")
 
 
 def _dispatch(msg: dict) -> dict | None:
@@ -117,28 +171,27 @@ def _dispatch(msg: dict) -> dict | None:
             try:
                 redacted = _redact_response(raw_dict, allow_pii=allow_pii)
             except PrivacyRedactionError as pii_err:
-                return _err(-32000, f"redaction_failed: {pii_err}")
+                ref = _record_internal_error("mcp.redaction.withheld", "tools/call", pii_err)
+                return _err(-32000, f"redaction_failed (ref:{ref})")
             return _ok({
                 "content": [{"type": "text", "text": json.dumps(redacted, indent=2)}],
             })
-        except ValueError as exc:
-            if "Unknown tool" in str(exc):
-                return _err(-32601, str(exc))
-            return _ok({
-                "content": [{"type": "text", "text": str(exc)}],
-                "isError": True,
-            })
-        except Exception:
-            tb = traceback.format_exc()
-            log.error("Tool %r raised:\n%s", tool_name, tb)
-            import hashlib
-            import time
-            err_id = hashlib.sha1(
-                f"{tool_name}{time.time()}".encode()
-            ).hexdigest()[:8]
+        except Exception as exc:  # noqa: BLE001 — fail closed, never echo the error
+            if isinstance(exc, ValueError) and _client_safe_value_error(exc):
+                if str(exc).startswith("Unknown tool"):
+                    return _err(-32601, str(exc))
+                try:
+                    text = _redact_response({"message": str(exc)},
+                                            allow_pii=allow_pii)["message"]
+                except PrivacyRedactionError as pii_err:
+                    exc = pii_err
+                else:
+                    return _ok({"content": [{"type": "text", "text": text}],
+                                "isError": True})
+            ref = _record_internal_error("mcp.internal_error", "tools/call", exc)
             return _ok({
                 "content": [{"type": "text",
-                              "text": f"Internal error (ref:{err_id}) — see server logs"}],
+                              "text": f"Internal error (ref:{ref}) — see server logs"}],
                 "isError": True,
             })
 
@@ -173,12 +226,14 @@ def serve_stdio() -> None:
         except json.JSONDecodeError:
             _write({"jsonrpc": "2.0", "id": None,
                     "error": {"code": -32700, "message": "Parse error"}})
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 — fail closed, never echo the error
+            ref = _record_internal_error("mcp.internal_error", "main_loop", exc)
             _write({"jsonrpc": "2.0", "id": None,
-                    "error": {"code": -32603, "message": traceback.format_exc()}})
+                    "error": {"code": -32603, "message": f"Internal error (ref:{ref})"}})
 
 
 def serve_http(host: str = "127.0.0.1", port: int = 7337) -> None:
+    """Start the HTTP transport.  Requires FI_MCP_HTTP_TOKEN (see transport_http)."""
     from ledger_agent.mcp.transport_http import serve_http as _http
 
     def _dispatch_sync(request: dict) -> dict:
@@ -198,7 +253,11 @@ def main() -> None:
         description="ledger-agent MCP server",
     )
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="HTTP bind address (default 127.0.0.1; non-loopback needs "
+             "FI_MCP_HTTP_ALLOW_REMOTE=1)",
+    )
     parser.add_argument("--port", type=int, default=7337)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--method", default=None, help=argparse.SUPPRESS)
@@ -208,6 +267,10 @@ def main() -> None:
     level = logging.DEBUG if args.debug else logging.WARNING
     logging.basicConfig(stream=sys.stderr, level=level,
                         format="%(levelname)s %(name)s: %(message)s")
+    # stderr is inherited by callers (P-14/P-15): redact before configure_logging
+    # replaces this handler, including at DEBUG with --debug.
+    from ledger_agent.core.logging_setup import install_log_redaction
+    install_log_redaction()
 
     try:
         from dotenv import load_dotenv
@@ -216,7 +279,12 @@ def main() -> None:
         pass
 
     if args.transport == "http":
-        serve_http(host=args.host, port=args.port)
+        from ledger_agent.mcp.transport_http import HTTPTransportConfigError
+        try:
+            serve_http(host=args.host, port=args.port)
+        except HTTPTransportConfigError as exc:
+            sys.stderr.write(f"ledger-agent-mcp: {exc}\n")
+            raise SystemExit(2) from None
     else:
         serve_stdio()
 

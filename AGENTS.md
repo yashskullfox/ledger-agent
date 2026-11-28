@@ -32,7 +32,7 @@ All four forms must produce identical numbers. Divergence > $1 is P0 (R-51 / ARC
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q                                               # 594 passed, 0 skipped, 0 xfailed, 0 failed (verified 2026-11-23)
+pytest -q                                               # 2150 passed, 0 xfailed (no known egress leaks), 0 failed (2026-11-28)
 python scripts/check_doc_redaction.py --strict --all-tracked  # must stay at 0 hits
 ```
 
@@ -89,7 +89,7 @@ There are no top-level `core/`, `accounting/`, `intelligence/`, `parsers/`, or `
 | W27 Customer summary contract | ✅ Done | `docs/customer-summary-contract.md` (APPROVED); `core/api.py` `CustomerSummary` dataclass |
 | W28 CLI summary command | ✅ Done | `ledger_agent/cli/main.py` `cmd_summary()` — `ledger summary <year>` |
 | W29 Webapp result cards | ✅ Done | `webapp/src/main/resources/templates/results.html` — summary cards + collapsed raw JSON |
-| W30 MCP customer_summary tool | ✅ Done | `ledger_agent/mcp/tools.py` — 7th tool; `tests/integration/test_mcp_privacy.py` updated |
+| W30 MCP customer_summary tool | ✅ Done | `ledger_agent/mcp/tools.py` — 7th tool; `tests/unit/test_mcp_privacy_unit.py` updated |
 | bank_x4_checking "Customer Deposits" | ✅ Done | `bank_x4_checking.py` `_parse_customer_deposits()`; `test_bank_x4_2026.py` |
 | T4 Wash-sale confidence flag | ✅ Done | `core/api.py:792-809` (`_wash_csv_present` gates W16 flag) |
 | T5 Leap-day date parsing | ✅ Done | `parsers/base.py:78-83` (leap-day parsing in leap years) |
@@ -105,6 +105,7 @@ There are no top-level `core/`, `accounting/`, `intelligence/`, `parsers/`, or `
 | W16-WASH-SALE | ⚠️ xfail | `private/wash_sale_adjustments.csv` gitignored; xfail in CI — owner must supply CSV |
 | W17-DATA-REFRESH | ⚠️ skip | Missing 2024 `account_snapshots`; BANK_X2/X3 detection tokens unconfigured — owner must supply |
 | W15..W25 open-source prep | PENDING | See `docs/requirement-and-review-feedback.md` Phase 7 |
+| **GOAL-2026-11 product-goal sprint** | 🔵 ACTIVE | Cards: `docs/developer-tasks.md` (first section). Record: `docs/requirement-and-review-feedback.md` Phase 14. One card per agent; owner commits. |
 
 ---
 
@@ -148,7 +149,9 @@ There are no top-level `core/`, `accounting/`, `intelligence/`, `parsers/`, or `
 
 | Need | File |
 |---|---|
-| Developer task cards & sprint board | `docs/developer-tasks.md` |
+| **Docs hub (start here)** | `docs/README.md` (by role) |
+| Developer task cards & sprint board | `docs/developer-tasks.md` → "🎯 ACTIVE" section ("⏯ HANDOFF" = state, queue, brief template) |
+| Concertmaster / orchestrator playbook | `docs/concertmaster.md` |
 | Ticket status board | `docs/requirement-and-review-feedback.md` |
 | Consultant onboarding | `docs/REQUIREMENTS.md` |
 | Customer output contract | `docs/customer-summary-contract.md` |
@@ -156,8 +159,8 @@ There are no top-level `core/`, `accounting/`, `intelligence/`, `parsers/`, or `
 | Privacy/redaction policy | `docs/redaction-policy.md` |
 | Parity diagnostic | `docs/parity-divergence.md` |
 | Schema version | `ledger_agent/core/database.py` `SCHEMA_VERSION` |
-| Core API | `ledger_agent/core/api.py` (7 functions: import_statements, generate_balance_sheet, generate_form_1065, generate_k1, pte_estimate, reconcile_year, build_customer_summary) |
-| MCP tool schemas | `ledger_agent/mcp/tools.py` `TOOL_SCHEMAS` (7 tools) |
-| Audit log | `ledger_agent/data/audit/run-<run_id>.jsonl` |
+| Core API | `ledger_agent/core/api.py` (8 functions: import_statements, generate_balance_sheet, generate_form_1065, generate_k1, pte_estimate, reconcile_year, build_customer_summary, audit_year) |
+| MCP tool schemas | `ledger_agent/mcp/tools.py` `TOOL_SCHEMAS` (8 tools, incl. `audit_year`) |
+| Audit log | `data/audit/run-<run_id>.jsonl` (override `FI_AUDIT_DIR`) |
 
 *When in doubt, prefer honesty about what is and is not on disk.*

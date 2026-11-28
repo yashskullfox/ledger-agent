@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ledger_agent.core.exceptions import ParserGap
+from ledger_agent.core.intelligence.owner_draws import apply_owner_draw_rule
 from ledger_agent.core.models import (
     AccountSnapshot,
     ParsedStatement,
@@ -26,6 +27,45 @@ try:
     from private.institutions import BROKER_Z as _CFG  # type: ignore
 except ImportError:
     _CFG = {"detect": []}
+
+
+TERM_UNKNOWN_TAG = "term_unknown"
+
+
+def _trade_coding(term: str, gain_loss: Decimal, symbol: str) -> tuple[str, str, list[str]]:
+    """C-02: COA code, name and tags for a realised trade.
+
+    Long-term → 4011 / 5075 (Schedule K only); short-term → 4010 / 5070.  A trade whose
+    term the statement does not state is booked short-term and tagged ``term_unknown``
+    so the self-audit can count it.
+    """
+    gain = gain_loss >= 0
+    if term == "long":
+        code, name = ("4011", "Long-Term Capital Gain") if gain else ("5075", "Long-Term Capital Loss")
+        return code, name, ["long", "realised", symbol]
+    code, name = ("4010", "Realised Trading Gains") if gain else ("5070", "Realised Trading Losses")
+    tags = ["short", "realised", symbol]
+    if term != "short":
+        tags.append(TERM_UNKNOWN_TAG)
+    return code, name, tags
+
+
+def _term_from_codes(codes: str | None) -> str:
+    """C-02: holding term from the trade's Code column ("C;LT", "C;ST", "O" …).
+
+    ``LT`` = long-term P/L, ``ST`` = short-term P/L.  Neither (or both, a mixed-lot
+    close that cannot be split from one row) → ``"unknown"``.
+    """
+    tokens = {tok.strip().upper() for tok in (codes or "").split(";")}
+    has_lt, has_st = "LT" in tokens, "ST" in tokens
+    if has_lt and not has_st:
+        return "long"
+    if has_st and not has_lt:
+        return "short"
+    return "unknown"
+
+
+_CODE_TAIL_RE = re.compile(r"\s([A-Za-z]{1,4}(?:;[A-Za-z]{1,4})*)$")
 
 
 @ParserRegistry.register
@@ -56,6 +96,7 @@ class BrokerZParser(BaseStatementParser):
         txns.extend(self._parse_interest(raw_text, period, year))
 
         for trade in trades:
+            code, name, tags = _trade_coding(trade.term, trade.gain_loss, trade.symbol)
             txns.append(Transaction(
                 account_id="",
                 date=trade.settlement_date or date(int(period[:4]), int(period[5:7]), 1),
@@ -64,9 +105,9 @@ class BrokerZParser(BaseStatementParser):
                 amount=trade.gain_loss,
                 transaction_type=TransactionType.SELL,
                 statement_period=period,
-                coa_code="4010" if trade.gain_loss >= 0 else "5070",
-                coa_name="Realised Trading Gains" if trade.gain_loss >= 0 else "Realised Trading Losses",
-                tags=[trade.term, "realised", trade.symbol],
+                coa_code=code,
+                coa_name=name,
+                tags=tags,
             ))
 
         return ParsedStatement(
@@ -286,6 +327,11 @@ class BrokerZParser(BaseStatementParser):
         current_date: date | None = None
         date_re = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
+        # Option lots print as detail rows (with a Code column) followed by a "Total"
+        # row that carries the realised P/L; collect the detail rows' codes per group.
+        group_codes: set[str] = set()
+        codes_for_total: set[str] = set()
+
         for line in section.splitlines():
             stripped = line.strip()
             dm = date_re.match(stripped)
@@ -293,6 +339,10 @@ class BrokerZParser(BaseStatementParser):
                 current_date = self.parse_date(dm.group(1))
                 continue
             tm = self._TRADE_DETAIL_RE.match(stripped)
+            if not tm and not stripped.startswith("Total"):
+                cm = _CODE_TAIL_RE.search(stripped)
+                if cm:
+                    group_codes.update(cm.group(1).upper().split(";"))
             if tm:
                 symbol = tm.group(1)
                 try:
@@ -307,11 +357,13 @@ class BrokerZParser(BaseStatementParser):
                     symbol=symbol,
                     description=symbol,
                     gain_loss=realized_pl,
-                    term="short",
+                    term=_term_from_codes(tm.group(10)),
                     settlement_date=current_date or date(year, int(period[5:7]), 1),
                 ))
                 continue
 
+            if stripped.startswith("Total"):
+                codes_for_total, group_codes = group_codes, set()
             om = self._OPTION_TRADE_TOTAL_RE.match(stripped)
             if om:
                 symbol = om.group("symbol")
@@ -329,7 +381,7 @@ class BrokerZParser(BaseStatementParser):
                     symbol=symbol,
                     description=symbol,
                     gain_loss=realized_pl,
-                    term="short",
+                    term=_term_from_codes(";".join(sorted(codes_for_total))),
                     settlement_date=current_date or date(year, int(period[5:7]), 1),
                 ))
 
@@ -349,7 +401,7 @@ class BrokerZParser(BaseStatementParser):
                     symbol=symbol,
                     description=symbol,
                     gain_loss=realized_pl,
-                    term="short",
+                    term="unknown",  # this layout has no Code column
                     settlement_date=trade_date,
                 ))
 
@@ -532,7 +584,7 @@ class BrokerZParser(BaseStatementParser):
                     coa_code = "4090" if amt > 0 else "5090"
                     coa_name = "Other Income" if amt > 0 else "Other Expense"
 
-                txns.append(Transaction(
+                txn = Transaction(
                     account_id="",
                     date=d,
                     description=desc,
@@ -543,7 +595,10 @@ class BrokerZParser(BaseStatementParser):
                     is_transfer=is_xfer,
                     coa_code=coa_code,
                     coa_name=coa_name,
-                ))
+                )
+                # C-04 / D2: disbursement to an owner's own account → 3040 draw
+                apply_owner_draw_rule(txn)
+                txns.append(txn)
             if txns:
                 return txns
 
@@ -575,7 +630,7 @@ class BrokerZParser(BaseStatementParser):
             else:
                 txn_type = TransactionType.CREDIT if amt > 0 else TransactionType.DEBIT
 
-            legacy_txns.append(Transaction(
+            legacy_txn = Transaction(
                 account_id="",
                 date=txn_date,
                 description=m.group(2).title(),
@@ -584,7 +639,9 @@ class BrokerZParser(BaseStatementParser):
                 transaction_type=txn_type,
                 statement_period=period,
                 is_transfer=("deposit" in txn_kind or "withdrawal" in txn_kind),
-            ))
+            )
+            apply_owner_draw_rule(legacy_txn)  # C-04 / D2
+            legacy_txns.append(legacy_txn)
         return legacy_txns
 
     _INTEREST_LINE_RE = re.compile(

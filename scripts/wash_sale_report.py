@@ -96,7 +96,7 @@ def main() -> int:
     out_dir = REPO / "private" / "reference"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{args.year}-wash-sale.json"
-    out_path.write_text(json.dumps(recon, indent=2))
+    out_path.write_text(json.dumps(recon, indent=2), encoding="utf-8")
     print(f"  full report: {out_path.relative_to(REPO)}")
 
     if args.json:

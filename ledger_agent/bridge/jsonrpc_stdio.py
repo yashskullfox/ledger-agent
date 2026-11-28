@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
-import traceback
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ _TOOL_METHODS = frozenset({
     "pte_estimate",
     "reconcile_year",
     "customer_summary",
+    "audit_year",
 })
 
 
@@ -36,55 +37,157 @@ def _error(msg_id, code: int, message: str):
     sys.stdout.flush()
 
 
+class BridgeRedactionError(RuntimeError):
+    """Redaction or the egress check failed; the response is withheld.
+
+    ``message`` is safe to send to the client: a fixed prefix, an optional list of
+    leak CATEGORIES (from ``privacy.audit_egress``) and an opaque ``ref:`` id.  It
+    never carries a value from the payload or from the underlying exception.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+def _new_ref() -> str:
+    """Opaque ``ref:`` id: 8 hex chars with at least one letter (P-15)."""
+    from ledger_agent.core.privacy import new_error_ref
+    return new_error_ref()
+
+
+def _egress_strings(obj) -> list[str]:
+    """Every dict key and string value of ``obj`` (the text that can carry PII).
+
+    Numbers, booleans and null are typed values (amounts, counts, years, flags),
+    not free text: they are left out of the egress scan so that a large integer
+    is not mistaken for a bare account-number digit run (P-11).
+    """
+    out: list[str] = []
+    stack = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            for k, v in cur.items():
+                out.append(str(k))
+                stack.append(v)
+        elif isinstance(cur, list):
+            stack.extend(cur)
+        elif isinstance(cur, str):
+            out.append(cur)
+    return out
+
+
+_CATEGORY_RE = re.compile(r"'([A-Za-z_]{1,40})'")
+# Categories privacy.audit_egress can report.  Anything else in the exception
+# text is dropped, so a value can never reach the client through this path.
+_LEAK_CATEGORIES = frozenset({
+    "SSN", "EIN", "ITIN", "credit_card", "routing", "IBAN", "URL_credentials",
+    "private_key_block", "account_reference", "digit_run", "protected_name",
+})
+
+
+def _leak_categories(exc: BaseException) -> str:
+    """Known category names from a PrivacyLeakError message, else ``"pii"``."""
+    cats = [c for c in _CATEGORY_RE.findall(str(exc)) if c in _LEAK_CATEGORIES]
+    return ",".join(dict.fromkeys(cats)) or "pii"
+
+
 def _redact_bridge_response(payload: dict, *, allow_pii: bool = False) -> dict:
     """
-    Apply the same PII redaction used by the MCP server before sending any
-    tool result back to the Java client (BUG-B2 fix).
+    Redact a tool result before it is sent to the Java client (BUG-B2 / P-11).
 
-    Mirrors ledger_agent.mcp.server._redact_response — fail-closed: if
-    redaction itself fails and allow_pii is False, the response is withheld.
-    When allow_pii is True the full payload is returned BUT the API-key sweep
-    still runs unconditionally (BUG-M1 companion fix).
+    Reuses ``ledger_agent.mcp.server._redact_response`` so Forms C and D redact the
+    same way: the payload is walked structurally and only string VALUES are passed
+    to ``privacy.redact(scope="mcp_response")``; numbers, booleans, null and keys
+    are untouched, and non-ASCII text is redacted as text (never as ``\\uXXXX``
+    escapes).  The API-key sweep runs unconditionally, even with ``allow_pii``.
+
+    Unless ``allow_pii`` is set, ``privacy.audit_egress`` then runs on every key
+    and string value of the redacted result.
+
+    Fail-closed: any error — an API key, a redaction failure, an egress block or a
+    failing egress check — raises ``BridgeRedactionError`` whose message holds only
+    a fixed prefix, leak categories and an opaque ``ref:``.  Logs and audit events
+    carry the exception type and the ref, never a value.
     """
     try:
         from ledger_agent.core.audit import audit as _audit
     except Exception:
         _audit = None  # type: ignore
 
-    # API-key sweep is UNCONDITIONAL — regardless of allow_pii (BUG-M1 fix).
-    try:
-        from ledger_agent.core.privacy import redact as _check
-        _check(json.dumps(payload), scope="api_key_only")
-    except ImportError:
-        pass  # privacy module unavailable — degrade gracefully
-    except Exception:
-        # API-key pattern hit → fail-closed even for allow_pii callers.
+    def _record(event: str, **fields) -> None:
         if _audit:
-            _audit("bridge.redaction.api_key_hit", method="<bridge>")
-        log.error("Bridge: API key detected in tool response — response withheld")
-        raise
+            try:
+                _audit(event, **fields)
+            except Exception:  # noqa: BLE001 — auditing must not mask the result
+                pass
+
+    try:
+        from ledger_agent.core import privacy
+        from ledger_agent.mcp.server import _redact_response
+    except Exception as exc:  # noqa: BLE001 — no redactor → nothing leaves
+        ref = _new_ref()
+        _record("bridge.redaction.failed", kind="import_failed",
+                error_type=type(exc).__name__, ref=ref)
+        log.error("Bridge: redaction unavailable (%s) — response withheld (ref:%s)",
+                  type(exc).__name__, ref)
+        raise BridgeRedactionError(f"bridge_redaction_failed (ref:{ref})") from None
+
+    try:
+        redacted = _redact_response(payload, allow_pii=allow_pii)
+    except Exception as exc:  # noqa: BLE001 — fail closed on anything
+        ref = _new_ref()
+        kind = "api_key_in_response" if "api_key" in str(exc) else "redaction_failed"
+        _record("bridge.redaction.failed", kind=kind,
+                error_type=type(exc).__name__, ref=ref)
+        log.error("Bridge: %s (%s) — response withheld (ref:%s)",
+                  kind, type(exc).__name__, ref)
+        raise BridgeRedactionError(f"bridge_redaction_failed (ref:{ref})") from None
 
     if allow_pii:
-        if _audit:
-            _audit("bridge.redaction.skipped", reason="allow_pii=true")
-        return payload
+        _record("bridge.redaction.skipped", reason="allow_pii=true")
+        return redacted
 
     try:
-        from ledger_agent.core.privacy import redact as _redact
-        raw = json.dumps(payload)
-        redacted_text, _mapping = _redact(raw, scope="mcp_response")
-        if _audit:
-            _audit("bridge.redaction.applied",
-                   payload_size=len(raw),
-                   tokens_issued=len(_mapping))
-        return json.loads(redacted_text)
-    except Exception as exc:
-        if _audit:
-            _audit("bridge.redaction.failed",
-                   error_type=type(exc).__name__,
-                   error_message=str(exc)[:200])
-        log.error("Bridge: PII redaction FAILED (fail-closed): %s", exc)
-        raise RuntimeError(f"bridge_redaction_failed: {exc}") from exc
+        privacy.audit_egress(_egress_strings(redacted))
+    except Exception as exc:  # noqa: BLE001 — fail closed on anything
+        ref = _new_ref()
+        if isinstance(exc, privacy.PrivacyLeakError):
+            cats = _leak_categories(exc)
+            _record("bridge.egress.blocked", categories=cats, ref=ref)
+            log.error("Bridge: audit_egress blocked the response [%s] (ref:%s)", cats, ref)
+            raise BridgeRedactionError(
+                f"bridge_egress_blocked: {cats} (ref:{ref})"
+            ) from None
+        _record("bridge.egress.check_failed", error_type=type(exc).__name__, ref=ref)
+        log.error("Bridge: audit_egress check failed (%s) — response withheld (ref:%s)",
+                  type(exc).__name__, ref)
+        raise BridgeRedactionError(f"bridge_egress_check_failed (ref:{ref})") from None
+
+    _record("bridge.redaction.applied", egress_audit="pass")
+    return redacted
+
+
+def _internal_error(msg_id, exc: BaseException, *, where: str) -> None:
+    """Send an opaque ``Internal error (ref:…)`` (JSON-RPC -32603) for ``exc`` (P-13).
+
+    The client (and, through ``RunController``/``ApiController``, the browser)
+    gets only the fixed text and a random ref.  The exception message and the
+    traceback can carry raw values, so they never reach the client: stderr
+    (inherited by the Java process) gets the exception TYPE and ref at WARNING,
+    the traceback only at DEBUG, and the audit log gets the type and ref.
+    """
+    ref = _new_ref()
+    error_type = type(exc).__name__
+    log.warning("Bridge: internal error in %s (%s) (ref:%s)", where, error_type, ref)
+    log.debug("Bridge: internal error traceback (ref:%s)", ref, exc_info=exc)
+    try:
+        from ledger_agent.core.audit import audit
+        audit("bridge.internal_error", where=where, error_type=error_type, ref=ref)
+    except Exception:  # noqa: BLE001 — auditing must not mask the error response
+        pass
+    _error(msg_id, -32603, f"Internal error (ref:{ref})")
 
 
 def _dispatch(msg: dict) -> None:
@@ -134,15 +237,13 @@ def _dispatch(msg: dict) -> None:
             raw_dict = json.loads(raw_json)
             try:
                 redacted = _redact_bridge_response(raw_dict, allow_pii=allow_pii)
-            except RuntimeError:
-                _error(msg_id, -32000, "bridge_redaction_failed")
+            except BridgeRedactionError as red_err:
+                _error(msg_id, -32000, red_err.message)
                 return
             _respond(msg_id, redacted)
 
-        except Exception:
-            tb = traceback.format_exc()
-            log.error("Bridge tool %r raised:\n%s", method, tb)
-            _error(msg_id, -32603, f"Internal error: {tb}")
+        except Exception as exc:  # noqa: BLE001 — fail closed, never echo the error
+            _internal_error(msg_id, exc, where=f"tool:{method}")
         return
 
     _error(msg_id, -32601, f"Method not found: {method!r}")
@@ -175,6 +276,40 @@ def _background_init() -> None:
         log.info("ledger-agent JSON-RPC bridge ready on stdio")
 
 
+def _configure_bridge_logging() -> None:
+    """Set up bridge logging on stderr, which the Java process inherits (P-14).
+
+    * Every root handler gets ``LogRedactionFilter`` (message + args, traceback,
+      stack and extras are redacted after rendering); ``configure_logging``, which
+      later replaces these handlers when a core module calls ``get_logger``,
+      attaches the same filter to its own handler.
+    * ``FI_LOG_LEVEL=DEBUG`` is refused unless ``FI_BRIDGE_DEBUG=1`` is also set:
+      a level floor of INFO is installed (it also holds against the later
+      ``configure_logging``) and one WARNING is logged, without values.  With
+      ``FI_BRIDGE_DEBUG=1`` DEBUG is enabled, still redacted.
+    """
+    import os
+
+    from ledger_agent.core import logging_setup
+
+    logging.basicConfig(stream=sys.stderr, level=logging.WARNING,
+                        format="%(levelname)s %(name)s: %(message)s")
+    logging_setup.install_log_redaction()
+
+    debug_requested = os.environ.get("FI_LOG_LEVEL", "").strip().upper() == "DEBUG"
+    debug_allowed = os.environ.get("FI_BRIDGE_DEBUG", "").strip() == "1"
+    if not debug_requested:
+        return
+    if not debug_allowed:
+        logging_setup.set_level_floor(logging.INFO)
+        log.warning("Bridge: FI_LOG_LEVEL=DEBUG refused (set FI_BRIDGE_DEBUG=1 to "
+                    "allow it); bridge logging capped at INFO")
+        return
+    logging.getLogger().setLevel(logging.DEBUG)
+    log.warning("Bridge: DEBUG logging enabled (FI_BRIDGE_DEBUG=1); "
+                "log output is still redacted")
+
+
 def serve() -> None:
     try:
         from dotenv import load_dotenv
@@ -182,8 +317,7 @@ def serve() -> None:
     except ImportError:
         pass
 
-    logging.basicConfig(stream=sys.stderr, level=logging.WARNING,
-                        format="%(levelname)s %(name)s: %(message)s")
+    _configure_bridge_logging()
 
     import threading
     _init_thread = threading.Thread(target=_background_init, daemon=True,
@@ -205,8 +339,8 @@ def serve() -> None:
                 break
             except json.JSONDecodeError as exc:
                 _error(None, -32700, f"Parse error: {exc}")
-            except Exception:
-                _error(None, -32603, traceback.format_exc())
+            except Exception as exc:  # noqa: BLE001 — fail closed, never echo the error
+                _internal_error(None, exc, where="main_loop")
     finally:
         try:
             from ledger_agent.core.audit import audit, shutdown_audit

@@ -1,6 +1,11 @@
 """
-tests/integration/test_mcp_privacy_injection.py  –  MCP PII injection tests
-=============================================================================
+tests/unit/test_mcp_privacy_injection_unit.py  –  MCP PII injection tests
+=========================================================================
+
+Moved from tests/integration/test_mcp_privacy_injection.py (P-01): these tests
+exercise ledger_agent.mcp.server._redact_response on in-memory payloads only
+(no database), so they run in CI instead of being skipped with the
+integration modules.
 
 Verifies the MCP privacy firewall blocks PII from reaching clients even when
 injected at various points in the pipeline.
@@ -18,14 +23,8 @@ Test cases (per IMMEDIATE requirements in developer-tasks.md):
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
 import pytest
-
-ROOT = Path(__file__).resolve().parent.parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from ledger_agent.mcp.server import PrivacyRedactionError, _redact_response
 

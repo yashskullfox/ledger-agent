@@ -103,6 +103,14 @@ class PTEEstimate:
     remaining_balance: Decimal = Decimal("0")
     notes: str = ""
     disclaimer: str = NOT_TAX_ADVICE_DISCLAIMER
+    # Period basis (see accounting/period_coverage.py):
+    #   full_year | quarter_to_date | partial_quarter | insufficient_data
+    basis: str = "full_year"
+    through_period: str | None = None      # last statement month included, e.g. "2026-06"
+    months_covered: int = 12
+    ytd_net_income: Decimal = Decimal("0")  # actual (not annualized) income through_period
+    required_to_date: Decimal = Decimal("0")  # cumulative installments due through last full Q
+    missing_statements: dict = field(default_factory=dict)  # account_id → [missing months]
 
 
 @dataclass
@@ -220,6 +228,8 @@ def import_statements(
         EntityRepo.upsert(entity)
 
     pdf_files = sorted(folder.rglob("*.pdf"))
+    # C-03: entities whose accounts received rows in this run (transfer-candidate pass).
+    touched_entities: set[str] = set()
     for pdf_path in pdf_files:
         try:
             raw_text = BaseStatementParser.extract_text(pdf_path)
@@ -264,6 +274,8 @@ def import_statements(
                 for t in stmt.transactions:
                     t.account_id = acct.id
                 TransactionRepo.bulk_insert(stmt.transactions)
+                if acct.entity_id:
+                    touched_entities.add(acct.entity_id)
 
                 # V9 fix: classify unclassified transactions and persist the
                 # coa_code back to the DB immediately.  classify_batch() calls
@@ -345,7 +357,103 @@ def import_statements(
             report.failed += 1
             report.failed_files.append(pdf_path.name)
 
+    # C-03: after every statement is in (both legs of a transfer may sit in different
+    # PDFs), confirm transfer candidates whose opposite leg is in another account of
+    # the same entity.  Import path only — never run from read / report paths.
+    for entity_id in sorted(touched_entities):
+        try:
+            n_confirmed = _confirm_transfer_candidates(entity_id)
+            if n_confirmed:
+                log.info("Confirmed %d internal transfer leg(s) by opposite-leg match",
+                         n_confirmed)
+        except Exception as xfer_exc:
+            log.warning("Transfer-candidate confirmation skipped: %s", xfer_exc)
+
     return report
+
+
+def confirm_transfer_candidates(entity_id: str) -> int:
+    """C-12: public import-time entry point for the C-03 transfer-candidate pass.
+
+    For import paths that insert and classify on their own (the CLI ``cmd_import`` and
+    quick scan).  Call it once per affected entity after classification and before
+    any post-import reconcile.  Entity-scoped and idempotent; returns the number of
+    rows promoted to 9000.  Never call it from read / report paths.
+    """
+    return _confirm_transfer_candidates(entity_id)
+
+
+def _confirm_transfer_candidates(entity_id: str) -> int:
+    """C-03: promote ``transfer_candidate`` rows that have an opposite leg.
+
+    Parsers emit generic ZELLE / WIRE / TRANSFER rows without an own-account cue as
+    candidates (``is_transfer=False``), and the classifier codes them like any other
+    row.  Here, entity-scoped (ARCH-30), the reconciler looks for the opposite leg:
+
+    1. Existing internal transfers (``is_transfer=1``) are paired among themselves
+       first, so a candidate never takes a leg that already has its partner.
+    2. Candidates are then paired with each other and with the still-unpaired
+       transfers: same absolute amount, different account of this entity, within
+       ``MATCH_WINDOW_DAYS``.
+
+    Each matched candidate becomes 9000 / ``is_transfer=True`` (and loses any
+    ``owner_draw_candidate`` tag: it stayed inside the entity).  Unmatched candidates
+    keep the classifier's result.  Rows coded 3040 (owner draw / distribution) are
+    never promoted.  Idempotent: a promoted row is an internal transfer on the next
+    run and is paired in step 1.  Returns the number of rows promoted.
+    """
+    from dataclasses import replace
+
+    from ledger_agent.core.database import AccountRepo, TransactionRepo
+    from ledger_agent.core.intelligence.classifier import (
+        CLASSIFIER_VERSION,
+        TRANSFER_CANDIDATE_TAG,
+    )
+    from ledger_agent.core.intelligence.owner_draws import OWNER_DRAW_CANDIDATE_TAG
+    from ledger_agent.core.intelligence.reconciler import reconcile
+    from ledger_agent.core.models import TransactionType
+
+    account_ids = [a.id for a in AccountRepo.list_for_entity(entity_id)]
+    rows = TransactionRepo.list_transfer_legs(account_ids, TRANSFER_CANDIDATE_TAG)
+    if not rows:
+        return 0
+
+    def _as_leg(t):
+        # The reconciler pairs by type; type each leg by its sign (some stored
+        # 9000 rows are typed debit/credit).  Copies only: rows are not mutated.
+        kind = TransactionType.TRANSFER_OUT if t.amount < 0 else TransactionType.TRANSFER_IN
+        return replace(t, transaction_type=kind)
+
+    transfers = [_as_leg(t) for t in rows if t.is_transfer]
+    candidates = [
+        _as_leg(t) for t in rows
+        if not t.is_transfer and t.coa_code != "3040"
+        and TRANSFER_CANDIDATE_TAG in (t.tags or [])
+    ]
+    if not candidates:
+        return 0
+
+    paired, _ = reconcile(transfers)
+    taken = {t.id for m in paired for t in (m.outgoing, m.incoming)}
+    pool = candidates + [t for t in transfers if t.id not in taken]
+    matches, _ = reconcile(pool)
+
+    candidate_ids = {t.id for t in candidates}
+    promoted = 0
+    for m in matches:
+        for leg in (m.outgoing, m.incoming):
+            if leg.id not in candidate_ids:
+                continue
+            TransactionRepo.update_coa_with_meta(
+                leg.id, "9000", "Inter-Account Transfer",
+                CLASSIFIER_VERSION, 1.0, is_transfer=True,
+            )
+            if OWNER_DRAW_CANDIDATE_TAG in (leg.tags or []):
+                TransactionRepo.set_tags(
+                    leg.id, [tag for tag in leg.tags if tag != OWNER_DRAW_CANDIDATE_TAG]
+                )
+            promoted += 1
+    return promoted
 
 
 def generate_balance_sheet(fiscal_year: int, period: str | None = None):
@@ -359,7 +467,14 @@ def generate_balance_sheet(fiscal_year: int, period: str | None = None):
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
 
     last_period = period or _best_snapshot_period(fiscal_year) or periods[-1]
-    bs = BalanceSheetBuilder(entity.id, last_period, pl_periods=periods).build()
+    if period is not None:
+        if not period.startswith(f"{fiscal_year}-"):
+            raise ValueError(f"period {period!r} is outside fiscal year {fiscal_year}.")
+        # A month-end / quarter-end balance sheet only includes P&L earned up to that month.
+        pl_periods = [p for p in periods if p <= period]
+    else:
+        pl_periods = periods
+    bs = BalanceSheetBuilder(entity.id, last_period, pl_periods=pl_periods).build()
     skipped = bs.coverage.get("skipped_snapshots", [])
 
     # An "AggregationGap" is only a real gap if the account HAS other data in
@@ -422,20 +537,29 @@ def generate_balance_sheet(fiscal_year: int, period: str | None = None):
     return bs
 
 
+# Long-term capital gain (4011) / loss (5075). These are Schedule K items only and must
+# never also flow into ordinary income or deductions (they used to, via the "4"/"5" prefix
+# fall-through in generate_form_1065 — double count).
+LTCG_CODES = frozenset({"4011", "5075"})
+
+
 def _compute_net_ltcg(txns) -> Decimal:
     """Compute net long-term capital gain from classified transactions."""
-    ltcg_gain = {"4011"}
-    ltcg_loss = {"5075"}
     total = Decimal("0")
     for t in txns:
         if t.is_transfer or not t.coa_code:
             continue
-        if t.coa_code in ltcg_gain or t.coa_code in ltcg_loss:
+        if t.coa_code in LTCG_CODES:
             total += Decimal(str(t.amount))
     return total
 
 
-def generate_form_1065(fiscal_year: int) -> Form1065:
+def generate_form_1065(fiscal_year: int, through_period: str | None = None) -> Form1065:
+    """Form 1065 figures for the fiscal year.
+
+    ``through_period`` ("YYYY-MM") restricts income/deductions to statements up to and
+    including that month — used for quarter-to-date tax estimates.  ``None`` = full year.
+    """
     from ledger_agent.core.database import init_db
 
     init_db()
@@ -443,6 +567,10 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     if not periods:
         raise ValueError(f"No statement data found for fiscal year {fiscal_year}.")
     txns = _transactions_for_year(fiscal_year)
+    if through_period is not None:
+        if not through_period.startswith(f"{fiscal_year}-"):
+            raise ValueError(f"through_period {through_period!r} outside fiscal year {fiscal_year}.")
+        txns = [t for t in txns if (t.statement_period or "") <= through_period]
 
     income = Decimal("0")
     deductions = Decimal("0")
@@ -473,6 +601,8 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
             dividends += amt
         elif code in int_codes:
             interest += amt
+        elif code in LTCG_CODES:
+            pass  # long-term gains/losses → Schedule K line 9a via _compute_net_ltcg only
         elif code.startswith("4"):
             income += amt
         elif code in cogs_codes:
@@ -488,18 +618,26 @@ def generate_form_1065(fiscal_year: int) -> Form1065:
     #   1. private/wash_sale_adjustments.csv  (authoritative — from 1099-B)
     #   2. computed from own ledger (SELL@loss + position deltas ±30d)
     #   3. zero (WARNING logged by the module)
-    from ledger_agent.core.accounting.wash_sale import total_disallowed
-    ws_adjustment = total_disallowed(
+    # C-10: each disallowed loss goes back to the line its loss was booked on —
+    # long-term (5075) → net LTCG, short-term / term_unknown → net STCG.
+    from ledger_agent.core.accounting.wash_sale import disallowed_by_term
+    ws_short, ws_long = disallowed_by_term(
         entity_id=entity.id,
         fiscal_year=fiscal_year,
     )
-    if ws_adjustment:
-        net_stcg += ws_adjustment
-        log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_adjustment)
+    if through_period is not None and not through_period.endswith("-12"):
+        # Annual 1099-B wash-sale figures cannot be apportioned to a partial year.
+        ws_short = ws_long = Decimal("0")
 
     gross_pft = income - cogs
     ordinary = gross_pft - deductions
     net_ltcg = _compute_net_ltcg(txns)
+    if ws_short:
+        net_stcg += ws_short
+        log.info("W16 wash-sale disallowance applied: +%s to net_stcg", ws_short)
+    if ws_long:
+        net_ltcg += ws_long
+        log.info("W16 wash-sale disallowance applied: +%s to net_ltcg", ws_long)
 
     f = Form1065(
         fiscal_year=fiscal_year,
@@ -601,30 +739,65 @@ def record_pte_payment(
     return rec
 
 
-def pte_estimate(fiscal_year: int) -> PTEEstimate:
-    from ledger_agent.core.accounting.tax_estimator import TaxEstimator
+def _installment_status(paid: Decimal, required: Decimal) -> str:
+    """paid ≥ required → paid; 0 < paid < required → partial; else unpaid."""
+    if paid <= 0:
+        return "unpaid" if required > 0 else "not_required"
+    return "paid" if paid >= required else "partial"
+
+
+def pte_estimate(fiscal_year: int, basis: str = "auto") -> PTEEstimate:
+    """Entity-level state PTET estimate for the fiscal year (owner decision D1, card Q-04).
+
+    ``total_annual_tax`` = FI_STATE_TAX_RATE × entity taxable income (ordinary business
+    income + net ST/LT capital gain + dividends + interest − investment interest, floored
+    at 0).  Partners' individual estimated taxes are not included.
+
+    ``basis="auto"`` (default) looks at which months have statements for EVERY active
+    account (accounting/period_coverage.py):
+
+    * all 12 months complete → full-year figures;
+    * otherwise → income through the last fully-covered quarter (or, before Q1 is
+      complete, through the last fully-covered month), annualized to project the year.
+      Partially imported months are excluded so they cannot distort the estimate.
+
+    ``basis="full_year"`` forces the old behaviour (every imported month, no annualizing).
+    """
+    from ledger_agent.core.accounting.period_coverage import compute_period_coverage
+    from ledger_agent.core.accounting.tax_estimator import TaxEstimator, entity_taxable_income
     from ledger_agent.core.database import PTEPaymentRepo, init_db
 
+    if basis not in ("auto", "full_year"):
+        raise ValueError("basis must be 'auto' or 'full_year'")
     init_db()
     entity, periods = _entity_and_periods(fiscal_year)
     if not periods:
         raise ValueError(f"No data for fiscal year {fiscal_year}.")
 
-    f = generate_form_1065(fiscal_year)
-    estimator = TaxEstimator(entity.name, fiscal_year)
-    if f.ordinary_business_income > 0:
-        taxable_base = f.ordinary_business_income
-    else:
-        schedule_k_net = (
-            f.ordinary_business_income
-            + f.net_short_term_capital_gain
-            + f.net_long_term_capital_gain
-            + f.dividend_income
-            + f.interest_income
-            - f.investment_interest_expense
+    cov = compute_period_coverage(entity.id, fiscal_year)
+    eff_basis = "full_year" if basis == "full_year" or cov.is_full_year else cov.basis
+    if eff_basis == "insufficient_data":
+        raise ValueError(
+            f"No fully-covered month in {fiscal_year}: every active account needs a statement "
+            "for January before an estimate can be made."
         )
-        taxable_base = max(schedule_k_net, Decimal("0"))
-    raw = estimator.estimate_from_net_income(taxable_base)
+    through = None if eff_basis == "full_year" else cov.through_period
+    months = 12 if through is None else cov.through_month
+    annualize = (Decimal(12) / Decimal(months)) if months < 12 else Decimal("1")
+
+    f = generate_form_1065(fiscal_year, through_period=through)
+    estimator = TaxEstimator(entity.name, fiscal_year)
+    # Q-04 / owner decision D1: entity-level state PTET only.  Schedule K portfolio items
+    # always count (they used to be dropped whenever ordinary income was positive).
+    taxable_base = entity_taxable_income(
+        ordinary_business_income=f.ordinary_business_income,
+        net_short_term_capital_gain=f.net_short_term_capital_gain,
+        net_long_term_capital_gain=f.net_long_term_capital_gain,
+        dividend_income=f.dividend_income,
+        interest_income=f.interest_income,
+        investment_interest_expense=f.investment_interest_expense,
+    )
+    raw = estimator.estimate_entity_ptet(taxable_base, annualize_factor=annualize)
 
     recorded_rows = PTEPaymentRepo.list_for_year(entity.id, fiscal_year)
     paid_by_quarter: dict[str, Decimal] = {}
@@ -639,6 +812,15 @@ def pte_estimate(fiscal_year: int) -> PTEEstimate:
     )
 
     notes_list = list(raw.notes) if isinstance(raw.notes, list) else ([raw.notes] if raw.notes else [])
+    quarters_done = 4 if eff_basis == "full_year" else (months // 3)
+    required_to_date = (raw.total_annual_tax / 4 * quarters_done).quantize(Decimal("0.01"))
+    if eff_basis != "full_year":
+        notes_list.insert(
+            0,
+            f"Basis: {eff_basis} through {through} ({months} of 12 months fully covered); "
+            f"annual figures are projected ×{annualize.quantize(Decimal('0.01'))}. "
+            "Import the missing statements for full-year figures.",
+        )
     if paid_ytd > 0:
         notes_list.append(
             f"Recorded external PTE payments YTD: ${paid_ytd:,.2f}; "
@@ -657,15 +839,21 @@ def pte_estimate(fiscal_year: int) -> PTEEstimate:
                 "due_date": p.due_date,
                 "amount": float(p.amount),
                 "paid_amount": float(paid_by_quarter.get(p.quarter, Decimal("0.00"))),
-                "status": "paid"
-                if paid_by_quarter.get(p.quarter, Decimal("0.00")) > 0
-                else "unpaid",
+                "status": _installment_status(
+                    paid_by_quarter.get(p.quarter, Decimal("0.00")), p.amount
+                ),
             }
             for p in raw.quarterly_payments
         ],
         paid_ytd=paid_ytd,
         remaining_balance=remaining_balance,
         notes=notes_str,
+        basis=eff_basis,
+        through_period=through or f"{fiscal_year}-12",
+        months_covered=months,
+        ytd_net_income=Decimal(taxable_base).quantize(Decimal("0.01")),
+        required_to_date=required_to_date,
+        missing_statements={k: v for k, v in cov.missing.items() if v},
     )
 
 
@@ -800,6 +988,22 @@ def _resolve_as_of_date(
     return date(fiscal_year, 12, 31)
 
 
+def _overdue_pte_quarters(pte: PTEEstimate, fiscal_year: int, as_of_date: date | None) -> list[str]:
+    """Quarters whose due date is before as_of_date and that are not fully paid."""
+    if pte.total_annual_tax <= 0 or as_of_date is None:
+        return []
+    from ledger_agent.core.accounting.tax_estimator import get_quarterly_due_date
+
+    out = []
+    for q_entry in pte.quarterly_payments:
+        q = q_entry.get("quarter")
+        if q_entry.get("status") in ("unpaid", "partial") and get_quarterly_due_date(
+            q, fiscal_year
+        ) < as_of_date:
+            out.append(q)
+    return out
+
+
 def _compute_next_pte_due(
     pte: PTEEstimate,
     fiscal_year: int,
@@ -815,7 +1019,7 @@ def _compute_next_pte_due(
 
     for q in ("Q1", "Q2", "Q3", "Q4"):
         q_entry = next((p for p in pte.quarterly_payments if p.get("quarter") == q), None)
-        if q_entry and float(q_entry.get("paid_amount", 0.0)) > 0:
+        if q_entry and q_entry.get("status") in ("paid", "not_required"):
             continue
         due_d = get_quarterly_due_date(q, fiscal_year)
         if due_d >= as_of_date:
@@ -933,6 +1137,12 @@ def build_customer_summary(
         "paid_ytd": str(pte.paid_ytd.quantize(Decimal("0.01"))),
         "remaining_balance": str(pte.remaining_balance.quantize(Decimal("0.01"))),
         "next_due": next_due,
+        # period basis: full_year | quarter_to_date | partial_quarter
+        "basis": pte.basis,
+        "through_period": pte.through_period,
+        "months_covered": pte.months_covered,
+        "required_to_date": str(pte.required_to_date.quantize(Decimal("0.01"))),
+        "overdue_quarters": _overdue_pte_quarters(pte, fiscal_year, as_of_date),
     }
 
     tax_status = "likely_due" if pte.total_annual_tax > 0 else "not_due"
@@ -944,6 +1154,18 @@ def build_customer_summary(
             f"effective rate: {float(pte.effective_rate):.1f}%"
         ),
     }
+
+    # G-01: CPA-style self-audit (run once per summary).
+    audit_report = audit_year(fiscal_year)
+    audit_status = audit_report.get("status", "pass")
+    audit_problem_checks = [
+        c["name"] for c in audit_report.get("checks", [])
+        if c.get("status") == audit_status and audit_status in ("warn", "fail")
+    ]
+
+    # R-03: internal-transfer legs with no counterpart in another account (read-only;
+    # only the count reaches the summary — no descriptions, dates or amounts).
+    unmatched_transfer_legs = reconcile_year(fiscal_year).unmatched
 
     flags: list[str] = []
     _wash_csv_present = _wash_sale_csv_present()
@@ -960,8 +1182,24 @@ def build_customer_summary(
             flags.append("NOT_CLOSE_READY_W17")
         else:
             flags.append("PROVISIONAL_W17_STALE_ACCOUNT")
+    if pte.basis != "full_year":
+        # Tax figures cover only fully-documented months; the year cannot be closed.
+        flags.append(f"PROVISIONAL_PERIOD_{pte.basis.upper()}")
+    if pte_due_signal["overdue_quarters"]:
+        flags.append("PTE_OVERDUE")
+    if audit_status == "fail":
+        flags.append("AUDIT_FAIL")
+    elif audit_status == "warn":
+        flags.append("AUDIT_WARN")
+    if unmatched_transfer_legs:
+        flags.append("UNMATCHED_TRANSFERS")
     flags.append("CLOSE_READY_W26")
-    if not flags or all(f.startswith("CLOSE_READY") for f in flags):
+    # AUDIT_WARN / UNMATCHED_TRANSFERS (both warnings) do not block close-readiness;
+    # AUDIT_FAIL always does.
+    if "AUDIT_FAIL" not in flags and all(
+        f.startswith("CLOSE_READY") or f in ("AUDIT_WARN", "UNMATCHED_TRANSFERS")
+        for f in flags
+    ):
         flags.append("CLOSE_READY")
 
     next_actions: list[str] = []
@@ -989,6 +1227,35 @@ def build_customer_summary(
         next_actions.append(
             f"Balance sheet uses available snapshots; {len(skipped)} stale account(s) had no activity in {best_period}."
         )
+    if pte.basis != "full_year":
+        n_missing = sum(len(v) for v in pte.missing_statements.values())
+        next_actions.append(
+            f"Tax figures are {pte.basis.replace('_', '-')} through {pte.through_period} "
+            f"({pte.months_covered}/12 months complete for every account). "
+            f"Import the {n_missing} missing monthly statement(s) to get full-year figures."
+        )
+    if pte_due_signal["overdue_quarters"]:
+        next_actions.append(
+            "Overdue estimated tax installment(s): "
+            + ", ".join(pte_due_signal["overdue_quarters"])
+            + " — not fully paid by their due date."
+        )
+    if audit_status == "fail":
+        next_actions.append(
+            "Self-audit FAILED: " + ", ".join(audit_problem_checks)
+            + " — run `ledger audit " + str(fiscal_year) + "` and resolve before filing."
+        )
+    elif audit_status == "warn":
+        next_actions.append(
+            "Self-audit warnings: " + ", ".join(audit_problem_checks)
+            + " — run `ledger audit " + str(fiscal_year) + "` to review."
+        )
+    if unmatched_transfer_legs:
+        next_actions.append(
+            f"{unmatched_transfer_legs} internal transfer leg(s) have no matching "
+            "counterpart — check the other account's statement or whether it is a "
+            "third-party payment."
+        )
     if pte_status == "likely_due" and next_due != "N/A":
         next_actions.append(
             f"Estimated quarterly tax payment due: {next_due}"
@@ -1009,12 +1276,34 @@ def build_customer_summary(
     )
 
 
-def reconcile_year(fiscal_year: int) -> ReconcileReport:
-    from ledger_agent.core.database import init_db
-    from ledger_agent.core.intelligence.reconciler import reconcile
+def audit_year(fiscal_year: int) -> dict:
+    """CPA-style self-audit of the fiscal year's figures (G-01).
+
+    Thin wrapper over ``accounting.self_audit.run_self_audit``.  Returns
+    ``{"fiscal_year", "status", "checks": [{name, status, summary, details}], "disclaimer"}``
+    where ``status`` is the worst check status (``pass`` / ``warn`` / ``fail``).
+    Details reference accounts by opaque id and type only.
+    """
+    from ledger_agent.core.accounting.self_audit import run_self_audit
+
+    out = run_self_audit(fiscal_year).to_dict()
+    out["disclaimer"] = NOT_TAX_ADVICE_DISCLAIMER
+    return out
+
+
+def reconcile_year(fiscal_year: int, *, persist: bool = False) -> ReconcileReport:
+    """Pair the active entity's internal-transfer legs for ``fiscal_year`` (R-03).
+
+    Only legs of the entity picked by ``_entity_and_periods`` are read (ARCH-30), and
+    two legs pair only when they sit in different accounts (see ``reconciler``).
+
+    Read-only by default, so report paths (MCP, bridge, summary, parity tests) never
+    write.  ``persist=True`` stores ``is_reconciled=1`` on both legs of every match.
+    """
+    from ledger_agent.core.database import TransactionRepo, init_db
+    from ledger_agent.core.intelligence.reconciler import matched_leg_ids, reconcile
 
     init_db()
-    entity, _ = _entity_and_periods(fiscal_year)
     txns = _transactions_for_year(fiscal_year)
     transfers = [t for t in txns if t.is_transfer]
 
@@ -1022,6 +1311,8 @@ def reconcile_year(fiscal_year: int) -> ReconcileReport:
         return ReconcileReport(fiscal_year=fiscal_year)
 
     matched_list, unmatched_txns = reconcile(transfers)
+    if persist and matched_list:
+        TransactionRepo.mark_reconciled(matched_leg_ids(matched_list))
     total_xfer = sum(abs(Decimal(str(t.amount))) for t in transfers)
     issues = [
         f"Unmatched transfer {t.date} {t.description!r} ${t.amount}"

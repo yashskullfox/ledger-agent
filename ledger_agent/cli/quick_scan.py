@@ -14,7 +14,7 @@ What it does:
   3. Imports any new statements (skips duplicates unless --force)
   4. Runs interactive multiple-choice classification for unclassified txns
   5. Displays the balance sheet for all imported periods
-  6. Displays the tax obligation estimate (annualized)
+  6. Displays the fiscal year's PTET estimate (api.pte_estimate, basis-labelled)
   7. Offers to export context JSON for AI/GitHub consumption
   8. Offers to save exports (CSV / Excel / JSON)
 """
@@ -35,7 +35,6 @@ def cmd_quick_scan(folder: str | None = None, force: bool = False) -> None:
         folder: Path to folder containing PDF statements. Prompts if None.
         force:  Re-import even if statement was already imported.
     """
-    from config import STATEMENTS_DIR
     from ledger_agent.cli.prompts import (
         ask_select,
         ask_text,
@@ -44,6 +43,7 @@ def cmd_quick_scan(folder: str | None = None, force: bool = False) -> None:
         print_warning,
         prompt_classify,
     )
+    from ledger_agent.core.config import STATEMENTS_DIR
     from ledger_agent.core.database import SnapshotRepo, init_db
 
     init_db()
@@ -89,16 +89,20 @@ def cmd_quick_scan(folder: str | None = None, force: bool = False) -> None:
     imported_count = 0
     skipped_count = 0
     failed: list[str] = []
+    # C-12: entities whose accounts received rows in this scan (transfer-candidate pass).
+    touched_entities: set[str] = set()
 
     for pdf_path in pdf_files:
         print_info(f"\n📄 Processing: [bold]{pdf_path.name}[/bold]")
         try:
-            _import_single(
+            touched = _import_single(
                 pdf_path=pdf_path,
                 entity=entity,
                 force=force,
                 prompt_classify_fn=prompt_classify,
             )
+            if touched:
+                touched_entities.add(touched)
             imported_count += 1
         except _AlreadyImportedSkip:
             print_warning(f"  ⏭  Already imported – skipping ({pdf_path.name})")
@@ -118,6 +122,18 @@ def cmd_quick_scan(folder: str | None = None, force: bool = False) -> None:
     )
     if failed:
         print_warning("Failed files: " + ", ".join(failed))
+
+    # C-12: after every statement is in (both legs of a transfer may sit in different
+    # PDFs), run the C-03 transfer-candidate pass once per affected entity.
+    # Best-effort, as in api.import_statements.
+    for entity_id in sorted(touched_entities):
+        try:
+            from ledger_agent.core import api
+            n_confirmed = api.confirm_transfer_candidates(entity_id)
+            if n_confirmed:
+                print_info(f"Confirmed {n_confirmed} internal transfer leg(s).")
+        except Exception as xfer_exc:
+            log.warning("Transfer-candidate confirmation skipped: %s", xfer_exc)
 
     if imported_count == 0 and skipped_count == 0:
         print_error("No statements processed. Aborting report generation.")
@@ -144,8 +160,10 @@ def cmd_quick_scan(folder: str | None = None, force: bool = False) -> None:
         bs = BalanceSheetBuilder(entity.id, p).build()
         render_balance_sheet(bs)
 
-        # Tax estimate for this period
-        _show_tax_estimate(entity.name, bs, int(p[:4]))
+    # Tax: the fiscal year's api.pte_estimate (card Q-02) — once per year shown,
+    # never a single month projected ×12.
+    for year in sorted({int(p[:4]) for p in report_periods}):
+        _show_tax_estimate(year)
 
     if len(report_periods) > 1:
         from ledger_agent.cli.commands import cmd_mom_summary
@@ -163,8 +181,12 @@ def _load_all_parsers() -> None:
     import ledger_agent.core.parsers  # noqa: F401
 
 
-def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> None:
-    """Import one PDF. Raises _AlreadyImportedSkip or ParserNotFoundError."""
+def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> str | None:
+    """Import one PDF. Raises _AlreadyImportedSkip or ParserNotFoundError.
+
+    Returns the entity id owning the account that received transactions (C-12), or
+    ``None`` when the statement had none.
+    """
     from ledger_agent.cli.commands import _default_account_name, _infer_account_type
     from ledger_agent.core.database import (
         AccountRepo,
@@ -230,14 +252,21 @@ def _import_single(pdf_path: Path, entity, force: bool, prompt_classify_fn) -> N
         if stmt.snapshot else
         f"  ✓ {stmt.institution} | {stmt.statement_period} | {len(stmt.transactions)} txns"
     )
+    return acct.entity_id if stmt.transactions else None
 
 
-def _show_tax_estimate(entity_name: str, bs, year: int) -> None:
-    """Print tax estimate for a balance sheet."""
+def _show_tax_estimate(year: int) -> None:
+    """Print the fiscal year's PTET estimate from ``api.pte_estimate`` (basis-labelled)."""
     try:
-        from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
-        est = TaxEstimator(entity_name, year).estimate_from_balance_sheet(bs)
-        render_tax_estimate(est)
+        from ledger_agent.core import api
+        from ledger_agent.core.reports.renderer import render_pte_estimate
+        try:
+            est = api.pte_estimate(year)
+        except ValueError as exc:
+            from ledger_agent.cli.prompts import print_info
+            print_info(f"No tax estimate for FY{year}: {exc}")
+            return
+        render_pte_estimate(est)
     except Exception as exc:
         log.warning("Tax estimate failed", extra={"error": str(exc)})
 
@@ -282,7 +311,7 @@ def _offer_exports(entity, latest_period: str, all_periods: list[str]) -> None:
 
     elif "AI Context" in export:
         from adapters.context_builder import build_context, save_context
-        from config import EXPORTS_DIR
+        from ledger_agent.core.config import EXPORTS_DIR
         ctx_path = EXPORTS_DIR / f"ai_context_{latest_period}.json"
         ctx = build_context(entity.id, latest_period)
         save_context(ctx, ctx_path)

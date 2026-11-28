@@ -1,19 +1,29 @@
 """
 accounting/tax_estimator.py  –  Quarterly tax obligation estimator
 ──────────────────────────────────────────────────────────────────
-Estimates federal and state quarterly estimated tax payments for a
-pass-through entity (LLC taxed as sole prop or S-Corp).
+One estimator lives here:
 
-IRS safe-harbor rule (Form 1040-ES):
-  Pay the lesser of:
-    (a) ninety percent of current-year tax liability, OR
-    (b) one hundred percent of prior-year tax liability
-        (one hundred ten percent if AGI exceeds the high-income threshold)
+**Entity-level state PTET** (``TaxEstimator.estimate_entity_ptet``) — the figure used by
+   ``api.pte_estimate`` and therefore by every form (CLI / MCP / bridge / webapp).
+   Owner decision D1 (card Q-04): the estimate is the state pass-through entity tax the
+   partnership itself pays, and nothing else::
 
-Rates used (approximate – consult a tax professional for actual filings):
-  Federal self-employment tax  : statutory SE rate on net self-employment income
-  Federal income tax estimate  : configurable effective rate
-  State tax estimate           : configurable via FI_STATE_TAX_RATE
+       entity taxable income = ordinary business income
+                             + net short-term capital gain + net long-term capital gain
+                             + dividends + interest − investment interest expense
+                             (floored at 0)
+       PTET                  = FI_STATE_TAX_RATE × entity taxable income
+
+   Partners' individual estimated taxes (SE tax, federal income tax, QBI) are NOT part
+   of this figure.
+
+The legacy individual 1040-ES-style estimate (SE tax + federal + state on one net-income
+figure, ``estimate_from_net_income`` / ``estimate_from_balance_sheet``) was removed by card
+Q-02 once every surface routed its tax figures through ``api.pte_estimate``.
+
+Rates (approximate – consult a tax professional for actual filings):
+  State PTET rate              : FI_STATE_TAX_RATE (the only rate setting; the individual
+                                 SE / federal / QBI settings were retired by card Q-06)
 
 Output: TaxEstimate dataclass with quarterly payment schedule.
 """
@@ -44,10 +54,7 @@ def _env_decimal(key: str, default: str) -> Decimal:
         return Decimal(default)
 
 
-SE_TAX_RATE = _env_decimal("FI_SE_TAX_RATE", "0.153")  # statutory SE rate
-FEDERAL_INCOME_RATE = _env_decimal("FI_FED_INCOME_RATE", "0.22")  # default federal effective rate
-STATE_INCOME_RATE = _env_decimal("FI_STATE_TAX_RATE", "0.05")  # default state effective rate
-QBI_DEDUCTION_RATE = _env_decimal("FI_QBI_DEDUCTION", "0.20")  # default QBI deduction
+STATE_INCOME_RATE = _env_decimal("FI_STATE_TAX_RATE", "0.05")  # entity-level state PTET rate
 
 # IRS Q-dates (approximate – actual dates vary by year)
 QUARTERLY_DUE_DATES = {
@@ -99,39 +106,72 @@ class TaxEstimate:
         return (self.total_annual_tax / self.net_income * 100).quantize(Decimal("0.01"))
 
 
+def entity_taxable_income(
+        ordinary_business_income: Decimal,
+        net_short_term_capital_gain: Decimal = Decimal("0"),
+        net_long_term_capital_gain: Decimal = Decimal("0"),
+        dividend_income: Decimal = Decimal("0"),
+        interest_income: Decimal = Decimal("0"),
+        investment_interest_expense: Decimal = Decimal("0"),
+) -> Decimal:
+    """Entity-level PTET base: ordinary income + Schedule K portfolio items, floored at 0.
+
+    Capital gains, dividends and interest always count — including when ordinary
+    business income is positive (they used to be ignored in that case).
+    ``investment_interest_expense`` is the positive Schedule K line 13b amount.
+    """
+    total = (
+        Decimal(ordinary_business_income)
+        + Decimal(net_short_term_capital_gain)
+        + Decimal(net_long_term_capital_gain)
+        + Decimal(dividend_income)
+        + Decimal(interest_income)
+        - Decimal(investment_interest_expense)
+    )
+    return max(total, Decimal("0"))
+
+
 class TaxEstimator:
-    """
-    Estimate tax obligations from a BalanceSheet or raw net income figure.
-    """
+    """Entity-level state PTET estimator (see ``estimate_entity_ptet``)."""
 
     def __init__(self, entity_name: str, year: int):
         self.entity_name = entity_name
         self.year = year
 
-    def estimate_from_net_income(
+    def estimate_entity_ptet(
             self,
-            net_income: Decimal,
+            taxable_income: Decimal,
             annualize_factor: Decimal = Decimal("1"),
     ) -> TaxEstimate:
-        """
-        Args:
-            net_income:        Net income for the period.
-            annualize_factor:  Multiply to get annual equivalent
-                               (e.g., Decimal("12") if net_income is for 1 month).
-        """
-        annual_ni = net_income * annualize_factor
+        """Entity-level state PTET (owner decision D1) — the method ``api.pte_estimate`` uses.
 
-        # SE tax applies only to positive net self-employment income (>$400 IRS rule).
-        # For a loss or break-even period, return a zero-tax estimate rather than
-        # computing nonsensical negative payments.
-        if annual_ni <= Decimal("0"):
-            zero = Decimal("0.00")
+        Args:
+            taxable_income:    Entity taxable income for the period, normally from
+                               ``entity_taxable_income(...)`` (negative is floored at 0).
+            annualize_factor:  Multiply to get the annual equivalent (quarter-to-date
+                               bases pass 12 / months covered).
+
+        Returns a ``TaxEstimate`` whose ``state_income_tax`` == ``total_annual_tax`` ==
+        annual PTET; ``se_tax`` and ``federal_income_tax`` are always zero because
+        partners' individual taxes are out of scope.  ``net_income`` is the annualized
+        entity taxable income.
+        """
+        annual_base = max(Decimal(taxable_income), Decimal("0")) * annualize_factor
+        zero = Decimal("0.00")
+        scope_note = (
+            "Entity-level state PTET only; partners' individual estimated taxes are not "
+            "included (no SE tax, federal income tax or QBI)."
+        )
+        if annual_base <= Decimal("0"):
             payments = [
                 QuarterlyPayment(
                     quarter=q,
                     due_date=QUARTERLY_DUE_DATES[q],
                     amount=zero,
-                    description=f"No estimated payment due – net income is not positive ({QUARTERLY_DUE_DATES[q]})",
+                    description=(
+                        "No PTET payment due – entity taxable income is not positive "
+                        f"({QUARTERLY_DUE_DATES[q]})"
+                    ),
                     due_date_obj=get_quarterly_due_date(q, self.year),
                 )
                 for q in ("Q1", "Q2", "Q3", "Q4")
@@ -139,102 +179,56 @@ class TaxEstimator:
             return TaxEstimate(
                 entity_name=self.entity_name,
                 period=str(self.year),
-                net_income=annual_ni,
+                net_income=annual_base,
                 se_tax=zero,
                 federal_income_tax=zero,
                 state_income_tax=zero,
                 total_annual_tax=zero,
                 quarterly_payments=payments,
                 notes=[
-                    "ℹ️  Net income is zero or negative — no estimated tax payments are due.",
+                    scope_note,
+                    "ℹ️  Entity taxable income is zero or negative — no PTET payments are due.",
                     f"⚠️  {NOT_TAX_ADVICE_DISCLAIMER}",
                 ],
             )
 
-        # Self-employment tax (only on net self-employment income)
-        # SE tax deduction: half of SE tax is deductible
-        se_tax = (annual_ni * SE_TAX_RATE).quantize(Decimal("0.01"))
-        se_deduction = (se_tax * Decimal("0.5")).quantize(Decimal("0.01"))
-
-        # QBI deduction (statutory share of qualified business income)
-        qbi_deduction = (annual_ni * QBI_DEDUCTION_RATE).quantize(Decimal("0.01"))
-
-        # Federal income tax base
-        taxable_income = max(annual_ni - se_deduction - qbi_deduction, Decimal("0"))
-        fed_tax = (taxable_income * FEDERAL_INCOME_RATE).quantize(Decimal("0.01"))
-
-        # State income tax
-        state_tax = (annual_ni * STATE_INCOME_RATE).quantize(Decimal("0.01"))
-
-        total_tax = se_tax + fed_tax + state_tax
-        quarterly_amount = (total_tax / 4).quantize(Decimal("0.01"))
-
-        # Build quarterly schedule
+        ptet = (annual_base * STATE_INCOME_RATE).quantize(Decimal("0.01"))
+        quarterly_amount = (ptet / 4).quantize(Decimal("0.01"))
         payments = [
             QuarterlyPayment(
                 quarter=q,
                 due_date=QUARTERLY_DUE_DATES[q],
                 amount=quarterly_amount,
                 description=(
-                    f"Estimated federal + state + SE tax – "
-                    f"${quarterly_amount:,.2f} due {QUARTERLY_DUE_DATES[q]}"
+                    f"Estimated state PTET – ${quarterly_amount:,.2f} due {QUARTERLY_DUE_DATES[q]}"
                 ),
                 due_date_obj=get_quarterly_due_date(q, self.year),
             )
             for q in ("Q1", "Q2", "Q3", "Q4")
         ]
-
         notes = [
+            scope_note,
             f"⚠️  {NOT_TAX_ADVICE_DISCLAIMER}",
-            f"SE Tax rate: {float(SE_TAX_RATE) * 100:.1f}%  |  "
-            f"Federal rate: {float(FEDERAL_INCOME_RATE) * 100:.1f}%  |  "
-            f"State rate: {float(STATE_INCOME_RATE) * 100:.1f}%",
-            f"QBI deduction applied: statutory share of net income (${qbi_deduction:,.2f})",
-            "IRS safe harbor: pay full prior-year liability or current-year safe-harbor share.",
+            (
+                f"State PTET rate: {float(STATE_INCOME_RATE) * 100:.2f}% of entity taxable income "
+                "(ordinary business income + net ST/LT capital gain + dividends + interest "
+                "− investment interest, floored at 0)."
+            ),
         ]
-        if annual_ni != net_income:
-            notes.insert(0,
-                         f"ℹ️  Net income ${net_income:,.2f} annualized ×{annualize_factor} "
-                         f"= ${annual_ni:,.2f}"
-                         )
-
+        if annualize_factor != Decimal("1"):
+            notes.insert(
+                0,
+                f"ℹ️  Entity taxable income ${Decimal(taxable_income):,.2f} annualized "
+                f"×{annualize_factor.quantize(Decimal('0.01'))} = ${annual_base:,.2f}",
+            )
         return TaxEstimate(
             entity_name=self.entity_name,
             period=str(self.year),
-            net_income=annual_ni,
-            se_tax=se_tax,
-            federal_income_tax=fed_tax,
-            state_income_tax=state_tax,
-            total_annual_tax=total_tax,
+            net_income=annual_base,
+            se_tax=zero,
+            federal_income_tax=zero,
+            state_income_tax=ptet,
+            total_annual_tax=ptet,
             quarterly_payments=payments,
             notes=notes,
         )
-
-    def estimate_from_balance_sheet(
-            self,
-            balance_sheet,
-            months_covered: int = 1,
-    ) -> TaxEstimate:
-        """
-        Build a tax estimate from a BalanceSheet object.
-        months_covered: how many months the sheet represents (for annualisation).
-        """
-        annualize = Decimal(str(12 / months_covered)) if months_covered else Decimal("12")
-        return self.estimate_from_net_income(
-            balance_sheet.net_income,
-            annualize_factor=annualize,
-        )
-
-
-def render_tax_estimate(est: TaxEstimate) -> None:
-    """Print a formatted tax estimate to stdout.
-
-    .. deprecated::
-        This function is a presentation concern and has been moved to
-        ``reports.renderer.render_tax_estimate``.  This shim is kept for
-        backward compatibility with callers that import directly from
-        ``accounting.tax_estimator``.  New code should import from
-        ``reports.renderer`` instead.
-    """
-    from ledger_agent.core.reports.renderer import render_tax_estimate as _render
-    _render(est)

@@ -4,17 +4,19 @@ intelligence/ai_backend/chained_backend.py  –  Local-first AI backend chain
 Implements the "local compute first" principle:
 
   1. Always runs the local rule engine at full capacity (zero API cost)
-  2. Only escalates to the remote AI backend (OpenAI / Gemini) when local
+  2. Only escalates to the remote AI backend (OpenAI / Gemini / Anthropic /
+     any OpenAI-compatible endpoint such as Ollama) when local
      confidence falls below LOCAL_CONFIDENCE_THRESHOLD
   3. Returns the highest-confidence result; gracefully degrades to local
      if the remote call fails, is unavailable, or is not configured
 
-This backend is selected automatically when FI_AI_BACKEND=openai or gemini
-is set. It wraps the remote backend — the caller never needs to manage the
+This backend is selected automatically for every remote FI_AI_BACKEND value
+(openai, gemini, anthropic, openai_compatible, ollama). It wraps the remote backend — the caller never needs to manage the
 chain explicitly.
 
 Environment variables:
-  FI_AI_BACKEND                  local | openai | gemini (default: local)
+  FI_AI_BACKEND                  local | openai | gemini | anthropic |
+                                 openai_compatible | ollama (default: local)
   FI_LOCAL_CONFIDENCE_THRESHOLD  0.0–1.0, default 0.65
     Minimum confidence the local backend must reach before the remote
     AI backend is skipped. Below this threshold, the chain tries the
@@ -24,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import LOCAL_CONFIDENCE_THRESHOLD as _DEFAULT_THRESHOLD
+from ledger_agent.core.config import LOCAL_CONFIDENCE_THRESHOLD as _DEFAULT_THRESHOLD
 from ledger_agent.core.intelligence.ai_backend.base import AIBackend
 from ledger_agent.core.intelligence.ai_backend.local_backend import LocalBackend
 

@@ -7,9 +7,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from config import NOT_TAX_ADVICE_DISCLAIMER
+from ledger_agent.core.config import NOT_TAX_ADVICE_DISCLAIMER
 
 log = logging.getLogger(__name__)
+
+# Q-01: accepted values of the optional ``basis`` argument of ``pte_estimate``
+# (mirrors ``api.pte_estimate``).
+PTE_BASIS_VALUES = ("auto", "full_year")
 
 
 def _serialise(obj: Any) -> Any:
@@ -157,7 +161,8 @@ TOOL_SCHEMAS: list[dict] = [
             "Compute quarterly estimated tax payments for the pass-through entity "
             "for the given fiscal year.  Returns net income, total annual tax, "
             "effective rate, and a quarterly payment schedule with due dates.  "
-            "Not tax advice."
+            "The result states its period basis (basis, through_period, "
+            "months_covered, missing_statements).  Not tax advice."
         ),
         "inputSchema": {
             "type": "object",
@@ -165,6 +170,17 @@ TOOL_SCHEMAS: list[dict] = [
                 "fiscal_year": {
                     "type": "integer",
                     "description": "Four-digit fiscal year (e.g. 2024).",
+                },
+                "basis": {
+                    "type": "string",
+                    "enum": list(PTE_BASIS_VALUES),
+                    "default": "auto",
+                    "description": (
+                        "'auto' (default): full-year figures when all 12 months have "
+                        "statements, otherwise income through the last fully-documented "
+                        "quarter, annualized.  'full_year': every imported month, no "
+                        "annualizing."
+                    ),
                 },
             },
             "required": ["fiscal_year"],
@@ -179,6 +195,28 @@ TOOL_SCHEMAS: list[dict] = [
             "Follows the W27 CustomerSummary contract (docs/customer-summary-contract.md). "
             "Always check confidence_flags — any NOT_CLOSE_READY_* flag means the answer "
             "is directional only, not CPA-ready.  Not tax advice."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "fiscal_year": {
+                    "type": "integer",
+                    "description": "Four-digit fiscal year (e.g. 2026).",
+                },
+            },
+            "required": ["fiscal_year"],
+        },
+    },
+    {
+        "name": "audit_year",
+        "description": (
+            "Run the CPA-style self-audit of the fiscal year's figures: statement "
+            "tie-out, month-to-month account continuity, period coverage, unclassified "
+            "and unknown COA codes, internal-transfer matching, owner-draw candidates, "
+            "K-1 to Form 1065 allocation, and balance-sheet vs Form 1065 income. "
+            "Returns an overall status (pass / warn / fail) and per-check status, "
+            "summary and details (accounts referenced by opaque id and type only).  "
+            "Not tax advice."
         ),
         "inputSchema": {
             "type": "object",
@@ -240,13 +278,23 @@ def call_tool(name: str, arguments: dict, *, allow_pii: bool = False) -> str:
 
     if name == "pte_estimate":
         year = int(arguments["fiscal_year"])
-        est = api.pte_estimate(year)
+        basis = arguments.get("basis")
+        if basis is None:
+            basis = "auto"
+        if not isinstance(basis, str) or basis not in PTE_BASIS_VALUES:
+            # Fixed message: never echo the caller's value.
+            raise ValueError("basis must be 'auto' or 'full_year'")
+        est = api.pte_estimate(year, basis=basis)
         return _ok(est, allow_pii=allow_pii)
 
     if name == "customer_summary":
         year = int(arguments["fiscal_year"])
         summary = api.build_customer_summary(year)
         return _ok(summary, allow_pii=allow_pii)
+
+    if name == "audit_year":
+        year = int(arguments["fiscal_year"])
+        return _ok(api.audit_year(year), allow_pii=allow_pii)
 
     if name == "reconcile_year":
         year = int(arguments["fiscal_year"])

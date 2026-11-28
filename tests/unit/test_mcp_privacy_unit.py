@@ -1,6 +1,11 @@
 """
-tests/integration/test_mcp_privacy.py  –  MCP privacy firewall tests (ARCH-07)
-===============================================================================
+tests/unit/test_mcp_privacy_unit.py  –  MCP privacy firewall tests (ARCH-07)
+============================================================================
+
+Moved from tests/integration/test_mcp_privacy.py (P-01): none of these tests
+reads the ledger database, so they no longer sit behind the integration
+conftest that skips every module when data/db/financials.db is absent (CI).
+They run on the per-session synthetic temp DB set up by tests/conftest.py.
 
 Verifies that the ``_redact_response`` function in ``ledger_agent.mcp.server``
 correctly filters PII from every MCP tool egress according to R-46.
@@ -16,15 +21,8 @@ Tests
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
 import pytest
-
-# Ensure package root is on path
-ROOT = Path(__file__).resolve().parent.parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from ledger_agent.mcp.server import _redact_response
 
@@ -146,17 +144,18 @@ class TestRedactResponse:
 
 class TestMcpDispatchPrivacy:
 
-    def test_tools_list_has_seven_tools(self):
-        """tools/list must return exactly 7 tool definitions (6 core + customer_summary W30)."""
+    def test_tools_list_has_eight_tools(self):
+        """tools/list must return exactly 8 tool definitions
+        (6 core + customer_summary W30 + audit_year G-01)."""
         from ledger_agent.mcp.server import _dispatch
         msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
         response = _dispatch(msg)
         assert response is not None
         tools = response["result"]["tools"]
-        assert len(tools) == 7
+        assert len(tools) == 8
 
     def test_tools_list_names(self):
-        """All canonical tool names must be present (6 core + customer_summary W30)."""
+        """All canonical tool names must be present (6 core + customer_summary + audit_year)."""
         from ledger_agent.mcp.server import _dispatch
         msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
         response = _dispatch(msg)
@@ -169,6 +168,7 @@ class TestMcpDispatchPrivacy:
             "pte_estimate",
             "reconcile_year",
             "customer_summary",
+            "audit_year",
         }
         assert names == expected
 

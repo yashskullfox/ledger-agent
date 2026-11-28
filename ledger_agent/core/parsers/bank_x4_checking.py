@@ -22,6 +22,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+from ledger_agent.core.intelligence.classifier import TRANSFER_CANDIDATE_TAG
 from ledger_agent.core.models import (
     AccountSnapshot,
     ParsedStatement,
@@ -36,6 +37,16 @@ try:
     from private.institutions import BANK_X4 as _CFG  # type: ignore
 except ImportError:
     _CFG = {"detect": []}
+
+# C-03: wording that names the entity's own counterparty account. A credit-card
+# payoff ("Internet Banking Payment To Credit Card <acct>") stays internal on its
+# own; a generic "Transfer" / "Tfr" row is only a candidate until its opposite leg
+# is found in another account of the entity.
+_OWN_ACCOUNT_CUES = ("CREDIT CARD", "INTERNET BANKING PAYMENT")
+
+# C-11: rows of the "Customer Deposits" section are revenue (COA 4020).
+CUSTOMER_DEPOSIT_CODE = "4020"
+CUSTOMER_DEPOSIT_NAME = "Service Revenue"
 
 _MONTH_MAP: dict[str, int] = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
@@ -194,6 +205,8 @@ class BankX4CheckingParser(BaseStatementParser):
                 continue
             desc = _clean_bank_x4_desc(desc_raw) if desc_raw else ("Ext Tfr Deposit" if not is_debit else "Withdrawal")
             txn_type = _classify(desc, is_debit)
+            is_rail = txn_type in (TransactionType.TRANSFER_IN, TransactionType.TRANSFER_OUT)
+            internal = is_rail and _is_internal(desc)
             txns.append(Transaction(
                 account_id="",
                 date=txn_date,
@@ -202,9 +215,8 @@ class BankX4CheckingParser(BaseStatementParser):
                 amount=-abs(amt) if is_debit else abs(amt),
                 transaction_type=txn_type,
                 statement_period=period,
-                is_transfer=(txn_type in (
-                    TransactionType.TRANSFER_IN, TransactionType.TRANSFER_OUT,
-                )),
+                is_transfer=internal,
+                tags=[TRANSFER_CANDIDATE_TAG] if is_rail and not internal else [],
             ))
         return txns
 
@@ -214,6 +226,10 @@ class BankX4CheckingParser(BaseStatementParser):
 
         USB Business Checking statements use this section for direct ACH deposits.
         The line format is: MmmDD<10-digit-ref><amount> (no $ sign, no description).
+
+        C-11: these are inflows from customers, so they are pre-coded 4020 Service
+        Revenue (deterministic; the classifier skips pre-coded rows).  They used to
+        reach the COA keyword scan, where "deposit" booked them as Cash (1000).
         """
         section = _slice_section(lines, r"^Customer Deposits\s*$",
                                  r"^Total Customer Deposits")
@@ -240,6 +256,8 @@ class BankX4CheckingParser(BaseStatementParser):
                 amount=abs(amt),
                 transaction_type=TransactionType.CREDIT,
                 statement_period=period,
+                coa_code=CUSTOMER_DEPOSIT_CODE,
+                coa_name=CUSTOMER_DEPOSIT_NAME,
                 is_transfer=False,
             ))
         return txns
@@ -282,6 +300,14 @@ def _clean_bank_x4_desc(raw: str) -> str:
     cleaned = re.sub(r"\s*TRN\s*#=\s*\S+", "", raw)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+
+def _is_internal(desc: str) -> bool:
+    """C-03: a transfer row is internal on its own only with an own-account cue
+    (private ``intra_xfer_keywords`` if configured, or a card-payoff phrase)."""
+    up = desc.upper()
+    kw = _CFG.get("intra_xfer_keywords", []) or []
+    return any(k.upper() in up for k in kw) or any(c in up for c in _OWN_ACCOUNT_CUES)
 
 
 def _classify(desc: str, is_debit: bool) -> TransactionType:

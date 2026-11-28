@@ -23,6 +23,7 @@ import re
 from decimal import Decimal
 from pathlib import Path
 
+from ledger_agent.core.intelligence.classifier import TRANSFER_CANDIDATE_TAG
 from ledger_agent.core.models import (
     AccountSnapshot,
     ParsedStatement,
@@ -36,7 +37,12 @@ from ledger_agent.core.parsers.registry import ParserRegistry
 try:
     from private.institutions import BANK_X3 as _CFG  # type: ignore
 except ImportError:
-    _CFG = {"detect": []}
+    _CFG = {"detect": [], "intra_xfer_keywords": []}
+
+# C-13 (mirrors C-03 in bank_x2 / bank_x4): wording that names the entity's own
+# counterparty account (card payoff).  Generic ZELLE / TRANSFER wording alone also
+# carries third-party payments, so such rows are only transfer candidates.
+_OWN_ACCOUNT_CUES = ("CREDIT CARD",)
 
 
 @ParserRegistry.register
@@ -168,6 +174,8 @@ class BankX3CheckingParser(BaseStatementParser):
             amt = self.parse_amount(amt_str)
             if d and amt is not None:
                 txn_type = self._classify_type(desc, is_debit)
+                is_rail = txn_type in (TransactionType.TRANSFER_IN, TransactionType.TRANSFER_OUT)
+                internal = is_rail and self._is_internal(desc)
                 txns.append(Transaction(
                     account_id="",
                     date=d,
@@ -176,11 +184,22 @@ class BankX3CheckingParser(BaseStatementParser):
                     amount=-abs(amt) if is_debit else abs(amt),
                     transaction_type=txn_type,
                     statement_period=self.period_from_date(d),
-                    is_transfer=(txn_type in (
-                        TransactionType.TRANSFER_IN, TransactionType.TRANSFER_OUT
-                    )),
+                    is_transfer=internal,
+                    tags=[TRANSFER_CANDIDATE_TAG] if is_rail and not internal else [],
                 ))
         return txns
+
+    @staticmethod
+    def _is_internal(desc: str) -> bool:
+        """C-13: a transfer row is internal on its own only with an own-account cue.
+
+        Cues: the institution's private ``intra_xfer_keywords`` (if configured) or
+        a card-payoff phrase.  Other ZELLE / TRANSFER rows are candidates;
+        ``api.import_statements`` confirms them against the opposite leg.
+        """
+        up = desc.upper()
+        kw = _CFG.get("intra_xfer_keywords", []) or []
+        return any(k.upper() in up for k in kw) or any(c in up for c in _OWN_ACCOUNT_CUES)
 
     def _parse_deposits(self, text: str, year: int) -> list[Transaction]:
         return self._parse_section(

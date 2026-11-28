@@ -18,6 +18,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import re
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,23 @@ WITHHOLDING_KEYWORDS: tuple = (
     "member draw",
 )
 
+# C-01: keywords match whole words only ("irs" must not match "first", "affairs"
+# or "chairs").  Letter boundaries rather than ``\b`` so reference digits glued
+# onto a keyword ("IRS2024") still match; multi-word keywords allow any
+# whitespace between words; a plural "s"/"es" is accepted ("distributions",
+# "owner draws", "estimated taxes"), as the old substring match did.
+_WITHHOLDING_RE = re.compile(
+    r"(?<![^\W\d_])(?:"
+    + "|".join(r"\s+".join(re.escape(w) for w in kw.split()) for kw in WITHHOLDING_KEYWORDS)
+    + r")(?:e?s)?(?![^\W\d_])",
+    re.IGNORECASE,
+)
+
+
+def matches_withholding_keyword(description: str | None) -> bool:
+    """True if *description* contains a WITHHOLDING_KEYWORDS entry as whole word(s)."""
+    return bool(_WITHHOLDING_RE.search(description or ""))
+
 
 def find_misclassified_withholding(
     entity_id: str,
@@ -48,7 +66,8 @@ def find_misclassified_withholding(
 
     A transaction qualifies if:
     - Its coa_code is in WITHHOLDING_EXPENSE_CODES
-    - Its description matches at least one WITHHOLDING_KEYWORD (case-insensitive)
+    - Its description contains at least one WITHHOLDING_KEYWORD as whole word(s)
+      (case-insensitive; see ``matches_withholding_keyword``)
     - Its account belongs to entity_id
 
     Returns a list of transaction IDs.
@@ -73,9 +92,8 @@ def find_misclassified_withholding(
             (*account_ids, *WITHHOLDING_EXPENSE_CODES, prefix),
         ).fetchall()
 
-    for txn_id, desc, code in rows:
-        desc_lower = (desc or "").lower()
-        if any(kw in desc_lower for kw in WITHHOLDING_KEYWORDS):
+    for txn_id, desc, _code in rows:
+        if matches_withholding_keyword(desc):
             candidates.append(txn_id)
 
     return candidates

@@ -18,7 +18,8 @@ public enum ReportType {
     TAX_ESTIMATE("tax_estimate"),
     RECONCILE("reconcile"),
     IMPORT("import"),
-    CUSTOMER_SUMMARY("customer_summary");
+    CUSTOMER_SUMMARY("customer_summary"),
+    AUDIT_YEAR("audit_year");
 
     private final String wire;
 

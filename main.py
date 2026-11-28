@@ -12,7 +12,7 @@ Usage:
     python main.py classify               # classify pending transactions
     python main.py memory                 # view / manage learned rules
     python main.py summary                # month-over-month comparison
-    python main.py tax     [PERIOD]       # show tax obligation estimate
+    python main.py tax     [YEAR]         # show the year's PTET estimate (api.pte_estimate)
     python main.py context [PERIOD]       # export AI-consumable context JSON
     python main.py setup                  # re-run entity setup wizard
 
@@ -43,21 +43,37 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ledger_agent.cli.prompts import ask_select, print_error, print_info
-from ledger_agent.core.database import init_db
-from ledger_agent.core.logging_setup import configure_logging
+
+def _load_dotenv_early() -> None:
+    """Load ``.env`` (CWD first, then the repo root) if python-dotenv is installed.
+
+    Must run before any ``ledger_agent.core`` import: config reads ``FI_*``
+    variables at import time. Never overrides already-set environment variables.
+    """
+    try:
+        from dotenv import find_dotenv, load_dotenv
+    except ImportError:
+        return
+    cwd_env = find_dotenv(usecwd=True)
+    if cwd_env:
+        load_dotenv(cwd_env, override=False)
+    repo_env = Path(__file__).resolve().parent / ".env"
+    if repo_env.is_file():
+        load_dotenv(repo_env, override=False)
+
+
+_load_dotenv_early()
+
+from ledger_agent.cli.prompts import ask_select, print_error, print_info  # noqa: E402
+from ledger_agent.core.database import init_db  # noqa: E402
+from ledger_agent.core.logging_setup import configure_logging  # noqa: E402
 
 
 def _boot() -> None:
     """Ensure DB, directories, and logging are initialised before any command runs."""
     configure_logging()
     init_db()
-    # Auto-load .env if python-dotenv is installed
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(override=False)  # don't override already-set env vars
-    except ImportError:
-        pass
+    # .env is loaded at import time by _load_dotenv_early(), before config.
 
 
 MENU_CHOICES = [
@@ -135,7 +151,11 @@ def interactive_menu() -> None:
 
 
 def _cmd_tax(period: str | None = None) -> None:
-    """Show tax obligation estimate for a period."""
+    """Show the fiscal year's entity-level PTET estimate (``api.pte_estimate``, card Q-02).
+
+    ``period`` may be a year (``2026``) or a month (``2026-03``); only its year is used.
+    A single month is never projected ×12 — the estimate carries its own period basis.
+    """
     init_db()
     from ledger_agent.cli.commands import _get_or_setup_entity
     from ledger_agent.core.database import SnapshotRepo
@@ -143,17 +163,20 @@ def _cmd_tax(period: str | None = None) -> None:
     if not entity:
         return
     snapshots = SnapshotRepo.list_for_entity(entity.id)
-    periods = sorted({s.statement_period for s in snapshots}, reverse=True)
-    if not periods:
+    years = sorted({s.statement_period[:4] for s in snapshots if s.statement_period}, reverse=True)
+    if not years:
         print_error("No imported statements found. Import a statement first.")
         return
     if not period:
-        period = ask_select("Select period for tax estimate:", choices=periods, default=periods[0])
-    from ledger_agent.core.accounting.balance_sheet import BalanceSheetBuilder
-    from ledger_agent.core.accounting.tax_estimator import TaxEstimator, render_tax_estimate
-    bs = BalanceSheetBuilder(entity.id, period).build()
-    est = TaxEstimator(entity.name, int(period[:4])).estimate_from_balance_sheet(bs)
-    render_tax_estimate(est)
+        period = ask_select("Select fiscal year for tax estimate:", choices=years, default=years[0])
+    from ledger_agent.core import api
+    from ledger_agent.core.reports.renderer import render_pte_estimate
+    try:
+        est = api.pte_estimate(int(str(period)[:4]))
+    except ValueError as exc:
+        print_error(f"No tax estimate: {exc}")
+        return
+    render_pte_estimate(est)
 
 
 def _cmd_context(period: str | None = None) -> None:

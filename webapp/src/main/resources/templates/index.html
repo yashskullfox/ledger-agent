@@ -68,6 +68,7 @@
                   th:text="'Schedule K-1 — ' + ${partnerBLabel}">Schedule K-1 — partner_2</option>
           <option value="tax_estimate"   th:selected="${report == 'tax_estimate'}">Quarterly Tax Estimate (PTE)</option>
           <option value="reconcile"      th:selected="${report == 'reconcile'}">Year-End Reconciliation</option>
+          <option value="audit_year"     th:selected="${report == 'audit_year'}">Self-Audit (CPA checks)</option>
           <option value="import"         th:selected="${report == 'import'}">Import Statements from Folder</option>
         </select>
       </label>
